@@ -16,5 +16,7 @@ const ICONS = {
   "acfun": { c: "#FD4C5D", svg: `<text x="12" y="17.6" text-anchor="middle" font-size="15.5" font-weight="700" font-family="Segoe UI,Arial,sans-serif" fill="currentColor">A</text>` },
   "xinpianchang": { c: "#1B72E8", svg: `<text x="12" y="17.4" text-anchor="middle" font-size="14.5" font-weight="700" font-family="Segoe UI,Microsoft YaHei,sans-serif" fill="currentColor">新</text>` },
   "wechatchannels": { c: "#9AA0A6", svg: `<path d="M9.4 7.8v8.4l7-4.2z" fill="currentColor"/>` },
+  "netease": { c: "#C20C0C", svg: `<circle cx="12" cy="12" r="10.4"/><rect x="11.3" y="7.2" width="1.5" height="8.4" fill="#fff"/><ellipse cx="9.3" cy="15.9" rx="2.5" ry="2" transform="rotate(-16 9.3 15.9)" fill="#fff"/><path d="M12.8 7.2c1.5.8 2.3 2 2.3 3.5l-1.5-.4c0-1-.3-1.7-.8-2.2z" fill="#fff"/>` },
+  "qqmusic": { c: "#31C27C", svg: `<rect x="1.6" y="1.6" width="20.8" height="20.8" rx="6.6"/><rect x="11.3" y="7.4" width="1.5" height="8.2" fill="#fff"/><ellipse cx="9.3" cy="15.9" rx="2.5" ry="2" transform="rotate(-16 9.3 15.9)" fill="#fff"/><path d="M12.8 7.4c1.5.8 2.3 2 2.3 3.5l-1.5-.4c0-1-.3-1.7-.8-2.2z" fill="#fff"/>` },
   "unknown": { c: "#8A8A8E", svg: `<circle cx="12" cy="12" r="7.6" fill="none" stroke="currentColor" stroke-width="1.7"/><ellipse cx="12" cy="12" rx="3.2" ry="7.6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M4.4 12h15.2" stroke="currentColor" stroke-width="1.6"/>` },
 };

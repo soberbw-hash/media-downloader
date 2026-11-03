@@ -136,7 +136,11 @@ const STATUS_TEXT = {
   canceled: "已取消",
 };
 
-const ICON_ALIAS = { weixin: "wechatchannels" };
+const ICON_ALIAS = {
+  weixin: "wechatchannels",
+  music_netease: "netease",
+  music_qqmusic: "qqmusic",
+};
 
 /* 平台图标：品牌色矢量图形，加载失败也不影响布局 */
 function iconHTML(pid) {
@@ -838,26 +842,63 @@ async function loadLogins(force) {
 
 function renderLogins(sites, status) {
   const box = $("#logins");
-  if (!box) return;
+  if (!box || !sites || !sites.length) return;   // 还没拉到，先别把空列表画上去
   const busy = status.state === "opening" || status.state === "waiting";
   box.innerHTML = "";
-  sites.forEach((s) => {
-    const row = document.createElement("div");
-    row.className = "login-row";
-    const running = busy && status.platform === s.id;
-    const stCls = running ? "st run" : (s.logged_in ? "st ok" : "st");
-    const stText = running ? "等待登录…" : (s.logged_in ? "已登录" : "未登录");
-    const need = s.required ? '<span class="need req">必须</span>' : '<span class="need">可选</span>';
-    row.innerHTML = `<span class="nm">${esc(s.name)}</span>${need}`
-      + `<span class="${stCls}">${stText}</span>`
-      + `<button>${s.logged_in ? "重新登录" : "登录"}</button>`;
-    row.title = s.tip || "";
-    const btn = row.querySelector("button");
-    btn.disabled = busy;
-    btn.onclick = () => startLogin(s.id);
-    box.appendChild(row);
+
+  // 按「必须登 / 登了更好」分区，用户一眼就知道哪些能跳过
+  const groups = [
+    { t: "必须登录", sub: "不登录拿不到地址", list: sites.filter((s) => s.required) },
+    { t: "可选登录", sub: "不登也能下，登了更稳", list: sites.filter((s) => !s.required) },
+  ];
+
+  groups.forEach((g) => {
+    if (!g.list.length) return;
+    const sec = document.createElement("section");
+    sec.className = "lg-grp";
+    const h = document.createElement("div");
+    h.className = "lg-t";
+    h.innerHTML = `${esc(g.t)}<span>${esc(g.sub)}</span>`;
+    sec.appendChild(h);
+    const list = document.createElement("div");
+    list.className = "lg-list";
+    g.list.forEach((s) => list.appendChild(loginRow(s, status, busy)));
+    sec.appendChild(list);
+    box.appendChild(sec);
   });
 
+  const on = sites.filter((s) => s.logged_in).length;
+  const must = sites.filter((s) => s.required).length;
+  const sum = $("#acctSummary");
+  if (sum) {
+    sum.textContent = on
+      ? `已登录 ${on} / ${sites.length} 个平台`
+      : `${must} 个平台必须登录，其余可选`;
+  }
+  const num = $("#acctNum");
+  if (num) num.innerHTML = `${on}<span>/${sites.length}</span>`;
+
+  renderLoginBar(status, busy);
+}
+
+function loginRow(s, status, busy) {
+  const row = document.createElement("div");
+  row.className = "login-row";
+  const running = busy && status.platform === s.id;
+  const stCls = running ? "st run" : (s.logged_in ? "st ok" : "st");
+  const stText = running ? "等待中" : (s.logged_in ? "已登录" : "未登录");
+  row.innerHTML = iconHTML(s.id)
+    + `<span class="nm">${esc(s.name)}</span>`
+    + `<span class="${stCls}">${stText}</span>`
+    + `<button type="button">${s.logged_in ? "重登" : "登录"}</button>`;
+  row.title = s.tip || "";
+  const btn = row.querySelector("button");
+  btn.disabled = busy;
+  btn.onclick = () => startLogin(s.id);
+  return row;
+}
+
+function renderLoginBar(status, busy) {
   const bar = $("#loginBar");
   if (!bar) return;
   bar.innerHTML = "";
@@ -874,7 +915,7 @@ function renderLogins(sites, status) {
       bar.appendChild(b);
     }
   };
-  if (status.state === "opening" || status.state === "waiting") {
+  if (busy) {
     show(status.msg || "请在浏览器窗口里完成登录", true);
   } else if (["done", "error", "timeout", "closed"].includes(status.state)) {
     show(status.msg || "", false);
@@ -957,6 +998,7 @@ $("#fdPick").onclick = async () => {
 
 /* ---------- 设置 ---------- */
 function openDrawer() {
+  closeAllDrawers();
   $("#mask").classList.add("on");
   $("#drawer").classList.add("on");
   $("#cfgOut").value = cfg.out_dir || "";
@@ -969,12 +1011,22 @@ function openDrawer() {
   $("#cfgMusicDir").value = cfg.music_dir || "";
   $("#cfgCover").checked = !!cfg.save_cover;
   $("#cfgSubs").checked = !!cfg.down_subs;
+  loadLogins(true);          // 只为刷新「已登录 n/8」这行摘要
+}
+
+function openAcct() {
+  closeAllDrawers();
+  $("#mask").classList.add("on");
+  $("#acctDrawer").classList.add("on");
   loadLogins(true);
 }
 
-function closeDrawer() {
+function closeAllDrawers() {
+  ["#drawer", "#acctDrawer", "#histDrawer"].forEach((s) => {
+    const el = $(s);
+    if (el) el.classList.remove("on");
+  });
   $("#mask").classList.remove("on");
-  $("#drawer").classList.remove("on");
 }
 
 $("#openDir").onclick = async () => {
@@ -983,11 +1035,29 @@ $("#openDir").onclick = async () => {
 };
 
 $("#openSet").onclick = openDrawer;
-$("#closeSet").onclick = closeDrawer;
-$("#mask").onclick = closeDrawer;
+$("#closeSet").onclick = closeAllDrawers;
+$("#openAcct").onclick = openAcct;
+$("#closeAcct").onclick = closeAllDrawers;
+$("#mask").onclick = closeAllDrawers;
+
+// 高级设置默认收起，记住上次展开状态
+const advBox = $("#advBox");
+if (advBox) {
+  advBox.open = localStorage.getItem("advOpen") === "1";
+  advBox.addEventListener("toggle", () => {
+    localStorage.setItem("advOpen", advBox.open ? "1" : "0");
+    // 展开后滚到底，三项高级设置一次看全，不用再手动拖
+    if (advBox.open) {
+      const body = advBox.closest(".drawer-body");
+      if (body) {
+        setTimeout(() => body.scrollTo({ top: body.scrollHeight, behavior: "smooth" }), 60);
+      }
+    }
+  });
+}
 
 $("#pickOut").onclick = async () => {
-  const p = await openPicker($("#pickOut"), "浏览…");
+  const p = await openPicker($("#pickOut"), "浏览");
   if (!p) return;
   $("#cfgOut").value = p;
   if (await saveDir(p)) toast("下载目录已改成 " + p, 3200);
@@ -1023,7 +1093,7 @@ $("#saveCfg").onclick = async () => {
     save_cover: $("#cfgCover").checked,
     down_subs: $("#cfgSubs").checked,
   });
-  if (r.ok) { cfg = r.config; toast("已保存"); closeDrawer(); }
+  if (r.ok) { cfg = r.config; toast("已保存"); closeAllDrawers(); }
   else toast(r.error || "保存失败", 3600);
 };
 
@@ -1034,10 +1104,6 @@ $("#cancelAll").onclick = async () => {
   toast(r.count ? `已取消 ${r.count} 条` : "没有正在跑的任务");
   poll();
 };
-
-document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") closeDrawer();
-});
 
 /* 窗口变宽变窄时，重新算平台标签能放几个 */
 let supportT = 0;
@@ -1072,8 +1138,9 @@ let pollTimer = 0;
 })();
 document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });
 setFilter(taskFilter);
+// 只有账号面板开着的时候才轮询登录态，设置面板不用每秒问
 setInterval(() => {
-  if ($("#drawer").classList.contains("on")) loadLogins();
+  if ($("#acctDrawer").classList.contains("on")) loadLogins();
 }, 1500);
 
 /* ================= 视频 / 音乐 切换 ================= */
@@ -1280,18 +1347,14 @@ async function loadHistory(q) {
 }
 
 function openHist() {
+  closeAllDrawers();
   $("#mask").classList.add("on");
   $("#histDrawer").classList.add("on");
   loadHistory($("#histQ").value.trim());
 }
 
-function closeHist() {
-  $("#histDrawer").classList.remove("on");
-  $("#mask").classList.remove("on");
-}
-
 if ($("#openHist")) $("#openHist").onclick = openHist;
-if ($("#closeHist")) $("#closeHist").onclick = closeHist;
+if ($("#closeHist")) $("#closeHist").onclick = closeAllDrawers;
 if ($("#histQ")) {
   let ht = 0;
   $("#histQ").addEventListener("input", () => {
@@ -1317,18 +1380,17 @@ if ($("#clearHist")) {
 }
 
 /* 遮罩和 Esc 要能关掉两个抽屉 */
-$("#mask").onclick = () => { closeDrawer(); closeHist(); };
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") closeHist();
+  if (e.key === "Escape") closeAllDrawers();
 });
 
 applyTab(tabMode);
 
 if ($("#pickMusic")) {
   $("#pickMusic").onclick = async () => {
-    const p = await openPicker($("#pickMusic"), "浏览…");
+    const p = await openPicker($("#pickMusic"), "浏览");
     if (!p) return;
     $("#cfgMusicDir").value = p;
-    toast("点右上「保存」生效");
+    toast("点底部「保存」生效");
   };
 }

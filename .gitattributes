@@ -1,0 +1,19 @@
+# 默认自动识别文本/二进制
+* text=auto
+
+# 脚本要在 Windows 上双击运行，必须是 CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.txt text eol=crlf
+
+# Python / 前端统一 LF
+*.py text eol=lf
+*.js   text eol=lf
+*.css  text eol=lf
+*.html text eol=lf
+*.md   text eol=lf
+
+# 图片按二进制处理，别做换行转换
+*.png binary
+*.jpg binary
+*.ico binary

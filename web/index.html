@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>音视频下载器</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231c1917'/%3E%3Cpath d='M16 8v10' stroke='%23fff' stroke-width='2.2' stroke-linecap='round'/%3E%3Cpath d='M11.5 14.5L16 19l4.5-4.5' stroke='%23fff' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3Cpath d='M10 23.5h12' stroke='%23fff' stroke-width='2.2' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="brand">
+      <h1>音视频下载器</h1>
+    </div>
+    <div class="head-actions">
+      <button class="icon-btn" id="openHist">历史</button>
+      <button class="icon-btn" id="openDir">下载目录</button>
+      <button class="icon-btn" id="openSet">设置</button>
+      <button class="icon-btn quit" id="quitApp" hidden>退出</button>
+    </div>
+  </header>
+
+  <div class="tabs" id="tabs" role="tablist">
+    <button class="tab on" data-tab="video" role="tab" aria-selected="true">视频</button>
+    <button class="tab" data-tab="music" role="tab" aria-selected="false">音乐</button>
+  </div>
+
+  <div class="music" id="musicPanel" hidden>
+    <div class="msearch">
+      <select id="mPlatform" aria-label="音乐平台">
+        <option value="netease">网易云</option>
+        <option value="qqmusic">QQ 音乐</option>
+        <option value="kugou">酷狗</option>
+      </select>
+      <input id="mQuery" placeholder="搜歌名、歌手" autocomplete="off">
+      <button id="mGo">搜索</button>
+    </div>
+    <div class="mhint" id="mHint">回车搜索。点「下」单曲下载，勾上多首可以一起下。</div>
+    <div class="mresults" id="mResults"></div>
+  </div>
+
+  <div class="composer" id="composer">
+    <textarea id="input" placeholder="粘贴链接，自动开始下载&#10;整段分享文案、多条链接、不带 https 的短链都能认"></textarea>
+    <div class="composer-foot">
+      <div class="foot-left"><div id="detected"></div></div>
+      <div class="foot-right">
+        <label class="switch" title="打开后，每次粘贴自动开始下载；关掉则先攒在框里，点按钮再下">
+          <input type="checkbox" id="autoPaste" checked>
+          <span class="track"><i></i></span>
+          <span class="switch-text">粘贴即下载</span>
+        </label>
+        <button id="submit">开始下载</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="support" id="support"></div>
+
+  <div class="list-head">
+    <div class="lh-left">
+      <h2>任务</h2>
+      <span id="stats" class="stats"></span>
+    </div>
+    <div class="lh-right">
+      <button id="cancelAll">全部取消</button>
+      <button id="clearBtn">清空已完成</button>
+    </div>
+  </div>
+
+  <div id="tasks">
+    <div class="empty">
+      <span class="e-main">还没有任务</span>
+      <span class="e-sub">在上面粘贴链接，下载会自动开始</span>
+    </div>
+  </div>
+
+</div>
+
+<div class="mask" id="mask"></div>
+<aside class="drawer" id="drawer">
+  <div class="drawer-head">
+    <h3>设置</h3>
+    <button class="drawer-x" id="closeSet" title="关闭" aria-label="关闭设置">
+      <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+        <path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor"
+              stroke-width="1.7" stroke-linecap="round"/>
+      </svg>
+    </button>
+  </div>
+
+  <div class="drawer-body">
+
+  <div class="field">
+    <label>账号登录（大部分平台不用登）</label>
+    <div class="logins" id="logins"></div>
+    <div class="login-bar" id="loginBar"></div>
+    <div class="hint">只有标「必须」的才真的需要登录。点「登录」会弹浏览器窗口，扫码后自动保存。</div>
+  </div>
+
+  <div class="field">
+    <label>下载目录</label>
+    <div class="path-row">
+      <input id="cfgOut" placeholder="D:\素材\下载">
+      <button class="pick-btn" id="pickOut">浏览…</button>
+    </div>
+    <div class="hint">不存在会自动创建，也可以直接填路径</div>
+  </div>
+
+  <div class="field">
+    <label>文件命名（可选）</label>
+    <input id="cfgNameTpl" placeholder="{date}_{platform}_{author}_{title}">
+    <div class="hint">留空就用原标题。能用：{title} {author} {platform} {date} {time} {id}</div>
+  </div>
+
+  <div class="field">
+    <div class="field-row">
+      <span class="field-label">同时保存封面图</span>
+      <label class="switch">
+        <input type="checkbox" id="cfgCover">
+        <span class="track"><i></i></span>
+      </label>
+    </div>
+    <div class="hint">视频旁边多一张「同名.cover.jpg」，做参考板用得着</div>
+  </div>
+
+  <div class="field">
+    <div class="field-row">
+      <span class="field-label">顺便下字幕</span>
+      <label class="switch">
+        <input type="checkbox" id="cfgSubs">
+        <span class="track"><i></i></span>
+      </label>
+    </div>
+    <div class="hint">B站、YouTube 有字幕时，存成 .srt 放在视频旁边</div>
+  </div>
+
+  <div class="field">
+    <label>音乐存到（可选）</label>
+    <div class="path-row">
+      <input id="cfgMusicDir" placeholder="留空 = 跟视频放一起">
+      <button class="pick-btn" id="pickMusic">浏览…</button>
+    </div>
+  </div>
+
+  <div class="field">
+    <label>清晰度</label>
+    <select id="cfgQuality">
+      <option value="best">最高画质</option>
+      <option value="1080">1080p 及以下</option>
+      <option value="720">720p 及以下</option>
+      <option value="audio">仅音频（mp3）</option>
+    </select>
+  </div>
+
+  <div class="field">
+    <label>同时下载数</label>
+    <select id="cfgConc">
+      <option value="2">2 个（网络差时稳）</option>
+      <option value="3">3 个（推荐）</option>
+      <option value="5">5 个（快）</option>
+      <option value="8">8 个（容易限速）</option>
+    </select>
+    <div class="hint">一次贴很多条时，这个决定并发数</div>
+  </div>
+
+  <div class="field">
+    <label>视频号解析接口（可选）</label>
+    <input id="cfgSph" placeholder="https://你的解析服务/api/fetch_video_profile">
+    <div class="hint">视频号要登录态才发视频地址。填了接口，粘分享链接就能下；留空则只支持 finder.video.qq.com 的直链。</div>
+  </div>
+
+  <div class="field">
+    <label>代理（留空自动用系统代理）</label>
+    <input id="cfgProxy" placeholder="http://127.0.0.1:7890">
+    <div class="hint">留空时，境外平台自动走系统代理；国内平台始终直连。</div>
+  </div>
+
+  <div class="field">
+    <label>cookies 文件（可选）</label>
+    <input id="cfgCookies" placeholder="D:\cookies.txt">
+    <div class="hint">一般不用填，用上面的「登录」更省事。已有 cookies.txt 才需要。</div>
+  </div>
+
+  </div>
+
+  <div class="drawer-foot">
+    <button class="save-btn" id="saveCfg">保存</button>
+  </div>
+</aside>
+
+<aside class="drawer" id="histDrawer">
+  <div class="drawer-head">
+    <h3>下载历史</h3>
+    <button class="drawer-x" id="closeHist" title="关闭" aria-label="关闭历史">
+      <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+        <path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor"
+              stroke-width="1.7" stroke-linecap="round"/>
+      </svg>
+    </button>
+  </div>
+  <div class="drawer-body">
+    <input id="histQ" placeholder="搜标题、作者、平台" autocomplete="off">
+    <div class="hlist" id="histList"></div>
+  </div>
+  <div class="drawer-foot hfoot">
+    <button class="ghost-btn" id="exportCsv">导出 CSV</button>
+    <button class="ghost-btn" id="clearHist">清空记录</button>
+  </div>
+</aside>
+
+<div class="toast" id="toast"></div>
+
+<div class="fd" id="firstDir">
+  <div class="fd-card">
+    <div class="fd-mark">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+        <path d="M3 7.2c0-1 .8-1.8 1.8-1.8h4l1.8 2h7.6c1 0 1.8.8 1.8 1.8v8.6c0 1-.8 1.8-1.8 1.8H4.8c-1 0-1.8-.8-1.8-1.8z"
+              fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+      </svg>
+    </div>
+    <h2>下好的文件存哪儿？</h2>
+    <p>选一个文件夹，视频和图集都会存进去。以后想换，在右上角「设置」里随时可以改。</p>
+    <div class="fd-path" id="fdPath"></div>
+    <div class="fd-btns">
+      <button class="fd-ghost" id="fdDefault">就用这个</button>
+      <button class="fd-main" id="fdPick">选择文件夹</button>
+    </div>
+  </div>
+</div>
+
+<script src="/icons.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

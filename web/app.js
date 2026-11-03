@@ -176,14 +176,37 @@ function makeCard(t) {
   return el;
 }
 
+/* 后端有些错误是「人话（原始异常）」的格式，卡片上只留人话，原始信息塞进 tooltip */
+function stripParen(s) {
+  const m = (s || "").match(/^(.*)（([\s\S]+)）$/);
+  if (m && m[1].trim().length >= 6) return [m[1].trim(), m[2].trim()];
+  return [(s || "").trim(), ""];
+}
+
+/* 失败时往往没解析出标题，用「域名/path」顶替，总比两个字「失败」有信息 */
+function shortUrl(u) {
+  try {
+    const x = new URL(u);
+    if (x.hostname.indexOf("127.0.0.1") === 0) return u;
+    let p = x.pathname;
+    try { p = decodeURIComponent(p); } catch (e) {}
+    p = p.replace(/\/+$/, "");
+    if (p.length > 34) p = p.slice(0, 34) + "…";
+    return x.hostname.replace(/^www\./, "") + p;
+  } catch (e) {
+    return u || "";
+  }
+}
+
 function updateCard(el, t) {
+  el.hidden = !passFilter(t);
   el.classList.toggle("done", t.status === "done");
   el.classList.toggle("running", t.status === "running" || t.status === "queued");
   el.classList.toggle("canceled", t.status === "canceled");
   el.classList.toggle("error", t.status === "error");
 
   const title = el.querySelector(".title");
-  const text = t.title || t.stage || t.url;
+  const text = t.title || (t.status === "error" ? shortUrl(t.url) : (t.stage || t.url));
   if (title.textContent !== text) title.textContent = text;
   title.title = t.status === "done" ? "点开所在文件夹" : (t.title || t.url);
   title.onclick = t.status === "done"
@@ -197,7 +220,8 @@ function updateCard(el, t) {
   if (t.author) meta.push(t.author);
   if (t.duration) meta.push(fmtDur(t.duration));
   if (t.kind === "images" && t.count) meta.push(`图集 ${t.count} 张`);
-  if (t.url) {
+  // 标题本身就是「域名/path」时，下面再写一遍域名纯属重复
+  if (t.url && t.title) {
     try { meta.push(new URL(t.url).hostname.replace(/^www\./, "")); } catch (e) {}
   }
   const mt = meta.join(" · ");
@@ -212,7 +236,19 @@ function updateCard(el, t) {
   const st = el.querySelector(".status");
   let line = "";
   if (t.status === "error") {
-    line = `<span class="err-msg">${esc(t.error || "失败")}</span>`;
+    // 后端已经翻成人话的（err_title/err_tip）优先，认不出来的才剥括号、显示原始异常
+    let head = t.err_title || "";
+    let detail = t.error || "";
+    const tip = t.err_tip || "";
+    if (!head) {
+      const cut = stripParen(detail);
+      head = cut[0] || "失败";
+      detail = cut[1] || "";
+    }
+    const full = (tip ? "建议：" + tip + "\n\n" : "")
+      + (detail ? (detail === head ? "" : "详情：" + detail) : "");
+    line = `<span class="err-msg" title="${esc(full || head)}">${esc(head)}`
+      + (tip ? `<em>${esc(tip)}</em>` : "") + "</span>";
   } else if (t.status === "canceled") {
     line = "已取消";
   } else if (t.status === "done") {
@@ -390,29 +426,77 @@ function syncSel(el, t, n) {
   if (tip) tip.textContent = n + " 张 · 点图勾选，↓ 存单张";
 }
 
+/* ---------- 任务筛选：全部 / 进行中 / 失败 / 已完成 ---------- */
+let taskFilter = localStorage.getItem("taskFilter") || "all";
+
+function passFilter(t) {
+  if (taskFilter === "all") return true;
+  if (taskFilter === "live") return t.status === "queued" || t.status === "running";
+  return t.status === taskFilter;
+}
+
+function setFilter(f) {
+  taskFilter = f;
+  localStorage.setItem("taskFilter", f);
+  document.querySelectorAll("#filters .flt").forEach((b) => {
+    b.classList.toggle("on", b.dataset.f === f);
+  });
+  refreshLast();
+}
+
 function renderStats(tasks) {
-  const box = $("#stats");
-  const c = { queued: 0, running: 0, done: 0, error: 0 };
-  tasks.forEach((t) => { if (c[t.status] !== undefined) c[t.status]++; });
-  const live = c.running + c.queued;
+  const c = { all: tasks.length, live: 0, done: 0, error: 0 };
+  tasks.forEach((t) => {
+    if (t.status === "queued" || t.status === "running") c.live++;
+    else if (c[t.status] !== undefined) c[t.status]++;
+  });
+  const live = c.live;
   const ca = $("#cancelAll");
   const cb = $("#clearBtn");
   const lhRight = document.querySelector(".list-head .lh-right");
+  const filters = $("#filters");
   if (lhRight) lhRight.style.display = tasks.length ? "" : "none";
+  if (filters) filters.hidden = !tasks.length;
   if (ca) ca.disabled = live === 0;
   if (cb) cb.disabled = c.done + tasks.filter((t) => t.status === "canceled").length === 0;
+  const rf = $("#retryFailed");
+  if (rf) {
+    rf.hidden = c.error === 0;
+    rf.textContent = `重试失败 ${c.error}`;
+  }
 
-  if (!tasks.length) { box.textContent = ""; return; }
-  const parts = [`共 ${tasks.length}`];
-  if (c.done) parts.push(`完成 ${c.done}`);
-  if (c.running) parts.push(`下载中 ${c.running}`);
-  if (c.queued) parts.push(`排队 ${c.queued}`);
-  if (c.error) parts.push(`失败 ${c.error}`);
-  box.textContent = parts.join(" · ");
-  box.classList.toggle("warn", c.error > 0);
+  document.querySelectorAll("#filters .flt").forEach((b) => {
+    const n = c[b.dataset.f] || 0;
+    b.dataset.n = String(n);
+    b.classList.toggle("zero", n === 0);
+  });
+
+  syncTitle(tasks, c);
 }
 
+/* ---------- 窗口标题：窗口最小化时，这是唯一能看到的进度 ---------- */
+let liveBefore = 0;
+
+function syncTitle(tasks, c) {
+  let t = "音视频下载器";
+  if (c.live > 0) {
+    t = `↓ ${c.done}/${c.done + c.live} · 音视频下载器`;
+  } else if (c.error > 0) {
+    t = `⚠ ${c.error} 项失败 · 音视频下载器`;
+  } else if (liveBefore > 0 && c.done) {
+    // 刚刚全部跑完，闪一下「完成」，免得用户一直盯着等
+    t = `✓ ${c.done} 项已完成`;
+    clearTimeout(syncTitle._t);
+    syncTitle._t = setTimeout(() => { document.title = "音视频下载器"; }, 5000);
+  }
+  liveBefore = c.live;
+  if (document.title !== t) document.title = t;
+}
+
+let lastTasks = [];
+
 function render(tasks) {
+  lastTasks = tasks;
   const box = $("#tasks");
   renderStats(tasks);
   const bs = new Set(tasks.map((t) => t.batch).filter(Boolean));
@@ -445,6 +529,44 @@ function render(tasks) {
     }
     updateCard(el, t);
   });
+
+  // 筛到一条都不剩时，给个提示，免得看起来像卡了
+  const shown = tasks.filter(passFilter).length;
+  if (!shown) {
+    let tip = box.querySelector(".filtered-out");
+    if (!tip) {
+      tip = document.createElement("div");
+      tip.className = "empty filtered-out";
+      tip.innerHTML = '<span class="e-main">这个分类下没有任务</span>'
+        + '<span class="e-sub">点「全部」看所有任务</span>';
+      box.appendChild(tip);
+    }
+  } else {
+    const tip = box.querySelector(".filtered-out");
+    if (tip) tip.remove();
+  }
+}
+
+function refreshLast() { if (lastTasks.length) render(lastTasks); }
+
+document.querySelectorAll("#filters .flt").forEach((b) => {
+  b.addEventListener("click", () => setFilter(b.dataset.f));
+});
+
+if ($("#retryFailed")) {
+  $("#retryFailed").onclick = async () => {
+    const btn = $("#retryFailed");
+    btn.disabled = true;
+    try {
+      const r = await post("/api/retry_failed", {});
+      toast(r.count ? `已重新排队 ${r.count} 项` : "没有失败的");
+      poll();
+    } catch (e) {
+      toast("连接失败");
+    } finally {
+      btn.disabled = false;
+    }
+  };
 }
 
 async function post(url, body) {
@@ -456,16 +578,23 @@ async function post(url, body) {
   return r.json();
 }
 
+let pollGap = 2500;
+
 async function poll() {
   try {
     const r = await fetch("/api/state");
     const d = await r.json();
+    const tasks = d.tasks || [];
     applyMode(d.mode);
-    render(d.tasks || []);
+    render(tasks);
     cfg = d.config || {};
     renderSupport(d.platforms || []);
+    // 有活在跑就勤快点，全闲着没必要每 0.8 秒问一次
+    const busy = tasks.some((t) => t.status === "running" || t.status === "queued");
+    pollGap = busy ? 800 : 2500;
   } catch (e) {
     // 服务已关闭
+    pollGap = 2500;
   }
 }
 
@@ -565,6 +694,8 @@ async function submitBlocks(blocks, localUrls) {
     const r = await post("/api/add", { blocks });
     const added = r.added || [];
     const skipped = r.skipped || [];
+    // 正在看「失败」列表时新任务加进来会看不见，先切回「全部」
+    if (added.length && taskFilter !== "all") setFilter("all");
     if (added.length) {
       const no = r.batches && r.batches.length ? r.batches[0].no : 0;
       if (added.length === 1) {
@@ -930,9 +1061,17 @@ $("#autoPaste").checked = autoPaste;
 renderDetected([]);
 autoGrow();
 poll();
-// 窗口最小化 / 切到后台时不刷，省点 CPU
-setInterval(() => { if (!document.hidden) poll(); }, 800);
+// 窗口最小化 / 切到后台时不刷，省点 CPU；间隔跟着任务状态变（见 poll 里的 pollGap）
+let pollTimer = 0;
+(function schedulePoll() {
+  clearTimeout(pollTimer);
+  pollTimer = setTimeout(async () => {
+    if (!document.hidden) await poll();
+    schedulePoll();
+  }, pollGap);
+})();
 document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });
+setFilter(taskFilter);
 setInterval(() => {
   if ($("#drawer").classList.contains("on")) loadLogins();
 }, 1500);
@@ -967,29 +1106,65 @@ document.querySelectorAll("#tabs .tab").forEach((b) => {
 
 /* ================= 音乐搜索 ================= */
 let mItems = [];
+let mSel = new Set();
 
 function musicRow(s, i) {
+  const on = mSel.has(i);
   const cov = s.cover
     ? '<img class="cov" src="' + esc(s.cover) + '" alt="" loading="lazy" onerror="this.style.visibility=\'hidden\'">'
     : '<span class="cov"></span>';
   const sub = esc(s.artist || "未知歌手") + (s.album ? " · " + esc(s.album) : "");
-  return '<div class="msong">' + cov +
+  return '<div class="msong' + (on ? " on" : "") + '">' +
+    '<input type="checkbox" class="mpick" data-i="' + i + '"' +
+    (on ? " checked" : "") + ' aria-label="勾选这首歌">' + cov +
     '<div class="meta"><div class="t">' + esc(s.title || "未知曲目") + "</div>" +
     '<div class="a">' + sub + "</div></div>" +
     '<span class="d">' + (s.duration ? fmtDur(s.duration) : "") + "</span>" +
     '<button class="dl" data-i="' + i + '">下</button></div>';
 }
 
+function syncMusicSel() {
+  const total = mItems.length;
+  const n = mSel.size;
+  const bar = $("#mBar");
+  if (bar) bar.hidden = !total;
+  const all = $("#mAll");
+  if (all) {
+    all.checked = n > 0 && n === total;
+    all.indeterminate = n > 0 && n < total;
+  }
+  const cnt = $("#mCount");
+  if (cnt) cnt.textContent = n ? `已选 ${n} / ${total} 首` : `共 ${total} 首`;
+  const b = $("#mBatch");
+  if (b) {
+    b.disabled = n === 0;
+    b.textContent = n ? `下载所选（${n}）` : "下载所选";
+  }
+  // 列表超出高度才在底部做渐隐，否则最后一行会显得发虚
+  const box = $("#mResults");
+  if (box) box.classList.toggle("scrollable", box.scrollHeight > box.clientHeight + 2);
+}
+
 function renderMusic() {
   const box = $("#mResults");
   if (!mItems.length) {
     box.innerHTML = '<div class="mempty">没搜到，换个关键词试试</div>';
+    syncMusicSel();
     return;
   }
   box.innerHTML = mItems.map(musicRow).join("");
   box.querySelectorAll(".dl").forEach((b) => {
     b.onclick = () => addMusic([mItems[+b.dataset.i]], b);
   });
+  box.querySelectorAll(".mpick").forEach((cb) => {
+    cb.onchange = () => {
+      const i = +cb.dataset.i;
+      if (cb.checked) mSel.add(i); else mSel.delete(i);
+      cb.closest(".msong").classList.toggle("on", cb.checked);
+      syncMusicSel();
+    };
+  });
+  syncMusicSel();
 }
 
 async function musicSearch() {
@@ -999,6 +1174,7 @@ async function musicSearch() {
   btn.disabled = true;
   $("#mHint").textContent = "搜索中…";
   $("#mResults").innerHTML = "";
+  mSel.clear();
   try {
     const r = await post("/api/music/search", {
       platform: $("#mPlatform").value, q, limit: 24,
@@ -1007,7 +1183,7 @@ async function musicSearch() {
     mItems = r.items || [];
     renderMusic();
     $("#mHint").textContent = mItems.length
-      ? "共 " + mItems.length + " 首，点「下」开始下载"
+      ? "勾上多首可以一起下，或者直接点「下」"
       : "";
   } catch (e) {
     $("#mHint").textContent = "搜索失败，服务可能已经关了";
@@ -1019,20 +1195,43 @@ async function musicSearch() {
 async function addMusic(list, btn) {
   if (!list.length) return;
   await ensureDir();
+  const old = btn ? btn.textContent : "";
   if (btn) { btn.disabled = true; btn.textContent = "…"; }
   try {
     const r = await post("/api/music/add", { items: list });
-    if (r.ok) toast("已加入 " + r.count + " 首");
-    else toast(r.error || "加入失败");
+    if (r.ok) {
+      toast("已加入 " + r.count + " 首");
+      if (taskFilter !== "all") setFilter("all");   // 否则音乐标签下看不到新任务
+    } else {
+      toast(r.error || "加入失败");
+    }
     poll();
   } catch (e) {
     toast("连接失败");
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = "下"; }
+    if (btn) { btn.disabled = false; btn.textContent = old; }
   }
 }
 
 if ($("#mGo")) $("#mGo").onclick = musicSearch;
+
+if ($("#mAll")) {
+  $("#mAll").onchange = () => {
+    if ($("#mAll").checked) mItems.forEach((_, i) => mSel.add(i));
+    else mSel.clear();
+    renderMusic();
+  };
+}
+
+if ($("#mBatch")) {
+  $("#mBatch").onclick = async () => {
+    const list = [...mSel].sort((a, b) => a - b).map((i) => mItems[i]).filter(Boolean);
+    if (!list.length) return;
+    await addMusic(list, $("#mBatch"));
+    mSel.clear();
+    renderMusic();
+  };
+}
 if ($("#mQuery")) {
   $("#mQuery").addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); musicSearch(); }

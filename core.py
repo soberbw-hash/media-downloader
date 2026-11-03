@@ -757,6 +757,44 @@ def ytdlp_download(url, out_dir, progress, quality="best", proxy=None, cookies_f
 
 
 # ---------- 任务管理 ----------
+# ---------- 失败原因：把底层异常翻成人话 ----------
+# 前端不再拿英文异常去猜，这里先认一遍。认不出来就原样返回，不硬编。
+_ERR_RULES = [
+    (("login", "sign in", "cookies", "未登录", "需要登录", "vip", "会员"),
+     "需要登录", "打开设置里的「账号登录」登一次，再重试"),
+    (("403", "forbidden"), "被平台拒绝了", "链接可能过期，重新复制一次分享链接"),
+    (("404", "not found", "不存在"), "内容不存在", "作品可能被删了或设成了私密"),
+    (("private", "私密", "仅粉丝"), "私密内容", "作者设了权限，登录对应账号才看得到"),
+    (("412", "risk", "verify", "风控", "验证码"), "触发了风控", "等几分钟再试，别一次贴太多条"),
+    (("429", "too many", "频繁"), "被限速了", "把「同时下载数」调到 2，歇会儿再下"),
+    (("timed out", "timeout", "超时", "connection reset"), "网络超时", "重试一次通常就好；境外平台留意代理"),
+    (("ssl", "certificate", "cert verify"), "证书校验失败", "系统时间不对，或者代理在劫持 https"),
+    (("unsupported url", "no suitable", "不支持", "无法解析"), "这个链接解析不了", "换分享里的完整短链再试"),
+    (("no space", "磁盘", "disk full"), "磁盘空间不足", "换个下载目录，或者清点空间"),
+    (("permission", "access is denied", "拒绝访问", "winerror 5"), "写不进这个目录", "安全软件可能锁了文件，换个目录试试"),
+    (("ffmpeg",), "缺少 ffmpeg", "合并音视频要用它，装一个再下"),
+    (("region", "country", "地区", "geo"), "地区限制", "需要挂代理才能下"),
+    (("connection refused", "max retries", "连接", "network is unreachable"), "连不上", "网络不通，或者代理挂了"),
+]
+
+
+def explain_error(msg):
+    """返回 (短标题, 建议)。认不出来的返回 ('', '')，调用方用原始信息兜底。"""
+    m = (msg or "").strip()
+    if not m:
+        return "", ""
+    # 已经中文化过的（下面 _run_task 里生成的）就别再套规则了：
+    # 「视频不可用了：可能已删除、设成私密」会被 "私密" 命中，反而说得更差
+    cn = sum(1 for ch in m if "\u4e00" <= ch <= "\u9fff")
+    if cn >= 6:
+        return "", ""
+    low = m.lower()
+    for keys, title, tip in _ERR_RULES:
+        if any(k in low for k in keys):
+            return title, tip
+    return "", ""
+
+
 class Task(object):
     def __init__(self, tid, url, platform, platform_name, batch=0, key=""):
         self.id = tid
@@ -782,7 +820,7 @@ class Task(object):
         self.created = time.time()
 
     def to_dict(self):
-        return {
+        d = {
             "id": self.id, "url": self.url, "platform": self.platform,
             "platform_name": self.platform_name, "title": self.title,
             "author": self.author, "thumb": self.thumb, "duration": self.duration,
@@ -792,6 +830,12 @@ class Task(object):
             "batch": self.batch, "kind": self.kind,
             "images": self.images, "count": len(self.images),
         }
+        if self.status == "error" and self.error:
+            title, tip = explain_error(self.error)
+            if title:
+                d["err_title"] = title
+                d["err_tip"] = tip
+        return d
 
 
 class Manager(object):
@@ -948,27 +992,37 @@ class Manager(object):
                 if t.status == "canceled":
                     return
             msg = raw
+            # 卡片上只有一行位置，原因说清楚就够，建议跟一句，别写成小作文
             if t.platform == "kuaishou":
-                msg = "快手网页端数据需要登录态，暂时解析不到。可在设置里填 cookies 文件后重试。（%s）" % raw
+                msg = "快手要登录才能解析。设置里填 cookies 后重试。（%s）" % raw
             elif t.platform == "xiaohongshu":
-                msg = ("小红书需要登录才能拿到视频地址。在「设置 → 账号登录」里扫码登录后，"
-                       "点重试即可。（%s）" % raw)
+                msg = "小红书要登录才能拿到地址。设置里登录后重试。（%s）" % raw
             elif t.platform == "instagram":
-                msg = "Instagram 需要登录 cookies + 代理，两者都配好后再重试。"
+                msg = "Instagram 要登录 cookies + 代理，配好再试。"
             elif t.platform == "reddit":
                 if ("403" in raw or "Blocked" in raw or "authentication" in raw.lower()):
-                    msg = ("Reddit 直接拒绝了这台机器的网络出口（403）。Reddit 会拉黑公共代理和机房 IP，"
-                           "换成能正常打开 reddit.com 的代理后再点重试。%s"
-                           % ("当前走的是系统代理。" if getattr(t, "proxy", "") else "当前是直连，这台机器连不到 Reddit。"))
+                    msg = "Reddit 拒绝了这台机器的出口 IP，换个代理再试。（%s）" % raw
                 else:
-                    msg = "连不上 Reddit，通常是代理没开或没覆盖该域名。（%s）" % raw
+                    msg = "连不上 Reddit，检查代理。（%s）" % raw
             elif t.platform in ("tiktok", "youtube", "twitter", "vimeo", "twitch"):
-                msg = "这个平台连不上，通常是代理没开或没覆盖该域名。在设置里填代理地址后重试。（%s）" % raw
+                # 以前一律说"代理没开"，但链接失效、要登录也是同样的报错，会把方向带偏
+                low = raw.lower()
+                if any(k in low for k in ("unavailable", "removed", "not available",
+                                          "deleted", "no longer")):
+                    msg = "视频不可用：已删除、私密或地区限制。（%s）" % raw
+                elif any(k in low for k in ("sign in", "login", "log in", "members-only",
+                                            "confirm your age", "cookies", "age-restricted")):
+                    msg = "要登录才能看，设置里登录后重试。（%s）" % raw
+                elif any(k in low for k in ("timed out", "timeout", "temporary failure")):
+                    msg = "网络超时，重试一次通常就好。（%s）" % raw
+                elif any(k in low for k in ("geo", "region", "country", "not made this video available")):
+                    msg = "地区限制，换个出口再试。（%s）" % raw
+                else:
+                    msg = "连不上，检查代理是否覆盖这个域名。（%s）" % raw
             elif t.platform == "unknown":
-                msg = ("这个站点没有专门的解析器，通用识别也没抓到视频。"
-                       "如果是需要登录或强加密的站点，暂时下不了。（%s）" % raw)
+                msg = "这个站点解析不了，可能要登录或用强加密。（%s）" % raw
             elif "Unsupported URL" in raw:
-                msg = "这个链接的页面结构识别不了，可能是合集页或需要登录。"
+                msg = "页面结构识别不了，可能是合集页或要登录。"
             with self.lock:
                 t.status = "error"
                 t.error = msg
@@ -1109,6 +1163,14 @@ class Manager(object):
                 t.stage = "已取消"
                 return True
         return False
+
+    def retry_failed(self):
+        """把当前所有失败的重新排一遍。断网/风控这类失败，一次性重试最省事。"""
+        with self.lock:
+            ids = [t.id for t in self.tasks.values() if t.status == "error"]
+        for tid in ids:
+            self.retry(tid)
+        return len(ids)
 
     def retry(self, tid):
         with self.lock:

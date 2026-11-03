@@ -342,6 +342,9 @@ class Handler(BaseHTTPRequestHandler):
             ok = MANAGER.retry(str(data.get("id")))
             self._json({"ok": ok})
 
+        elif p == "/api/retry_failed":
+            self._json({"ok": True, "count": MANAGER.retry_failed()})
+
         elif p == "/api/cancel":
             ok = MANAGER.cancel(str(data.get("id")))
             self._json({"ok": ok})

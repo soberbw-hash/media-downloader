@@ -289,6 +289,11 @@ header {
   cursor: default;
 }
 
+/* 有失败时才出现，用琥珀色提示「这里有事要处理」 */
+#retryFailed { color: #b45309; }
+#retryFailed:hover { color: #92400e; }
+#retryFailed:disabled { color: #d9d5d1; }
+
 #tasks { display: flex; flex-direction: column; gap: 8px; }
 
 .empty {
@@ -426,6 +431,13 @@ header {
   line-height: 1.5;
   white-space: normal;
 }
+
+/* 建议跟在原因后面，淡一档，不抢戏 */
+.status .err-msg em {
+  font-style: normal;
+  color: var(--hint);
+}
+.status .err-msg em::before { content: " · "; }
 
 .acts {
   display: flex;
@@ -680,15 +692,55 @@ header {
 /* ---------- 任务区头部 ---------- */
 .list-head .lh-left {
   display: flex;
-  align-items: baseline;
-  gap: 10px;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 
 .list-head .lh-right {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex: 0 0 auto;
 }
+
+/* ---------- 任务筛选 ---------- */
+.filters { display: flex; align-items: center; gap: 1px; }
+
+.filters .flt {
+  border: 0;
+  background: none;
+  padding: 3px 7px;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color .12s, background .12s;
+}
+
+.filters .flt::after {
+  content: attr(data-n);
+  margin-left: 4px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--hint);
+}
+
+.filters .flt:hover { color: var(--text); background: var(--line-soft); }
+
+.filters .flt.on {
+  color: var(--text);
+  background: #eae6e1;
+  font-weight: 500;
+}
+
+.filters .flt.on::after { color: var(--text-2); }
+.filters .flt.zero { color: #a9a39c; }
+.filters .flt.zero::after { color: #cbc6c0; }
+.filters .flt.zero.on { color: var(--muted); }
 
 .stats {
   font-size: 11.5px;
@@ -1319,3 +1371,136 @@ button:focus-visible,
 
 /* hidden 属性要能压过 #composer 之类的 display 规则 */
 [hidden] { display: none !important; }
+
+/* ---------- 音乐：批量勾选 ---------- */
+.mbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 2px 0;
+  padding: 0 2px 8px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.mcheck {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  cursor: pointer;
+  user-select: none;
+}
+
+.mcount {
+  flex: 1;
+  font-size: 12px;
+  color: var(--hint);
+  font-variant-numeric: tabular-nums;
+}
+
+.mbar button {
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--ink);
+  color: #fff;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: opacity .12s, background .12s;
+}
+
+.mbar button:hover { opacity: .88; }
+
+.mbar button:disabled {
+  background: var(--line-soft);
+  color: var(--hint);
+  cursor: default;
+  opacity: 1;
+}
+
+/* 自绘勾选框：原生那个在 15px 下太糙 */
+.msong .mpick,
+.mcheck input {
+  flex: 0 0 auto;
+  appearance: none;
+  -webkit-appearance: none;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  border: 1.5px solid #d5d0cb;
+  border-radius: 4px;
+  background: var(--surface);
+  cursor: pointer;
+  position: relative;
+  transition: background .12s, border-color .12s;
+}
+
+.msong .mpick:hover,
+.mcheck input:hover { border-color: #b9b3ac; }
+
+.msong .mpick:checked,
+.mcheck input:checked,
+.mcheck input:indeterminate {
+  background: var(--ink);
+  border-color: var(--ink);
+}
+
+.msong .mpick:checked::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 4px;
+  height: 8px;
+  border: solid #fff;
+  border-width: 0 1.6px 1.6px 0;
+  transform: rotate(42deg);
+}
+
+/* 半选状态：一条横杠 */
+.mcheck input:indeterminate::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 5.2px;
+  width: 6px;
+  height: 1.6px;
+  background: #fff;
+  border-radius: 1px;
+}
+
+.msong .mpick:focus-visible,
+.mcheck input:focus-visible {
+  outline: 2px solid rgba(28, 25, 23, .18);
+  outline-offset: 1px;
+}
+
+.msong.on { background: var(--line-soft); }
+
+/* ---------- 滚动条：Windows 默认那条又宽又灰，跟界面不搭 ---------- */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+::-webkit-scrollbar-thumb {
+  background: #ddd8d2;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: 6px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #c8c2bb;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+/* 搜索结果被 max-height 截断时，底部淡出，暗示还能往下滚（能滚才加，否则最后一行会发虚） */
+.mresults { padding-right: 4px; }
+
+.mresults.scrollable {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 14px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 14px), transparent);
+}

@@ -22,6 +22,7 @@ const HOSTS = [
   [["music.163.com"], "网易云"],
   [["y.qq.com", "i.y.qq.com", "c.y.qq.com"], "QQ音乐"],
   [["kugou.com", "m.kugou.com"], "酷狗音乐"],
+  [["suno.com", "suno.ai"], "Suno"],
 ];
 const ALL_HOSTS = HOSTS.flatMap((h) => h[0]).sort((a, b) => b.length - a.length);
 

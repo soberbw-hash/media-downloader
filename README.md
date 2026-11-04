@@ -39,6 +39,7 @@
 | 网易云音乐 | | ✅ | 免登录下免费曲目（320k） |
 | QQ音乐 | | ⚠️ | 必须先登录，vkey 按账号下发 |
 | 酷狗音乐 | | ⚠️ | 只做了搜索，播放地址拿不到 |
+| Suno | | ✅ | 贴分享链接；下 mp4 抽音轨转 mp3，需 ffmpeg |
 
 ✅ 直接可用　⚠️ 有条件可用
 
@@ -124,6 +125,35 @@ brew install ffmpeg
 
 仓储里没有内置任何第三方解析服务，也不打算接。
 
+### Suno
+
+贴分享链接就能下，三种形式都认：
+
+```
+https://suno.com/s/IdazmB1kcRTOjU5p          短链
+https://suno.com/song/6cf789dd-73ae-4f9c-... 完整页
+https://cdn1.suno.ai/{uuid}.mp4              视频直链
+```
+
+短链会跟一次 302 取出歌曲 uuid，然后打公开接口
+`https://studio-api.prod.suno.com/api/clip/{uuid}/`（不需要登录、不需要 cookie），
+拿标题、作者、封面、标签、歌词。
+
+音频这块要说清楚，Suno 现在把直接下载关掉了：
+
+- `audio_url` 对游客返回 `https://studio-api.prod.suno.com/api/forbidden`
+- `cdn1.suno.ai/{uuid}.mp3` 要 CloudFront 签名，裸链 403 `MissingKey`
+- 页面里那条 m4a（`d2lwuy8qc234o3.cloudfront.net`）是 AES 加密的，下下来是乱码
+
+能用的是 `video_url` 指向的 mp4：`https://cdn1.suno.ai/{uuid}.mp4`，实测
+824x1464 竖屏 H.264 + **197kbps AAC 48kHz 立体声**，不加密、不用登录。
+所以流程是「下 mp4 → 抽音轨」：
+
+- 机器上有 `ffmpeg` → 转成 192k mp3，歌名/作者/封面写进 ID3
+- 没有 `ffmpeg` → 留 mp4 原文件（剪映能直接分离音频）
+
+Suno 是境外站，没在设置里填代理时会自动走系统代理，所以浏览器能打开就能下。
+
 ## 为什么不是 exe
 
 公司电脑上 exe 经常被终端管控拦掉，而 `.bat` 和 `.py` 只是文本文件，不触发白名单审核。真正干活的 `python.exe` 和画窗口的 `msedge.exe` 都是机器上早就在跑的东西，我们只是让它们配合一下。
@@ -183,6 +213,7 @@ core.py          平台识别、任务队列、抖音解析、yt-dlp 封装
 music.py         网易云 / QQ音乐 / 酷狗，ID3 标签写入
 cn_sites.py      快手 / 小红书专用解析
 sph.py           视频号（直链 + 自定义接口）
+suno.py          Suno（AI 音乐）分享链接解析，见下
 login.py         账号登录，导出 cookies
 picker.py        系统「选择文件夹」对话框（跨平台入口）
 picker_win.py    Windows 那份实现（Win32 IFileOpenDialog）

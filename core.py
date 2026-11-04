@@ -69,6 +69,10 @@ PLATFORMS = [
      "hosts": ["y.qq.com", "i.y.qq.com", "c.y.qq.com"]},
     {"id": "kugou", "name": "酷狗音乐", "level": "experimental", "music": True,
      "hosts": ["kugou.com", "m.kugou.com", "wwwapi.kugou.com"]},
+    # —— AI 音乐：贴 Suno 分享链接下载，走 suno.py ——
+    {"id": "suno", "name": "Suno", "level": "full",
+     "hosts": ["suno.com", "suno.ai", "studio-api.prod.suno.com",
+               "cdn1.suno.ai", "cdn2.suno.ai"]},
 ]
 PINFO = {p["id"]: p for p in PLATFORMS}
 
@@ -172,10 +176,12 @@ KEY_PATTERNS = {
     "netease": [r"/song.*?[?&#]id=(\d+)", r"/song/(\d+)"],
     "qqmusic": [r"songDetail/([0-9A-Za-z]+)", r"songmid=([0-9A-Za-z]+)"],
     "kugou": [r"hash=([0-9a-fA-F]{32})", r"/song/([0-9a-fA-F]{32})"],
+    "suno": [r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"],
 }
 
 # 这些平台的服务器在国内直连不到，需要走代理
-OVERSEAS = {"youtube", "twitter", "tiktok", "instagram", "vimeo", "twitch", "reddit"}
+OVERSEAS = {"youtube", "twitter", "tiktok", "instagram", "vimeo", "twitch", "reddit",
+            "suno"}
 
 # 明显不是「单个视频」的链接，早点说清楚，别让用户等一轮解析
 NOT_VIDEO = {
@@ -1133,6 +1139,13 @@ class Manager(object):
             with self.lock:
                 t.kind = "audio"
             res = music_mod.download(t.url, music_out, progress, quality, cookies)
+        elif t.platform == "suno":
+            import suno  # 延迟导入，避免循环依赖
+            suno_out = (self.cfg.get("music_dir") or "").strip() or out_dir
+            os.makedirs(suno_out, exist_ok=True)
+            with self.lock:
+                t.kind = "audio"
+            res = suno.download(t.url, suno_out, progress, quality, proxy)
         elif t.platform == "weixin":
             import sph  # 延迟导入，避免循环依赖
             res = sph.download(t.url, out_dir, progress, quality,

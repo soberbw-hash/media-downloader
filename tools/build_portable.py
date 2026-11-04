@@ -107,6 +107,8 @@ def main():
     ap.add_argument("--dst", required=True, help="目标文件夹")
     ap.add_argument("--runtime", default="", help="当作内置运行时的 Python 目录")
     ap.add_argument("--no-exe", action="store_true", help="跳过 exe 打包")
+    ap.add_argument("--reset-data", action="store_true",
+                    help="连 config.json / history.json 一起覆盖（默认保留目标里的）")
     a = ap.parse_args()
 
     dst = os.path.abspath(a.dst)
@@ -118,15 +120,28 @@ def main():
         if f in skip:
             continue
         p = os.path.join(BASE, f)
-        if os.path.isfile(p):
-            shutil.copy2(p, os.path.join(app, f))
+        if not os.path.isfile(p):
+            continue
+        tgt = os.path.join(app, f)
+        # 配置和历史是用户数据：目标里已经有了就留着，别用开发机的覆盖过去
+        if f in DATA_FILES and os.path.isfile(tgt) and not a.reset_data:
+            print("保留已有:", f)
+            continue
+        shutil.copy2(p, tgt)
     # 顺带清掉上一版留下来的、这一版不该有的启动脚本
     for f in skip:
         old = os.path.join(app, f)
         if os.path.isfile(old):
             os.remove(old)
     for d in CODE_DIRS + DATA_DIRS:
-        copytree(os.path.join(BASE, d), os.path.join(app, d))
+        # cookies 目录里的 _profile 是登录用的浏览器配置，几十 MB，
+        # 而且带的是本机账号痕迹，绝不能进分发包
+        sk = ("__pycache__", "_profile") if d == "cookies" else ("__pycache__",)
+        copytree(os.path.join(BASE, d), os.path.join(app, d), sk)
+        if d == "cookies":
+            stale = os.path.join(app, d, "_profile")
+            if os.path.isdir(stale):
+                shutil.rmtree(stale, ignore_errors=True)
 
     if a.runtime:
         copytree(a.runtime, os.path.join(app, "runtime"))

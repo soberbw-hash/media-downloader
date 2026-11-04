@@ -34,7 +34,7 @@ import core  # noqa: E402
 import login as login_mod  # noqa: E402
 import picker  # noqa: E402
 
-APP_VERSION = "1.8.0"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
+APP_VERSION = "1.9.0"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
 UPDATE_REPO = "soberbw-hash/media-downloader"
 
 CONFIG_PATH = os.path.join(BASE, "config.json")
@@ -359,6 +359,15 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/api/login/cancel":
             login_mod.cancel()
             self._json({"ok": True, "status": login_mod.status()})
+
+        elif p == "/api/login/import":
+            ok, msg = login_mod.import_cookie(str(data.get("platform") or ""),
+                                              str(data.get("cookie") or ""))
+            self._json({"ok": ok, "error": "" if ok else msg, "msg": msg})
+
+        elif p == "/api/login/logout":
+            ok, msg = login_mod.logout(str(data.get("platform") or ""))
+            self._json({"ok": ok, "msg": msg})
 
         elif p == "/api/retry":
             ok = MANAGER.retry(str(data.get("id")))

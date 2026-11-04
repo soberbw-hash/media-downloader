@@ -200,9 +200,9 @@
         <div class="field">
           <label for="cfgQuality">清晰度</label>
           <select id="cfgQuality">
-            <option value="best">最高画质</option>
+            <option value="best">最高画质（音乐：会员无损）</option>
             <option value="1080">1080p 及以下</option>
-            <option value="720">720p 及以下</option>
+            <option value="720">720p 及以下（音乐：普通音质）</option>
             <option value="audio">仅音频（mp3）</option>
           </select>
         </div>
@@ -328,6 +328,10 @@
       大多数平台不登录也能下载。点「登录」会打开一个浏览器窗口，在里面扫码或输账号，
       登录完成后自动保存，以后不用再登。
     </p>
+    <p class="acct-lead">
+      网易云和 QQ音乐多一个「贴 Cookie」：不想开登录窗口，就把浏览器里已登录的
+      cookie 粘进去。贴的是你自己账号的，会员音质（无损）就按这个号走。
+    </p>
 
     <div id="logins" class="logins"></div>
     <div class="login-bar" id="loginBar"></div>
@@ -356,6 +360,21 @@
 </aside>
 
 <div class="toast" id="toast"></div>
+
+<!-- ---------- 粘贴 cookie ---------- -->
+<div class="modal" id="ckModal" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="ckTitle">
+    <h4 id="ckTitle">粘贴 Cookie</h4>
+    <p class="ck-tip" id="ckTip"></p>
+    <textarea id="ckInput" spellcheck="false" autocomplete="off"
+              placeholder="MUSIC_U=xxxxxx; __csrf=yyyyyy"></textarea>
+    <div class="ck-err" id="ckErr"></div>
+    <div class="modal-foot">
+      <button class="ghost-btn" id="ckCancel">取消</button>
+      <button class="save-btn" id="ckSave">保存</button>
+    </div>
+  </div>
+</div>
 
 <div class="fd" id="firstDir">
   <div class="fd-card">

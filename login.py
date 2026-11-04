@@ -6,6 +6,7 @@
 后续下载直接复用。这样不用装浏览器内核，也不用教用户去 DevTools 里复制。
 """
 import os
+import re
 import sys
 import threading
 import time
@@ -55,12 +56,14 @@ SITES = {
     "music_netease": {
         "name": "网易云音乐", "url": "https://music.163.com/",
         "need": ["MUSIC_U"], "domains": ["music.163.com"], "required": False,
-        "tip": "可选。不登录能下免费歌，登录后 VIP / 无版权的也能试",
+        "music": "netease",
+        "tip": "可选。不登录能下免费歌；贴上会员 cookie 能拿无损，VIP 曲也能下",
     },
     "music_qqmusic": {
         "name": "QQ音乐", "url": "https://y.qq.com/",
         "need": ["qm_keyst"], "domains": ["qq.com"], "required": True,
-        "tip": "必须登录。QQ 音乐的播放地址是登录后按账号下发的",
+        "music": "qqmusic",
+        "tip": "必须登录。QQ 音乐的播放地址是登录后按账号下发的，会员能拿无损",
     },
 }
 
@@ -93,14 +96,81 @@ def sites():
     out = []
     for pid, site in SITES.items():
         f = cookie_file(pid)
+        mpid = site.get("music")
+        acc = {}
+        if mpid:
+            try:
+                import music as music_mod
+                acc = music_mod.account(mpid)      # 自带 90 秒缓存，轮询扛得住
+            except Exception:
+                acc = {}
         out.append({
             "id": pid, "name": site["name"], "tip": site["tip"],
             "required": bool(site.get("required")),
             "logged_in": bool(f),
             "saved_at": int(os.path.getmtime(f)) if f else 0,
+            # 音乐平台多给一份：能不能手动贴 cookie、这个号是谁、是不是会员
+            "importable": bool(mpid),
+            "account": acc,
         })
     out.sort(key=lambda x: not x["required"])  # 稳定的，必须登录的排前面
     return out
+
+
+def import_cookie(pid, raw):
+    """手动贴进来的 cookie。音乐平台走 music.save_cookie（会校验关键项），
+    其余平台按「名字=值; 名字=值」存成 Netscape 文件。返回 (ok, 消息)。"""
+    site = SITES.get(pid)
+    if not site:
+        return False, "不支持的平台"
+    mpid = site.get("music")
+    if mpid:
+        try:
+            import music as music_mod
+            music_mod.save_cookie(mpid, raw)
+            music_mod.account(mpid, fresh=True)
+            return True, "已导入 %s 的 cookie" % site["name"]
+        except ValueError as e:
+            return False, str(e)
+        except Exception as e:
+            return False, "导入失败：%s" % str(e)[:120]
+    # 其它平台：认得 key=value 就行
+    pairs = []
+    for chunk in re.split(r"[;\n]+", (raw or "").strip()):
+        chunk = chunk.strip()
+        if "=" in chunk and not chunk.startswith("#"):
+            pairs.append(chunk)
+    if not pairs:
+        return False, "没认出 cookie 格式"
+    os.makedirs(COOKIE_DIR, exist_ok=True)
+    lines = ["# Netscape HTTP Cookie File", "# 手动导入", ""]
+    for p in pairs:
+        k, v = p.split("=", 1)
+        k, v = k.strip(), v.strip()
+        dom = "." + site["domains"][0]
+        lines.append("\t".join([dom, "TRUE", "/", "TRUE",
+                                str(int(time.time()) + 86400 * 365), k, v]))
+    with open(os.path.join(COOKIE_DIR, "%s.txt" % pid), "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    return True, "已导入 %s 的 cookie" % site["name"]
+
+
+def logout(pid):
+    """删掉这个平台的登录态。"""
+    site = SITES.get(pid)
+    if not site:
+        return False, "不支持的平台"
+    mpid = site.get("music")
+    if mpid:
+        import music as music_mod
+        music_mod.clear_cookie(mpid)
+    try:
+        os.remove(os.path.join(COOKIE_DIR, "%s.txt" % pid))
+    except OSError:
+        pass
+    if STATE.get("platform") == pid:
+        _set("idle", pid, "")
+    return True, "已退出 %s" % site["name"]
 
 
 _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -131,6 +201,22 @@ def _verify_xhs(cookies):
 
 
 _VERIFY = {"xhs": _verify_xhs}
+
+
+def _music_ok(mpid, cs, domains):
+    """拿浏览器里刚拿到的 cookie 去问一次账号接口。
+    返回 False 说明这还不是登录态（网易云登录成功瞬间 cookie 会分批写），继续等；
+    网络类失败返回 True，别因为接口抽风把用户卡在窗口里。"""
+    try:
+        import music as music_mod
+    except Exception:
+        return True
+    ck = "; ".join("%s=%s" % (c.get("name"), c.get("value")) for c in cs
+                   if any((c.get("domain") or "").lstrip(".").endswith(d) for d in domains))
+    r = music_mod.account(mpid, ck=ck)
+    if r.get("ok"):
+        return True
+    return "失效" not in (r.get("error") or "")
 
 
 def _netscape(cookies, domains):
@@ -271,6 +357,7 @@ def _worker(pid, proxy):
 
             deadline = time.time() + 300
             last_probe = time.time()
+            last_music = 0.0
             reloads = 0
             while time.time() < deadline and not _STOP.is_set():
                 try:
@@ -280,6 +367,18 @@ def _worker(pid, proxy):
                     return
                 names = {c.get("name") for c in cs}
                 if any(n in names for n in site["need"]):
+                    # 音乐平台：光有 cookie 不够，得确认这个号真的登上了，
+                    # 否则会把一份游客 cookie 存下来，之后下载一直说「没登录」。
+                    # 8 秒才查一次，别把账号接口打成限流。
+                    mpid = site.get("music")
+                    if mpid and time.time() - last_music > 8:
+                        last_music = time.time()
+                        if not _music_ok(mpid, cs, site["domains"]):
+                            try:
+                                page.wait_for_timeout(1500)
+                            except Exception:
+                                time.sleep(1.5)
+                            continue
                     checker = _VERIFY.get(site.get("verify") or "")
                     if site.get("verify") == "xhs":
                         if not (probe["ready"] and probe["guest"] is False):
@@ -316,6 +415,12 @@ def _worker(pid, proxy):
                     with open(os.path.join(COOKIE_DIR, "%s.txt" % pid), "w",
                               encoding="utf-8") as f:
                         f.write(_netscape(cs, site["domains"]))
+                    if site.get("music"):
+                        try:
+                            import music as music_mod
+                            music_mod.account(site["music"], fresh=True)
+                        except Exception:
+                            pass
                     ok = True
                     break
                 try:

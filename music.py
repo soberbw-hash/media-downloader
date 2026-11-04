@@ -25,6 +25,21 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 
 MUSIC_PLATFORMS = ("netease", "qqmusic", "kugou")
 
+#: 各平台「算登录」的关键 cookie。有它才说明这份 cookie 是你的账号，
+#: 也才可能拿到会员音质；只有游客 cookie 的会直接被判断成没登录。
+LOGIN_KEYS = {
+    "netease": ("MUSIC_U",),
+    "qqmusic": ("qm_keyst", "qqmusic_key"),
+}
+
+#: 平台名，报错时用
+PLAT_NAME = {"netease": "网易云音乐", "qqmusic": "QQ音乐", "kugou": "酷狗"}
+
+#: 账号查询缓存：{platform: (时间, 结果)}。前端每 3 秒轮询登录态，
+#: 不缓存会把接口打成限流。
+_ACC = {}
+_ACC_TTL = 90
+
 
 # ---------- 网络 ----------
 def _opener(verify=True, follow=True):
@@ -55,28 +70,198 @@ def _get_json(url, headers=None, data=None, timeout=25, verify=True):
         return json.loads(r.read().decode("utf-8", "replace"))
 
 
+def cookie_path(platform):
+    return os.path.join(BASE, "cookies", "music_%s.txt" % platform)
+
+
+def parse_cookie(raw):
+    """把用户粘进来的东西揉成一行 Cookie 头。
+
+    认这些形态（都是从浏览器里能直接复制到的）：
+      · `MUSIC_U=xxx; __csrf=yyy`                        —— DevTools 里复制的那串
+      · `Cookie: MUSIC_U=xxx; ...`                       —— 从请求头整行复制
+      · cURL 命令（`-H 'Cookie: ...'` 或 `-b '...'`）
+      · Netscape cookies.txt（7 列 tab 分隔，yt-dlp 导出的那种）
+      · JSON 数组 [{"name":"MUSIC_U","value":"xxx"}, ...] —— 插件导出的
+    认不出来就返回空串，让上层报错，别把垃圾写进文件。
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return ""
+
+    # JSON（插件导出）
+    if raw[0] in "[{":
+        try:
+            d = json.loads(raw)
+        except Exception:
+            d = None
+        if isinstance(d, dict) and isinstance(d.get("cookies"), list):
+            d = d["cookies"]
+        if isinstance(d, list):
+            pairs = []
+            for c in d:
+                if isinstance(c, dict) and c.get("name"):
+                    pairs.append("%s=%s" % (c["name"], c.get("value", "")))
+            return "; ".join(pairs)
+        if isinstance(d, dict):
+            return "; ".join("%s=%s" % (k, v) for k, v in d.items()
+                             if isinstance(v, (str, int)))
+
+    # cURL
+    if raw.lower().startswith("curl ") or " -h " in raw.lower():
+        m = re.search(r"-H\s+['\"]Cookie:\s*([^'\"]+)['\"]", raw, re.I)
+        if not m:
+            m = re.search(r"(?:-b|--cookie)\s+['\"]([^'\"]+)['\"]", raw, re.I)
+        if m:
+            raw = m.group(1).strip()
+
+    raw = re.sub(r"^cookie\s*:\s*", "", raw.strip(), flags=re.I)
+
+    # Netscape cookies.txt
+    if "\t" in raw:
+        pairs = []
+        for line in raw.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split("\t")
+            if len(parts) >= 7 and parts[5]:
+                pairs.append("%s=%s" % (parts[5], parts[6]))
+        return "; ".join(pairs)
+
+    # 一行 / 多行 key=value
+    pairs, seen = [], set()
+    for chunk in re.split(r"[;\n]+", raw):
+        chunk = chunk.strip()
+        if not chunk or "=" not in chunk:
+            continue
+        k = chunk.split("=", 1)[0].strip()
+        if not k or k in seen:
+            continue
+        seen.add(k)
+        pairs.append(chunk)
+    return "; ".join(pairs)
+
+
 def cookie_header(platform):
-    """把 cookies/music_<platform>.txt 读成一行 Cookie 头。
-    支持 Netscape cookies.txt 和「一整行 key=value; key=value」两种写法。"""
-    path = os.path.join(BASE, "cookies", "music_%s.txt" % platform)
+    """读 cookies/music_<platform>.txt，返回一行 Cookie 头；没有就空串。"""
+    path = cookie_path(platform)
     if not os.path.exists(path):
         return ""
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as f:
-            raw = f.read()
+            return parse_cookie(f.read())
     except OSError:
         return ""
-    if "=" in raw and "\t" not in raw and "\n" not in raw.strip():
-        return raw.strip()
-    pairs = []
-    for line in raw.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        parts = line.split("\t")
-        if len(parts) >= 7:
-            pairs.append("%s=%s" % (parts[5], parts[6]))
-    return "; ".join(pairs)
+
+
+def cookie_has_login(platform, ck=None):
+    """这份 cookie 里有没有该平台的关键登录项。"""
+    ck = ck if ck is not None else cookie_header(platform)
+    if not ck:
+        return False
+    names = {p.split("=", 1)[0].strip() for p in ck.split(";") if "=" in p}
+    return any(k in names for k in LOGIN_KEYS.get(platform, ()))
+
+
+def save_cookie(platform, raw):
+    """保存一份 cookie。返回规范化后的一行，认不出来抛 ValueError。
+    写法固定成单行，cookie_header 才读得回来。"""
+    if platform not in LOGIN_KEYS:
+        raise ValueError("这个平台不支持导入 cookie")
+    ck = parse_cookie(raw)
+    if not ck:
+        raise ValueError("没认出 cookie 格式，复制「名字=值; 名字=值」那一串就行")
+    if not cookie_has_login(platform, ck):
+        need = " / ".join(LOGIN_KEYS[platform])
+        raise ValueError("这份 cookie 里没有 %s，不是登录状态。请先在浏览器里登录 %s"
+                         % (need, PLAT_NAME.get(platform, platform)))
+    os.makedirs(os.path.dirname(cookie_path(platform)), exist_ok=True)
+    with open(cookie_path(platform), "w", encoding="utf-8") as f:
+        f.write(ck + "\n")
+    _ACC.pop(platform, None)
+    return ck
+
+
+def clear_cookie(platform):
+    """退出登录：删掉这份 cookie。返回是否真的删了。"""
+    try:
+        os.remove(cookie_path(platform))
+        _ACC.pop(platform, None)
+        return True
+    except OSError:
+        return False
+
+
+# ---------- 账号 / 会员态 ----------
+def account(platform, fresh=False, ck=None):
+    """查这份 cookie 是谁的、是不是会员。
+
+    返回 {"ok": True, "name": 昵称, "vip": bool, "detail": "黑胶VIP"}，
+    没登录或失效返回 {"ok": False, "error": "..."}。
+    结果缓存 90 秒，前端轮询不会把接口打爆。
+    传入 ck 时按「临时校验」处理：不读缓存也不写缓存（登录窗口里用）。
+    """
+    if platform not in LOGIN_KEYS:
+        return {"ok": False, "error": "不支持"}
+    tmp = ck is not None
+    if not tmp and not fresh:
+        hit = _ACC.get(platform)
+        if hit and time.time() - hit[0] < _ACC_TTL:
+            return hit[1]
+    if not tmp:
+        ck = cookie_header(platform)
+    if not ck:
+        r = {"ok": False, "error": "没登录"}
+    elif not cookie_has_login(platform, ck):
+        r = {"ok": False, "error": "cookie 里没有登录项"}
+    else:
+        try:
+            r = _account_netease(ck) if platform == "netease" else _account_qq(ck)
+        except Exception as e:
+            r = {"ok": False, "error": "查询失败：%s" % str(e)[:60]}
+    if not tmp:
+        _ACC[platform] = (time.time(), r)
+    return r
+
+
+def _account_netease(ck):
+    h = {"Referer": "https://music.163.com/", "Cookie": ck}
+    d = _get_json("https://music.163.com/api/nuser/account/get", h, timeout=12)
+    p = d.get("profile") or {}
+    if not p:
+        return {"ok": False, "error": "cookie 已失效，重新登录"}
+    # vipType: 0 普通 / 11 黑胶VIP（新版还会带 redVipLevel）
+    lv = int(p.get("vipType") or p.get("redVipLevel") or 0)
+    return {"ok": True, "name": p.get("nickname") or "",
+            "vip": lv > 0,
+            "detail": ("黑胶VIP" if lv >= 11 else ("音乐包" if lv > 0 else "")),
+            "expire": int(p.get("vipExpireTime") or 0)}
+
+
+def _account_qq(ck):
+    uin = ""
+    m = re.search(r"\buin=o?(\d+)", ck)
+    if m:
+        uin = m.group(1)
+    body = json.dumps({
+        "comm": {"ct": 24, "cv": 0, "format": "json", "uin": uin or "0"},
+        "req_0": {"module": "music.UserInfo.userInfoServer",
+                  "method": "GetLoginUserInfo", "param": {}},
+    }, ensure_ascii=False).encode()
+    d = _get_json("https://u.y.qq.com/cgi-bin/musicu.fcg", data=body,
+                  headers={"Referer": "https://y.qq.com/", "Cookie": ck,
+                           "Content-Type": "application/json"}, timeout=12)
+    req = d.get("req_0") or {}
+    data = req.get("data") or {}
+    if not data:
+        return {"ok": False, "error": "cookie 已失效，重新登录"}
+    vip = data.get("vipInfo") or {}
+    lv = int(vip.get("vipLevel") or data.get("viptype") or 0)
+    return {"ok": True, "name": data.get("nick") or data.get("nickname") or "",
+            "vip": lv > 0,
+            "detail": ("绿钻" if lv > 0 else ""),
+            "expire": int(vip.get("vipEndTime") or 0)}
 
 
 # ---------- 链接识别 ----------
@@ -383,22 +568,40 @@ def resolve(platform, sid, quality="best"):
     raise RuntimeError("不认识这个音乐平台")
 
 
+def _ext_of(url, br=0, default="mp3"):
+    """从地址后缀猜格式。有些 CDN 地址不带后缀，就按码率猜。"""
+    p = urllib.parse.urlsplit(url or "").path.lower()
+    for e in ("flac", "m4a", "mp3", "ape", "wav"):
+        if p.endswith("." + e):
+            return e
+    return "flac" if br >= 900000 else default
+
+
 def _resolve_netease(sid, quality):
     ck = cookie_header("netease")
     headers = {"Referer": "https://music.163.com/", "User-Agent": UA_PC}
     if ck:
         headers["Cookie"] = ck
-    # 先走官方接口（有 Cookie 时能拿到更高码率）
-    try:
-        d = _get_json("https://music.163.com/api/song/enhance/player/url?ids=[%s]&br=%s"
-                      % (sid, 320000 if quality != "720" else 999000), headers,
-                      timeout=15)
-        item = (d.get("data") or [{}])[0] or {}
-        if item.get("url"):
-            return [{"url": item["url"], "br": item.get("br") or 0,
-                     "size": item.get("size") or 0, "ext": "mp3"}]
-    except Exception:
-        pass
+    # 带会员 cookie 时先要无损（999000），拿不到再降 320k / 128k。
+    # 没登录就别浪费一次请求去要无损了，直接 320k。
+    if quality == "720":
+        brs = [320000, 128000]
+    elif cookie_has_login("netease", ck):
+        brs = [999000, 320000, 128000]
+    else:
+        brs = [320000, 128000]
+    for br in brs:
+        try:
+            d = _get_json("https://music.163.com/api/song/enhance/player/url?ids=[%s]&br=%d"
+                          % (sid, br), headers, timeout=15)
+            item = (d.get("data") or [{}])[0] or {}
+            url = item.get("url")
+            if url:
+                got = int(item.get("br") or 0)
+                return [{"url": url, "br": got, "size": item.get("size") or 0,
+                         "ext": _ext_of(url, got)}]
+        except Exception:
+            continue
 
     # 再走 outer 外链：免费曲目还是能给一条 302
     try:
@@ -409,36 +612,51 @@ def _resolve_netease(sid, quality):
     except urllib.error.HTTPError as e:
         loc = e.headers.get("Location") or ""
         if loc and "404" not in loc:
-            ext = "m4a" if ".m4a" in loc.lower() else "mp3"
-            return [{"url": loc, "br": 0, "size": 0, "ext": ext}]
+            return [{"url": loc, "br": 0, "size": 0, "ext": _ext_of(loc)}]
         raise RuntimeError(
             "网易云这首拿不到直链（多半是 VIP 或无版权）。"
-            "可以在设置里登录网易云后再试。")
+            "在设置 → 账号里贴上你自己的会员 cookie 再试。"
+            if not ck else
+            "网易云这首拿不到直链：cookie 已登录但没权限，"
+            "可能是会员过期，或者这首歌要单独购买。")
 
 
-def _resolve_qq(sid):
+def _resolve_qq(sid, quality="best"):
     ck = cookie_header("qqmusic")
     if not ck:
-        raise RuntimeError("QQ音乐的播放地址必须登录才有。先在设置里登录 QQ音乐，再点重试。")
+        raise RuntimeError("QQ音乐的播放地址必须登录才有。"
+                           "在设置 → 账号里贴上你自己的 cookie，或者点「登录」。")
     uin = ""
     m = re.search(r"\buin=o?(\d+)", ck)
     if m:
         uin = m.group(1)
+    # 音质靠文件名前缀要：F000 无损 / M800 320k mp3 / C400 128k m4a。
+    # 会员能拿到 F000，非会员的 F000 会回空 purl，自动落到下一档。
+    tries = ([("M800", ".mp3"), ("C400", ".m4a")] if quality == "720"
+             else [("F000", ".flac"), ("M800", ".mp3"), ("C400", ".m4a")])
+    names = ["%s%s%s%s" % (pre, sid, sid, ext) for pre, ext in tries]
     body = json.dumps({
         "req_0": {"module": "vkey.GetVkeyServer", "method": "CgiGetVkey",
-                  "param": {"guid": "10000", "songmid": [sid], "songtype": [0],
+                  "param": {"guid": "10000", "songmid": [sid] * len(names),
+                            "songtype": [0] * len(names), "filename": names,
                             "uin": uin or "0", "loginflag": 1, "platform": "20"}}},
         ensure_ascii=False).encode()
     d = _get_json("https://u.y.qq.com/cgi-bin/musicu.fcg", data=body,
                   headers={"Referer": "https://y.qq.com/", "Cookie": ck,
                            "Content-Type": "application/json"})
-    info = (((d.get("req_0") or {}).get("data") or {}).get("midurlinfo") or [{}])[0]
-    purl = info.get("purl") or ""
-    if not purl:
-        raise RuntimeError("QQ音乐返回了空地址，通常是没登录成功或这首歌要会员。重新登录试试。")
-    base = "https://ws.stream.qqmusic.qq.com/"
-    return [{"url": base + purl, "br": 0, "size": 0,
-             "ext": "m4a" if ".m4a" in purl.lower() else "mp3"}]
+    infos = (((d.get("req_0") or {}).get("data") or {}).get("midurlinfo") or [])
+    out = []
+    for i, info in enumerate(infos):
+        purl = info.get("purl") or ""
+        if not purl:
+            continue
+        fn = info.get("filename") or (names[i] if i < len(names) else "")
+        out.append({"url": "https://ws.stream.qqmusic.qq.com/" + purl, "br": 0,
+                    "size": 0, "ext": _ext_of(fn, 0, "mp3")})
+    if out:
+        return out
+    raise RuntimeError("QQ音乐没给地址：要么这首歌是会员专享（你的号没有权限），"
+                       "要么 cookie 已经失效，去设置里重登一下。")
 
 
 def _resolve_kugou(sid):

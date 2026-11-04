@@ -875,16 +875,43 @@ function loginRow(s, status, busy) {
   const row = document.createElement("div");
   row.className = "login-row";
   const running = busy && status.platform === s.id;
-  const stCls = running ? "st run" : (s.logged_in ? "st ok" : "st");
-  const stText = running ? "等待中" : (s.logged_in ? "已登录" : "未登录");
+  const acc = s.account || {};
+  // cookie 文件在，但账号接口说失效了 → 老实显示「已失效」，别骗人
+  const dead = !!(acc.error && String(acc.error).indexOf("失效") >= 0);
+  const on = !dead && (!!s.logged_in || !!acc.ok);
+  const stCls = running ? "st run" : (dead ? "st bad" : (on ? "st ok" : "st"));
+  const stText = running ? "等待中" : (dead ? "已失效" : (on ? "已登录" : "未登录"));
+  // 昵称和会员徽标单独占一行：抽屉只有 330px，塞在名称后面会把按钮挤出去
+  const sub = acc.ok
+    ? `<span class="sub"><b>${esc(acc.name || "已登录")}</b>`
+      + (acc.vip ? `<span class="vip">${esc(acc.detail || "VIP")}</span>` : "")
+      + `</span>`
+    : "";
+  const paste = s.importable
+    ? `<button type="button" data-act="paste" title="从浏览器里复制 cookie 贴进来">粘贴</button>`
+    : "";
+  const out = s.logged_in || acc.ok ? `<button type="button" data-act="out">退出</button>` : "";
   row.innerHTML = iconHTML(s.id)
     + `<span class="nm">${esc(s.name)}</span>`
     + `<span class="${stCls}">${stText}</span>`
-    + `<button type="button">${s.logged_in ? "重登" : "登录"}</button>`;
-  row.title = s.tip || "";
-  const btn = row.querySelector("button");
-  btn.disabled = busy;
-  btn.onclick = () => startLogin(s.id);
+    + `<span class="acts">${paste}<button type="button" data-act="login">`
+    + `${on ? "重登" : "登录"}</button>${out}</span>`
+    + sub;
+  row.title = acc.ok && acc.error ? acc.error : (s.tip || "");
+
+  const lb = row.querySelector('[data-act="login"]');
+  lb.disabled = busy;
+  lb.onclick = () => startLogin(s.id);
+  const pb = row.querySelector('[data-act="paste"]');
+  if (pb) {
+    pb.disabled = busy;
+    pb.onclick = () => openCookieModal(s);
+  }
+  const ob = row.querySelector('[data-act="out"]');
+  if (ob) {
+    ob.disabled = busy;
+    ob.onclick = () => logoutSite(s);
+  }
   return row;
 }
 
@@ -917,6 +944,75 @@ async function startLogin(pid) {
   const r = await post("/api/login/start", { platform: pid });
   if (!r.ok) toast(r.error || "打不开登录窗口");
   loadLogins(true);
+}
+
+/* 手动贴 cookie：给不想开登录窗口、或者登录窗口抽风的人留的一条路 */
+let ckSite = null;
+
+const CK_TIP = {
+  music_netease:
+    "在浏览器里登录 music.163.com，按 F12 → Application → Cookies → music.163.com，"
+    + "找到 <code>MUSIC_U</code> 复制它的值，或者用 Cookie 导出插件整串复制，粘进来就行。",
+  music_qqmusic:
+    "在浏览器里登录 y.qq.com，按 F12 → Application → Cookies → y.qq.com，"
+    + "把 <code>qm_keyst</code> 和 <code>uin</code> 一起复制；用插件导出的整串直接粘也行。",
+};
+
+function openCookieModal(s) {
+  ckSite = s;
+  $("#ckTitle").textContent = "粘贴 " + s.name + " Cookie";
+  $("#ckTip").innerHTML = CK_TIP[s.id]
+    || "把浏览器里的 cookie 复制过来，整串「名字=值; 名字=值」即可。";
+  $("#ckInput").value = "";
+  $("#ckErr").textContent = "";
+  $("#ckModal").hidden = false;
+  setTimeout(() => $("#ckInput").focus(), 40);
+}
+
+function closeCookieModal() {
+  $("#ckModal").hidden = true;
+  ckSite = null;
+}
+
+async function saveCookie() {
+  if (!ckSite) return;
+  const raw = $("#ckInput").value.trim();
+  if (!raw) {
+    $("#ckErr").textContent = "还没贴内容";
+    return;
+  }
+  const btn = $("#ckSave");
+  btn.disabled = true;
+  const r = await post("/api/login/import", { platform: ckSite.id, cookie: raw });
+  btn.disabled = false;
+  if (!r.ok) {
+    $("#ckErr").textContent = r.error || "保存失败";
+    return;
+  }
+  closeCookieModal();
+  toast(r.msg || "已保存");
+  loadLogins(true);
+}
+
+async function logoutSite(s) {
+  if (!window.confirm("退出 " + s.name + " 的登录？")) return;
+  const r = await post("/api/login/logout", { platform: s.id });
+  toast(r.msg || (r.ok ? "已退出" : "退出失败"));
+  loadLogins(true);
+}
+
+/* 脚本在 body 末尾加载，DOM 已经就绪，直接绑 */
+if (typeof document !== "undefined") {
+  const _m = $("#ckModal");
+  if (_m) {
+    $("#ckSave").onclick = saveCookie;
+    $("#ckCancel").onclick = closeCookieModal;
+    _m.addEventListener("click", (e) => { if (e.target === _m) closeCookieModal(); });
+    $("#ckInput").addEventListener("keydown", (e) => {
+      if (e.key === "Escape") closeCookieModal();
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) saveCookie();
+    });
+  }
 }
 
 /* ---------- 下载目录 ---------- */

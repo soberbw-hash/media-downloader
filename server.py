@@ -30,6 +30,9 @@ import core  # noqa: E402
 import login as login_mod  # noqa: E402
 import picker  # noqa: E402
 
+APP_VERSION = "1.5.0"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
+UPDATE_REPO = "soberbw-hash/media-downloader"
+
 CONFIG_PATH = os.path.join(BASE, "config.json")
 DEFAULT_CFG = {
     "out_dir": os.path.join(BASE, "downloads"),
@@ -49,18 +52,7 @@ PORT_MIN = 8765
 PORT_MAX = 8785
 
 # 搜索列表里点「下载」时，把 (平台, id) 还原成一条能走 classify 的链接
-MUSIC_URL_TPL = {
-    "netease": "https://music.163.com/song?id=%s",
-    "qqmusic": "https://y.qq.com/n/ryqq/songDetail/%s",
-    "kugou": "https://www.kugou.com/song/#hash=%s",
-}
-
-
-def _music_url(platform, sid):
-    tpl = MUSIC_URL_TPL.get(platform)
-    if not tpl or not sid:
-        return ""
-    return tpl % sid
+_music_url = core.music_song_url
 
 MODE = "web"          # web | app
 _SRV = None
@@ -296,6 +288,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_error(404)
                 return
             self._file(fp, self._img_ctype(fp))
+        elif p == "/api/check_update":
+            self._json(self._check_update())
         elif p == "/api/ping":
             self._json({"ok": True, "mode": MODE})
         elif p == "/api/history":
@@ -308,6 +302,30 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"sites": login_mod.sites(), "status": login_mod.status()})
         else:
             self.send_error(404)
+
+    def _check_update(self):
+        """和 GitHub 上的 version.txt 比版本。网络不通就如实说，别假装是最新。"""
+        import re as _re
+
+        def _norm(v):
+            return tuple(int(x) for x in _re.findall(r"\d+", v or "0"))
+
+        url = "https://api.github.com/repos/%s/contents/version.txt" % UPDATE_REPO
+        try:
+            req = urllib.request.Request(url, headers={
+                "User-Agent": "VideoDL/" + APP_VERSION,
+                "Accept": "application/vnd.github.raw",
+            })
+            # 走系统代理（公司网访问 GitHub 需要），8 秒超时
+            with urllib.request.urlopen(req, timeout=8) as r:
+                latest = r.read().decode("utf-8", "replace").strip()
+        except Exception as e:
+            return {"ok": False, "current": APP_VERSION,
+                    "error": "连不上更新服务器（" + str(e)[:60] + "）"}
+        has = _norm(latest) > _norm(APP_VERSION)
+        return {"ok": True, "current": APP_VERSION, "latest": latest,
+                "has_update": has,
+                "url": "https://github.com/%s/releases/latest" % UPDATE_REPO}
 
     # ---------- POST ----------
     def do_POST(self):
@@ -358,14 +376,30 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": True})
 
         elif p == "/api/music/search":
-            plat = str(data.get("platform") or "netease")
+            plat = str(data.get("platform") or "all")
             kw = str(data.get("q") or "").strip()
-            if plat not in ("netease", "qqmusic", "kugou"):
+            limit = int(data.get("limit") or 24)
+            if plat not in ("netease", "qqmusic", "kugou", "all"):
                 self._json({"ok": False, "error": "这个平台还没接", "items": []})
                 return
             try:
                 import music as music_mod
-                items = music_mod.search(plat, kw, int(data.get("limit") or 24))
+                if plat == "all":
+                    # 全网：能下的两个平台一起搜，结果交错排，免得一个平台把列表占满
+                    parts = []
+                    for name in ("netease", "qqmusic"):
+                        try:
+                            parts.append(music_mod.search(name, kw, max(8, limit // 2)))
+                        except Exception:
+                            parts.append([])      # 单个平台挂了不影响另一个
+                    merged = []
+                    for i in range(max([len(x) for x in parts] or [0])):
+                        for x in parts:
+                            if i < len(x):
+                                merged.append(x[i])
+                    items = merged[:limit]
+                else:
+                    items = music_mod.search(plat, kw, limit)
                 self._json({"ok": True, "items": items})
             except Exception as e:
                 self._json({"ok": False, "error": str(e)[:200], "items": []})

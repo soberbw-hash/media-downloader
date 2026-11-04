@@ -18,6 +18,10 @@ const HOSTS = [
   [["twitch.tv"], "Twitch"],
   [["reddit.com", "redditmedia.com", "redd.it"], "Reddit"],
   [["channels.weixin.qq.com", "weixin.qq.com"], "视频号"],
+  // 音乐：和视频同一个框，识别出来直接走音乐通道
+  [["music.163.com"], "网易云"],
+  [["y.qq.com", "i.y.qq.com", "c.y.qq.com"], "QQ音乐"],
+  [["kugou.com", "m.kugou.com"], "酷狗音乐"],
 ];
 const ALL_HOSTS = HOSTS.flatMap((h) => h[0]).sort((a, b) => b.length - a.length);
 
@@ -80,21 +84,36 @@ function platformOf(url) {
   return null;
 }
 
+// 音乐链接再细分一下：歌单会展开成几十首，贴之前就该知道
+function musicKind(url) {
+  let x;
+  try { x = new URL(url); } catch (e) { return null; }
+  const h = x.hostname.toLowerCase();
+  if (!/(^|\.)music\.163\.com$|(^|\.)y\.qq\.com$|(^|\.)kugou\.com$/.test(h)) return null;
+  const s = (x.pathname + x.search + x.hash).toLowerCase();
+  if (/playlist|playsquare|albumdetail|\/album|disstid/.test(s)) return "歌单";
+  return "单曲";
+}
+
 function renderDetected(urls) {
   const box = $("#detected");
   box.innerHTML = "";
   if (!urls || !urls.length) {
     const el = document.createElement("span");
     el.className = "ghost";
-    el.textContent = window.matchMedia("(hover: none)").matches
-      ? "粘贴链接即可"
-      : (autoPaste ? "Ctrl+V 粘贴" : "Ctrl+V 粘贴后点开始");
+    const typed = ((typeof input !== "undefined" && input.value) || "").trim();
+    el.textContent = typed
+      ? "没有链接，回车按歌名搜"
+      : (window.matchMedia("(hover: none)").matches
+        ? "粘贴链接即可"
+        : (autoPaste ? "Ctrl+V 粘贴" : "Ctrl+V 粘贴后点开始"));
     box.appendChild(el);
     return;
   }
   const count = {};
   urls.forEach((u) => {
-    const n = platformOf(u) || "未知";
+    const mk = musicKind(u);
+    const n = mk ? `${platformOf(u) || "音乐"} · ${mk}` : (platformOf(u) || "未知");
     count[n] = (count[n] || 0) + 1;
   });
   Object.keys(count).forEach((n) => {
@@ -623,7 +642,8 @@ function renderSupport(list) {
   if (supportRendered) return;
   supportRendered = true;
   const box = $("#support");
-  box.innerHTML = '<span class="label">支持</span>';
+  if (!box) return;
+  box.innerHTML = "";
   list.forEach((p) => {
     const el = document.createElement("span");
     el.className = "tag";
@@ -645,47 +665,6 @@ function renderSupport(list) {
     el.textContent = p.name;
     box.appendChild(el);
   });
-
-  const more = document.createElement("button");
-  more.type = "button";
-  more.className = "more";
-  box.appendChild(more);
-  more.onclick = () => {
-    const opened = box.classList.toggle("open");
-    if (opened) {
-      box.querySelectorAll(".tag").forEach((t) => { t.hidden = false; });
-      more.textContent = "收起";
-      more.title = "";
-    } else {
-      more.textContent = "";
-      fitSupport();
-    }
-  };
-  fitSupport();
-}
-
-/* 一行放不下就收起末尾几个，显示 +N */
-function fitSupport() {
-  const box = $("#support");
-  if (!box) return;
-  const more = box.querySelector(".more");
-  const tags = [...box.querySelectorAll(".tag")];
-  if (!more || !tags.length) return;
-  if (box.classList.contains("open")) return;
-
-  tags.forEach((t) => { t.hidden = false; });
-  more.hidden = false;
-  more.textContent = "";
-  const over = () => box.scrollWidth > box.clientWidth + 1;
-  let n = tags.length;
-  while (n > 3 && over()) { tags[n - 1].hidden = true; n--; }
-  const k = tags.length - n;
-  if (k > 0) {
-    more.textContent = "+" + k;
-    more.title = "还有 " + tags.slice(n).map((t) => t.textContent).join("、");
-  } else {
-    more.hidden = true;
-  }
 }
 
 /* ---------- 提交：一次粘贴 = 一批 ---------- */
@@ -735,9 +714,9 @@ function flashComposer() {
 
 async function submitBox() {
   const text = $("#input").value.trim();
-  if (!text) { toast("先贴一个链接"); return; }
+  if (!text) { toast("贴个链接，或者打歌名搜歌"); return; }
   const urls = urlsIn(text);
-  if (!urls.length) { toast("没找到链接"); return; }
+  if (!urls.length) { toast("没找到链接，搜歌请切到「搜歌」"); return; }
   $("#input").value = "";
   $("#input").style.height = "auto";
   renderDetected([]);
@@ -775,7 +754,10 @@ function autoGrow() {
 }
 
 input.addEventListener("keydown", (e) => {
-  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); submitBox(); }
+  if (e.key !== "Enter" || e.isComposing) return;   // 输入法选词时的回车不算
+  if (e.shiftKey) return;                            // Shift+Enter 换行
+  e.preventDefault();
+  submitBox();
 });
 
 /* 拖文字进来也认 */
@@ -1008,6 +990,7 @@ function openDrawer() {
   $("#cfgSph").value = cfg.sph_api || "";
   $("#cfgConc").value = String(cfg.concurrency || 3);
   $("#cfgNameTpl").value = cfg.name_tpl || "";
+  syncNameUI();
   $("#cfgMusicDir").value = cfg.music_dir || "";
   $("#cfgCover").checked = !!cfg.save_cover;
   $("#cfgSubs").checked = !!cfg.down_subs;
@@ -1056,6 +1039,112 @@ if (advBox) {
   });
 }
 
+/* ---------- 文件命名：下拉预设 + 可点标签 ---------- */
+const NAME_PRESETS = {
+  "": "",
+  "{date}_{platform}_{author}_{title}": "{date}_{platform}_{author}_{title}",
+  "{platform}_{author}_{title}": "{platform}_{author}_{title}",
+  "{author}_{title}": "{author}_{title}",
+  "{date}_{title}": "{date}_{title}",
+};
+
+const TOKEN_CN = {
+  title: "标题", author: "作者", platform: "平台",
+  date: "日期", time: "时间", id: "ID", kind: "类型",
+};
+
+function nameExample(tpl) {
+  if (!tpl) return "";
+  const fake = { title: "视频标题", author: "作者", platform: "抖音",
+                 date: "20260101", time: "120000", id: "1234", kind: "视频" };
+  let out = tpl;
+  Object.keys(fake).forEach((k) => { out = out.split("{" + k + "}").join(fake[k]); });
+  return out + ".mp4";
+}
+
+function syncNameUI(fromSelect) {
+  const pre = $("#cfgNamePre");
+  const inp = $("#cfgNameTpl");
+  const edit = $("#nameEdit");
+  const hint = $("#nameHint");
+  if (!pre || !inp) return;
+  const v = inp.value.trim();
+  if (!fromSelect) {
+    // 输入框变化时同步下拉；但只要用户选过模板/自定义，编辑区就别收，
+    // 不然拼到一半清个空，整个编辑器就消失了
+    if (!v) {
+      if (pre.value && pre.value !== "__custom__") pre.value = "__custom__";
+    } else if (Object.prototype.hasOwnProperty.call(NAME_PRESETS, v)) {
+      pre.value = v;
+    } else {
+      pre.value = "__custom__";
+    }
+  }
+  edit.hidden = pre.value === "";
+  const ex = nameExample(v);
+  hint.textContent = ex
+    ? "示例：" + ex
+    : "留空用原标题。选「自定义」后，点标签往里加，用下划线连接。";
+}
+
+if ($("#cfgNamePre")) {
+  $("#cfgNamePre").addEventListener("change", () => {
+    const v = $("#cfgNamePre").value;
+    const inp = $("#cfgNameTpl");
+    if (v !== "__custom__") inp.value = v;   // 预设 = 直接填模板；自定义 = 保留现内容
+    syncNameUI(true);
+    if (v !== "") inp.focus();
+  });
+  $("#cfgNameTpl").addEventListener("input", syncNameUI);
+  $("#nameToks").addEventListener("click", (e) => {
+    const b = e.target.closest(".tok");
+    if (!b) return;
+    const inp = $("#cfgNameTpl");
+    const token = b.dataset.t || "";
+    const pos = inp.selectionStart != null ? inp.selectionStart : inp.value.length;
+    const before = inp.value.slice(0, pos);
+    const after = inp.value.slice(inp.selectionEnd != null ? inp.selectionEnd : pos);
+    // 光标在中间且两边都有内容时，自动补个下划线连起来
+    let mid = token;
+    if (before && !/[_.\-]$/.test(before)) mid = "_" + mid;
+    inp.value = before + mid + after;
+    const caret = (before + mid).length;
+    inp.focus();
+    try { inp.setSelectionRange(caret, caret); } catch (e) {}
+    syncNameUI();
+  });
+}
+
+/* ---------- 版本与更新 ---------- */
+async function checkUpdate(manual) {
+  const msg = $("#updMsg");
+  if (manual && msg) msg.textContent = "正在检查…";
+  try {
+    const r = await fetch("/api/check_update").then((x) => x.json());
+    if (r.current) {
+      const cv = $("#curVer");
+      if (cv) cv.textContent = "v" + r.current;
+    }
+    if (!r.ok) {
+      if (msg) msg.textContent = manual ? (r.error || "检查失败，稍后再试") : "启动时自动检查新版";
+      return;
+    }
+    if (msg) msg.textContent = "当前版本 v" + r.current + (r.has_update ? "" : "，已是最新");
+    if (r.has_update) {
+      if (msg) {
+        msg.innerHTML = "发现新版 v" + esc(r.latest) +
+          " · <a href=\"" + esc(r.url) + "\" target=\"_blank\" rel=\"noreferrer\">去下载</a>";
+      }
+      toast("发现新版本 v" + r.latest + "，打开设置可更新", 3600);
+    } else if (manual) {
+      toast("已是最新版 v" + r.current);
+    }
+  } catch (e) {
+    if (msg) msg.textContent = manual ? "检查失败，网络不通" : "启动时自动检查新版";
+  }
+}
+if ($("#checkUpd")) $("#checkUpd").onclick = () => checkUpdate(true);
+
 $("#pickOut").onclick = async () => {
   const p = await openPicker($("#pickOut"), "浏览");
   if (!p) return;
@@ -1088,7 +1177,7 @@ $("#saveCfg").onclick = async () => {
     cookies_file: $("#cfgCookies").value.trim(),
     sph_api: $("#cfgSph").value.trim(),
     concurrency: parseInt($("#cfgConc").value, 10) || 3,
-    name_tpl: $("#cfgNameTpl").value.trim(),
+    name_tpl: ($("#cfgNamePre").value === "" ? "" : $("#cfgNameTpl").value.trim()),
     music_dir: $("#cfgMusicDir").value.trim(),
     save_cover: $("#cfgCover").checked,
     down_subs: $("#cfgSubs").checked,
@@ -1104,17 +1193,6 @@ $("#cancelAll").onclick = async () => {
   toast(r.count ? `已取消 ${r.count} 条` : "没有正在跑的任务");
   poll();
 };
-
-/* 窗口变宽变窄时，重新算平台标签能放几个 */
-let supportT = 0;
-window.addEventListener("resize", () => {
-  clearTimeout(supportT);
-  supportT = setTimeout(() => {
-    const box = $("#support");
-    if (box && box.classList.contains("open")) box.classList.remove("open");
-    fitSupport();
-  }, 120);
-});
 
 const touchOnly = window.matchMedia("(hover: none)").matches;
 if (window.innerWidth < 620) {
@@ -1138,12 +1216,13 @@ let pollTimer = 0;
 })();
 document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });
 setFilter(taskFilter);
+setTimeout(() => checkUpdate(false), 1200);   // 启动时静默检查新版
 // 只有账号面板开着的时候才轮询登录态，设置面板不用每秒问
 setInterval(() => {
   if ($("#acctDrawer").classList.contains("on")) loadLogins();
 }, 1500);
 
-/* ================= 视频 / 音乐 切换 ================= */
+/* ================= 链接下载 / 搜歌 切换 ================= */
 let tabMode = localStorage.getItem("tabMode") === "music" ? "music" : "video";
 
 function applyTab(m) {
@@ -1171,23 +1250,52 @@ document.querySelectorAll("#tabs .tab").forEach((b) => {
   b.addEventListener("click", () => applyTab(b.dataset.tab));
 });
 
-/* ================= 音乐搜索 ================= */
+/* ================= 搜歌：一次问三个平台 ================= */
+let mPlat = localStorage.getItem("mPlat") || "all";
 let mItems = [];
 let mSel = new Set();
+let searching = false;
+
+const PLAT_NAME = { all: "全网", netease: "网易云", qqmusic: "QQ音乐", kugou: "酷狗" };
+
+function applyPlat(p) {
+  mPlat = p;
+  localStorage.setItem("mPlat", p);
+  document.querySelectorAll("#mPlats .plat").forEach((b) => {
+    b.classList.toggle("on", b.dataset.p === p);
+  });
+}
+
+document.querySelectorAll("#mPlats .plat").forEach((b) => {
+  b.onclick = () => {
+    applyPlat(b.dataset.p);
+    const q = $("#mQuery").value.trim();
+    if (q) musicSearch(q);      // 换平台直接重搜
+  };
+});
+applyPlat(mPlat);
 
 function musicRow(s, i) {
   const on = mSel.has(i);
   const cov = s.cover
     ? '<img class="cov" src="' + esc(s.cover) + '" alt="" loading="lazy" onerror="this.style.visibility=\'hidden\'">'
-    : '<span class="cov"></span>';
+    : '<span class="cov" data-p="' + esc(s.platform || "") + '"></span>';
   const sub = esc(s.artist || "未知歌手") + (s.album ? " · " + esc(s.album) : "");
+  const src = s.platform
+    ? '<span class="psrc" data-p="' + esc(s.platform) + '">' +
+      esc(PLAT_NAME[s.platform] || s.platform) + "</span>"
+    : "";
   return '<div class="msong' + (on ? " on" : "") + '">' +
     '<input type="checkbox" class="mpick" data-i="' + i + '"' +
     (on ? " checked" : "") + ' aria-label="勾选这首歌">' + cov +
     '<div class="meta"><div class="t">' + esc(s.title || "未知曲目") + "</div>" +
-    '<div class="a">' + sub + "</div></div>" +
+    '<div class="a">' + src + sub + "</div></div>" +
     '<span class="d">' + (s.duration ? fmtDur(s.duration) : "") + "</span>" +
-    '<button class="dl" data-i="' + i + '">下</button></div>';
+    '<button class="dl" data-i="' + i + '" title="下载" aria-label="下载这首歌">' +
+    '<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true">' +
+    '<path d="M12 3v11m0 0l-4.2-4.2M12 14l4.2-4.2M5 19h14" fill="none" stroke="currentColor"' +
+    ' stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+    "</button></div>";
 }
 
 function syncMusicSel() {
@@ -1234,28 +1342,28 @@ function renderMusic() {
   syncMusicSel();
 }
 
-async function musicSearch() {
-  const q = $("#mQuery").value.trim();
+async function musicSearch(q) {
+  q = (q || $("#mQuery").value || "").trim();
   if (!q) { $("#mQuery").focus(); return; }
-  const btn = $("#mGo");
-  btn.disabled = true;
-  $("#mHint").textContent = "搜索中…";
   $("#mResults").innerHTML = "";
+  $("#mBar").hidden = true;
+  $("#mHint").textContent = `${PLAT_NAME[mPlat] || "全网"} 搜索「${q}」…`;
   mSel.clear();
+  searching = true;
+  $("#mGo").disabled = true;
   try {
-    const r = await post("/api/music/search", {
-      platform: $("#mPlatform").value, q, limit: 24,
-    });
+    const r = await post("/api/music/search", { platform: mPlat, q, limit: 24 });
     if (!r.ok) { $("#mHint").textContent = r.error || "搜索失败"; return; }
     mItems = r.items || [];
     renderMusic();
     $("#mHint").textContent = mItems.length
-      ? "勾上多首可以一起下，或者直接点「下」"
-      : "";
+      ? `找到 ${mItems.length} 首 · 勾上多首可以一起下`
+      : "没搜到，换个关键词或换个平台";
   } catch (e) {
     $("#mHint").textContent = "搜索失败，服务可能已经关了";
   } finally {
-    btn.disabled = false;
+    searching = false;
+    $("#mGo").disabled = false;
   }
 }
 
@@ -1280,7 +1388,12 @@ async function addMusic(list, btn) {
   }
 }
 
-if ($("#mGo")) $("#mGo").onclick = musicSearch;
+if ($("#mGo")) $("#mGo").onclick = () => musicSearch();
+if ($("#mQuery")) {
+  $("#mQuery").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); musicSearch(); }
+  });
+}
 
 if ($("#mAll")) {
   $("#mAll").onchange = () => {
@@ -1299,11 +1412,6 @@ if ($("#mBatch")) {
     renderMusic();
   };
 }
-if ($("#mQuery")) {
-  $("#mQuery").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") { e.preventDefault(); musicSearch(); }
-  });
-}
 
 /* ================= 历史 ================= */
 let histItems = [];
@@ -1311,7 +1419,7 @@ let histItems = [];
 function histRow(x, i) {
   const cov = x.thumb
     ? '<img class="cov" src="' + esc(x.thumb) + '" alt="" loading="lazy" onerror="this.style.visibility=\'hidden\'">'
-    : '<span class="cov"></span>';
+    : '<span class="cov" data-p="' + esc(s.platform || "") + '"></span>';
   const sub = [x.platform_name || "", x.author || "", fmtSize(x.size || 0)]
     .filter(Boolean).join(" · ");
   return '<div class="hitem" data-i="' + i + '">' + cov +

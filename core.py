@@ -70,6 +70,21 @@ PLATFORMS = [
 ]
 PINFO = {p["id"]: p for p in PLATFORMS}
 
+#: (平台, 歌曲 id) → 一条能被 classify 认出来的链接
+MUSIC_URL_TPL = {
+    "netease": "https://music.163.com/song?id=%s",
+    "qqmusic": "https://y.qq.com/n/ryqq/songDetail/%s",
+    "kugou": "https://www.kugou.com/song/#hash=%s",
+}
+
+
+def music_song_url(platform, sid):
+    tpl = MUSIC_URL_TPL.get(platform)
+    if not tpl or not sid:
+        return ""
+    return tpl % sid
+
+
 _ALL_HOSTS = sorted({h for p in PLATFORMS for h in p["hosts"]}, key=len, reverse=True)
 
 # RFC3986 可见字符，只吃 ASCII。老的 \w 会把后面的中文一起吞进链接
@@ -1191,8 +1206,25 @@ class Manager(object):
                 del self.tasks[tid]
 
 
+def _expand_music(url):
+    """歌单 / 专辑链接展开成单曲列表；单曲、普通视频返回 None。
+    读不出来抛 RuntimeError，由调用方记成一条 skipped。"""
+    try:
+        import music as music_mod        # 延迟导入，避免循环依赖
+    except Exception:
+        return None
+    try:
+        info = music_mod.parse_url_follow(url)
+    except Exception:
+        return None
+    if not info or info.get("kind") not in ("playlist", "album"):
+        return None
+    return music_mod.playlist_tracks(info)
+
+
 def add_blocks(manager, blocks):
-    """每一块 = 一次粘贴。一块里如果有多条链接，全部拆开，但归到同一个批次号。"""
+    """每一块 = 一次粘贴。一块里如果有多条链接，全部拆开，但归到同一个批次号。
+    音乐的歌单 / 专辑会先展开成单曲，再一条条进队。"""
     added, skipped, batches = [], [], []
     for b in blocks or []:
         text = (b.get("text") or "").strip()
@@ -1215,19 +1247,49 @@ def add_blocks(manager, blocks):
             if why:
                 skipped.append({"url": u, "platform": pname, "reason": why})
                 continue
-            usable.append((u, pname))
+
+            # 音乐：一条歌单链接可能变成几十首，展开后再进队
+            try:
+                tracks = _expand_music(u)
+            except RuntimeError as e:
+                skipped.append({"url": u, "platform": pname, "reason": str(e)})
+                continue
+            if tracks is not None:
+                before = len(usable)
+                for tr in tracks:
+                    mu = music_song_url(tr.get("platform"), tr.get("id"))
+                    if not mu:
+                        continue
+                    mk = video_key(mu)
+                    if mk and mk in seen:
+                        continue
+                    if mk:
+                        seen.add(mk)
+                    mname = (PINFO.get(tr.get("platform")) or {}).get("name") or pname
+                    usable.append((mu, mname, tr.get("title") or "", tr.get("artist") or ""))
+                if len(usable) == before:
+                    skipped.append({"url": u, "platform": pname,
+                                    "reason": "这个歌单里没有能下的歌"})
+                continue
+
+            usable.append((u, pname, "", ""))
         if not usable:
             continue
 
         batch = manager.next_batch()
         n = 0
-        for u, pname in usable:
+        for u, pname, mtitle, martist in usable:
             t, msg = manager.add(u, batch)
-            if t:
-                added.append(t.to_dict())
-                n += 1
-            else:
+            if not t:
                 skipped.append({"url": u, "platform": pname, "reason": msg})
+                continue
+            # 歌单里已经知道歌名和歌手，先写上，列表里立刻能看懂
+            if mtitle:
+                t.title = mtitle
+            if martist:
+                t.author = martist
+            added.append(t.to_dict())
+            n += 1
         batches.append({"no": batch, "count": n, "found": len(urls)})
     return {"ok": bool(added), "added": added, "skipped": skipped, "batches": batches}
 

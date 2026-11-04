@@ -188,42 +188,13 @@ header {
 #submit:active { transform: scale(.985); }
 #submit:disabled { opacity: .35; cursor: default; }
 
-/* ---------- 平台支持条：按可用宽度自动收起 ---------- */
+/* ---------- 支持平台（设置里）：直接换行铺开 ---------- */
 .support {
   display: flex;
   gap: 6px;
-  flex-wrap: nowrap;
-  margin: 12px 2px 0;
+  flex-wrap: wrap;
   align-items: center;
-  overflow: hidden;
 }
-
-.support.open { flex-wrap: wrap; row-gap: 6px; }
-.support.open .more { margin-left: auto; }
-
-.support .label {
-  font-size: 11px;
-  color: var(--hint);
-  flex-shrink: 0;
-  letter-spacing: .2px;
-}
-
-.support .more {
-  flex-shrink: 0;
-  border: 1px solid var(--line);
-  background: var(--surface);
-  color: var(--muted);
-  font-size: 10.5px;
-  font-family: inherit;
-  padding: 2px 7px;
-  border-radius: 6px;
-  line-height: 1.6;
-  cursor: pointer;
-  transition: border-color .14s ease, color .14s ease;
-}
-
-.support .more:hover { border-color: #d6d3d1; color: var(--text); }
-.support .more[hidden] { display: none; }
 
 .tag {
   font-size: 10.5px;
@@ -596,6 +567,75 @@ header {
 .grp-cols .field { margin-bottom: 0; }
 
 /* 开关行：一行一个，右边开关，小字说清楚干什么 */
+/* 文件命名：自定义行 + 可点占位标签 */
+.name-edit { margin-top: 8px; }
+
+.name-edit input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  padding: 8px 11px;
+  font-size: 12.5px;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  color: var(--text);
+  outline: none;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+
+.name-edit input:focus {
+  border-color: #c8c4bf;
+  box-shadow: 0 0 0 3px rgba(28,25,23,.04);
+}
+
+.toks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.tok {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: 11px;
+  height: 25px;
+  padding: 0 10px;
+  border-radius: 20px;
+  cursor: pointer;
+  transition: border-color .14s ease, color .14s ease, background .14s ease;
+}
+
+.tok:hover { border-color: var(--ink); color: #fff; background: var(--ink); }
+
+/* 按钮里文字是中文（标题），伪元素补上真实占位符 {title} */
+.tok::after {
+  content: attr(data-t);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 9.5px;
+  color: var(--hint);
+}
+
+.tok:hover::after { color: rgba(255,255,255,.65); }
+
+/* 版本与更新 */
+.upd-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.upd-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.upd-info b { font-weight: 500; font-size: 13px; color: var(--text); }
+.upd-info i { font-style: normal; font-size: 11px; color: var(--hint); }
+.upd-info a { color: var(--text); text-decoration: underline; text-underline-offset: 2px; }
+
 .tg-list {
   margin-top: 16px;
   border-top: 1px solid var(--line-soft);
@@ -1481,6 +1521,51 @@ button:focus-visible,
 .msearch button:hover { opacity: .88; }
 .msearch button:disabled { opacity: .45; cursor: default; }
 
+/* 平台筛选：全部 / 单个平台 */
+.mplats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.plat {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 12px;
+  height: 27px;
+  padding: 0 11px;
+  border-radius: 20px;
+  cursor: pointer;
+  transition: color .14s ease, border-color .14s ease, background .14s ease;
+}
+
+.plat:hover { border-color: #d6d3d1; color: var(--text-2); }
+
+.plat.on {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+}
+
+/* 搜索结果里标一下这首来自哪个平台 */
+.psrc {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  line-height: 15px;
+  background: #f4f2f0;
+  color: var(--text-2);
+}
+
+.psrc[data-p="netease"] { background: #fdf0ef; color: #b3130f; }
+.psrc[data-p="qqmusic"] { background: #eef8f2; color: #1f8f57; }
+.psrc[data-p="kugou"] { background: #fdf4e9; color: #b85c00; }
+
 .mhint { margin: 9px 2px 0; font-size: 12px; color: var(--hint); }
 .mresults {
   margin-top: 8px;
@@ -1506,6 +1591,23 @@ button:focus-visible,
   object-fit: cover;
   background: var(--line-soft);
 }
+/* 这两个平台的搜索接口都不给封面，用底色 + 音符占位，别留一块白 */
+.msong .cov:empty::after {
+  content: "\266A";
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  font-size: 15px;
+  color: #c9c4be;
+}
+
+.msong .cov[data-p="netease"]:empty { background: #fdf0ef; }
+.msong .cov[data-p="netease"]:empty::after { color: #e0a39f; }
+.msong .cov[data-p="qqmusic"]:empty { background: #eef8f2; }
+.msong .cov[data-p="qqmusic"]:empty::after { color: #8cc4a8; }
+
 .msong .meta { flex: 1; min-width: 0; }
 .msong .t,
 .msong .a {
@@ -1523,17 +1625,25 @@ button:focus-visible,
 }
 .msong .dl {
   flex: 0 0 auto;
+  width: 28px;
   height: 28px;
-  padding: 0 10px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
   color: var(--text-2);
-  font-family: inherit;
-  font-size: 12px;
   cursor: pointer;
+  transition: border-color .14s ease, color .14s ease, background .14s ease;
 }
-.msong .dl:hover { border-color: #cfcac4; color: var(--text); }
+.msong .dl:hover {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: #fff;
+}
+.msong .dl svg { display: block; }
 .mempty { padding: 18px 4px; font-size: 13px; color: var(--hint); }
 
 /* ---------- 设置里的行内开关 ---------- */

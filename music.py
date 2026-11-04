@@ -118,15 +118,22 @@ def parse_url(url):
                 return {"platform": "netease", "kind": "album", "id": aid}
         m = re.search(r"(?:song|playlist|album)/(\d+)", sp.path)
         if m:
-            return {"platform": "netease", "kind": "song", "id": m.group(1)}
+            kind = "playlist" if "playlist/" in sp.path else ("album" if "album/" in sp.path else "song")
+            return {"platform": "netease", "kind": kind, "id": m.group(1)}
 
     if host.endswith("y.qq.com") or host.endswith("i.y.qq.com") or host.endswith("c.y.qq.com"):
         m = re.search(r"/songDetail/([0-9A-Za-z]+)", sp.path)
         if m:
             return {"platform": "qqmusic", "kind": "song", "id": m.group(1)}
+        m = re.search(r"/albumDetail/([0-9A-Za-z]+)", sp.path)
+        if m:
+            return {"platform": "qqmusic", "kind": "album", "id": m.group(1)}
         m = re.search(r"/playsquare/([0-9A-Za-z]+)", sp.path) or re.search(r"/playlist/(\d+)", sp.path)
         if m:
             return {"platform": "qqmusic", "kind": "playlist", "id": m.group(1)}
+        mid = (q.get("albummid") or [""])[0]
+        if mid:
+            return {"platform": "qqmusic", "kind": "album", "id": mid}
         sid = (q.get("songmid") or [""])[0]
         if sid:
             return {"platform": "qqmusic", "kind": "song", "id": sid}
@@ -158,6 +165,96 @@ def parse_url_follow(url):
         return None
 
 
+# ---------- 歌单 / 专辑展开 ----------
+def _mk(platform, sid, title="", artist=""):
+    return {"platform": platform, "id": str(sid or ""), "title": (title or "").strip(),
+            "artist": (artist or "").strip()}
+
+
+def _artists(song):
+    """网易云和 QQ 的歌手字段名不一样，统一成「A / B」"""
+    arr = song.get("ar") or song.get("artists") or song.get("singer") or []
+    names = [str(a.get("name") or "").strip() for a in arr if isinstance(a, dict)]
+    return " / ".join([n for n in names if n])
+
+
+def playlist_tracks(info, limit=200):
+    """把歌单 / 专辑链接展开成单曲列表 [{"platform","id","title","artist"}]。
+    读不出来抛 RuntimeError，消息里说清卡在哪。单曲链接返回空列表。"""
+    if not info:
+        return []
+    plat, kind, pid = info.get("platform"), info.get("kind"), str(info.get("id") or "")
+    if kind not in ("playlist", "album") or not pid:
+        return []
+    if plat == "netease":
+        return _tracks_netease(kind, pid, limit)
+    if plat == "qqmusic":
+        return _tracks_qq(kind, pid, limit)
+    if plat == "kugou":
+        raise RuntimeError("酷狗的歌单暂时读不了，贴单曲链接可以下")
+
+
+def _tracks_netease(kind, pid, limit):
+    headers = {"Referer": "https://music.163.com/"}
+    if kind == "playlist":
+        d = _get_json("https://music.163.com/api/v6/playlist/detail?id=%s" % pid, headers)
+        pl = d.get("playlist") or {}
+        ids = [t.get("id") for t in (pl.get("trackIds") or []) if t.get("id")]
+        if not ids:
+            raise RuntimeError("这个歌单是空的，或者不是公开歌单")
+        ids = ids[:limit]
+        out = []
+        # 详情接口一次 100 首，拿名字和歌手，列表里立刻能看懂
+        for i in range(0, len(ids), 100):
+            chunk = ids[i:i + 100]
+            try:
+                dd = _get_json("https://music.163.com/api/song/detail?ids=%s"
+                               % json.dumps(chunk).replace(" ", ""), headers, timeout=20)
+            except Exception:
+                continue
+            for s in dd.get("songs") or []:
+                out.append(_mk("netease", s.get("id"), s.get("name"), _artists(s)))
+        if not out:      # 详情接口抽风时退回只有 id，下载时再查
+            out = [_mk("netease", i) for i in ids]
+        return out
+
+    if kind == "album":
+        d = _get_json("https://music.163.com/api/v1/album/%s" % pid, headers)
+        songs = d.get("songs") or []
+        if not songs:
+            raise RuntimeError("这张专辑读不出来，可能已经下架")
+        return [_mk("netease", s.get("id"), s.get("name"), _artists(s))
+                for s in songs[:limit]]
+
+    raise RuntimeError("网易云只支持歌单和专辑链接")
+
+
+def _tracks_qq(kind, pid, limit):
+    headers = {"Referer": "https://y.qq.com/"}
+    if kind == "playlist":
+        u = ("https://c.y.qq.com/qzone/fcg-bin/fcg_ucc_getcdinfo_byids_cp.fcg"
+             "?type=1&json=1&utf8=1&onlysong=0&format=json&disstid=%s" % pid)
+        d = _get_json(u, headers)
+        cd = (d.get("cdlist") or [{}])[0] or {}
+        songs = cd.get("songlist") or []
+        if not songs:
+            raise RuntimeError("这个歌单是空的，或者需要登录才能看")
+        return [_mk("qqmusic", s.get("songmid") or s.get("mid"),
+                    s.get("songname") or s.get("name"), _artists(s))
+                for s in songs[:limit]]
+
+    if kind == "album":
+        u = "https://c.y.qq.com/v8/fcg-bin/fcg_v8_album_info_cp.fcg?format=json&albummid=%s" % pid
+        d = _get_json(u, headers)
+        lst = (d.get("data") or {}).get("list") or []
+        if not lst:
+            raise RuntimeError("这张专辑读不出来")
+        return [_mk("qqmusic", s.get("songmid"), s.get("songname"), _artists(s))
+                for s in lst[:limit]]
+
+    raise RuntimeError("QQ音乐只支持歌单和专辑链接")
+
+
 # ---------- 搜索 ----------
 def search(platform, keyword, limit=20):
     keyword = (keyword or "").strip()
@@ -186,6 +283,24 @@ def _search_netease(kw, limit):
             "cover": (s.get("album") or {}).get("picUrl") or "",
             "duration": int((s.get("duration") or 0) // 1000),
         })
+    # 搜索接口只回 picId 不回图，缺封面的批量问一次详情补上（一次请求就够）
+    need = [x["id"] for x in out if not x["cover"]]
+    if need:
+        try:
+            det = _get_json("https://music.163.com/api/song/detail?ids=%s"
+                            % json.dumps(need).replace(" ", ""),
+                            {"Referer": "https://music.163.com/"})
+            pic = {}
+            for t in (det.get("songs") or []):
+                al = t.get("al") or t.get("album") or {}
+                u = al.get("picUrl") or al.get("blurPicUrl") or ""
+                if u:
+                    pic[str(t.get("id"))] = u
+            for x in out:
+                if not x["cover"]:
+                    x["cover"] = pic.get(x["id"], "")
+        except Exception:
+            pass          # 补不到就空着，前端有占位图兜底
     return out
 
 
@@ -194,9 +309,14 @@ def _search_qq(kw, limit):
         "req_1": {"method": "DoSearchForQQMusicDesktop", "module": "music.search.SearchCgiService",
                   "param": {"num_per_page": limit, "page_num": 1, "query": kw, "search_type": 0}},
     }, ensure_ascii=False).encode()
-    d = _get_json("https://u.y.qq.com/cgi-bin/musicu.fcg", data=body,
-                  headers={"Referer": "https://y.qq.com/", "Content-Type": "application/json"})
+    headers = {"Referer": "https://y.qq.com/", "Content-Type": "application/json"}
+    ck = cookie_header("qqmusic")
+    if ck:                      # 登录后这个接口才肯多给结果
+        headers["Cookie"] = ck
+    d = _get_json("https://u.y.qq.com/cgi-bin/musicu.fcg", data=body, headers=headers)
     lst = (((d.get("req_1") or {}).get("data") or {}).get("body") or {}).get("song", {}).get("list") or []
+    if not lst:
+        return _search_qq_smartbox(kw, limit)   # 未登录时官方搜索只回空，退回联想词
     out = []
     for s in lst:
         album = s.get("album") or {}
@@ -207,6 +327,29 @@ def _search_qq(kw, limit):
             "album": album.get("name") or "",
             "cover": "https://y.gtimg.cn/music/photo_new/T002R300x300M000%s.jpg" % album.get("mid", ""),
             "duration": int(s.get("interval") or 0),
+        })
+    return out
+
+
+def _search_qq_smartbox(kw, limit):
+    """QQ 音乐未登录时 musicu 搜索返回空，联想词接口还能拿到几条。
+    结果没有封面和时长，但 songmid 足够下载。"""
+    try:
+        d = _get_json("https://c.y.qq.com/splcloud/fcgi-bin/smartbox_new.fcg?format=json&key=%s"
+                      % urllib.parse.quote(kw), {"Referer": "https://y.qq.com/"})
+    except Exception:
+        return []
+    items = ((d.get("data") or {}).get("song") or {}).get("itemlist") or []
+    out = []
+    for s in items[:limit]:
+        mid = s.get("mid") or s.get("id") or ""
+        if not mid:
+            continue
+        out.append({
+            "platform": "qqmusic", "id": mid,
+            "title": s.get("name") or "",
+            "artist": s.get("singer") or "",
+            "album": "", "cover": "", "duration": 0,
         })
     return out
 

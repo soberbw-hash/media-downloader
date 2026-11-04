@@ -23,34 +23,12 @@
   </header>
 
   <div class="tabs" id="tabs" role="tablist">
-    <button class="tab on" data-tab="video" role="tab" aria-selected="true">视频</button>
-    <button class="tab" data-tab="music" role="tab" aria-selected="false">音乐</button>
-  </div>
-
-  <div class="music" id="musicPanel" hidden>
-    <div class="msearch">
-      <select id="mPlatform" aria-label="音乐平台">
-        <option value="netease">网易云</option>
-        <option value="qqmusic">QQ 音乐</option>
-        <option value="kugou">酷狗</option>
-      </select>
-      <input id="mQuery" placeholder="搜歌名、歌手" autocomplete="off">
-      <button id="mGo">搜索</button>
-    </div>
-    <div class="mhint" id="mHint">回车搜索。点「下」单曲下载，勾上多首可以一起下。</div>
-    <div class="mbar" id="mBar" hidden>
-      <label class="mcheck">
-        <input type="checkbox" id="mAll">
-        <span>全选</span>
-      </label>
-      <span class="mcount" id="mCount"></span>
-      <button id="mBatch" disabled>下载所选</button>
-    </div>
-    <div class="mresults" id="mResults"></div>
+    <button class="tab on" data-tab="video" role="tab" aria-selected="true">链接下载</button>
+    <button class="tab" data-tab="music" role="tab" aria-selected="false">搜歌</button>
   </div>
 
   <div class="composer" id="composer">
-    <textarea id="input" placeholder="粘贴链接，自动开始下载&#10;整段分享文案、多条链接、不带 https 的短链都能认"></textarea>
+    <textarea id="input" placeholder="粘贴链接，自动开始下载&#10;视频、音乐、歌单都认；整段分享文案、多条链接也能拆开"></textarea>
     <div class="composer-foot">
       <div class="foot-left"><div id="detected"></div></div>
       <div class="foot-right">
@@ -64,7 +42,29 @@
     </div>
   </div>
 
-  <div class="support" id="support"></div>
+  <!-- 搜歌：按名字全网检索，结果混排并标出平台 -->
+  <div class="music" id="musicPanel" hidden>
+    <div class="msearch">
+      <input id="mQuery" placeholder="歌名、歌手" autocomplete="off">
+      <button id="mGo">搜索</button>
+    </div>
+    <div class="mplats" id="mPlats">
+      <button class="plat on" data-p="all">全部平台</button>
+      <button class="plat" data-p="netease">网易云</button>
+      <button class="plat" data-p="qqmusic">QQ 音乐</button>
+      <button class="plat" data-p="kugou">酷狗</button>
+    </div>
+    <div class="mhint" id="mHint">回车搜索。三个平台一起搜，结果里标着来源。</div>
+    <div class="mbar" id="mBar" hidden>
+      <label class="mcheck">
+        <input type="checkbox" id="mAll">
+        <span>全选</span>
+      </label>
+      <span class="mcount" id="mCount"></span>
+      <button id="mBatch" disabled>下载所选</button>
+    </div>
+    <div class="mresults" id="mResults"></div>
+  </div>
 
   <div class="list-head">
     <div class="lh-left">
@@ -149,10 +149,28 @@
       </div>
 
       <div class="field">
-        <label for="cfgNameTpl">文件命名 <span class="opt">可选</span></label>
-        <input id="cfgNameTpl" placeholder="{date}_{platform}_{author}_{title}"
-               title="可用占位：{title} {author} {platform} {date} {time} {id}">
-        <div class="hint">留空用原标题。可用 {title} {author} {platform} {date} 等占位</div>
+        <label for="cfgNamePre">文件命名 <span class="opt">可选</span></label>
+        <select id="cfgNamePre">
+          <option value="">默认（沿用原标题）</option>
+          <option value="{date}_{platform}_{author}_{title}">日期_平台_作者_标题</option>
+          <option value="{platform}_{author}_{title}">平台_作者_标题</option>
+          <option value="{author}_{title}">作者_标题</option>
+          <option value="{date}_{title}">日期_标题</option>
+          <option value="__custom__">自定义…</option>
+        </select>
+        <div class="name-edit" id="nameEdit" hidden>
+          <input id="cfgNameTpl" placeholder="点下面的标签，拼出文件名" autocomplete="off">
+          <div class="toks" id="nameToks">
+            <button type="button" class="tok" data-t="{title}">标题</button>
+            <button type="button" class="tok" data-t="{author}">作者</button>
+            <button type="button" class="tok" data-t="{platform}">平台</button>
+            <button type="button" class="tok" data-t="{date}">日期</button>
+            <button type="button" class="tok" data-t="{time}">时间</button>
+            <button type="button" class="tok" data-t="{id}">ID</button>
+            <button type="button" class="tok" data-t="{kind}">类型</button>
+          </div>
+        </div>
+        <div class="hint" id="nameHint">留空用原标题。选「自定义」后，点标签往里加，用下划线连接。</div>
       </div>
 
       <div class="tg-list">
@@ -227,6 +245,23 @@
 
       </div>
     </details>
+
+    <section class="grp">
+      <div class="grp-t">版本与更新</div>
+      <div class="upd-row">
+        <div class="upd-info">
+          <b id="curVer">v—</b>
+          <i id="updMsg">启动时自动检查新版</i>
+        </div>
+        <button class="pick-btn" id="checkUpd">检查更新</button>
+      </div>
+    </section>
+
+    <section class="grp">
+      <div class="grp-t">支持平台</div>
+      <div class="support" id="support"></div>
+      <div class="hint">带小圆点的要登录或填解析接口，其余开箱可用</div>
+    </section>
 
   </div>
 

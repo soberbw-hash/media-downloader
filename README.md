@@ -36,7 +36,7 @@
 | AcFun | ✅ | | |
 | 新片场 | ⚠️ | | 实验性 |
 | YouTube / TikTok / X / Vimeo / Twitch / Reddit / Instagram | ✅ | | 走 yt-dlp，Instagram 需 Cookie |
-| 视频号 | ⚠️ | | 需要自备解析接口，见下 |
+| 视频号 | ⚠️ | | 别人的视频下不了（微信限制）；自己的作品走视频号助手，或粘直链 / 接解析接口，见下 |
 | 网易云音乐 | | ✅ | 免登录下免费曲目（320k）；贴会员 cookie 可拿无损和 VIP 曲 |
 | QQ音乐 | | ✅ | 必须登录（vkey 按账号下发）；会员 cookie 可拿无损 FLAC |
 | 酷狗音乐 | | ⚠️ | 只做了搜索，播放地址拿不到 |
@@ -141,15 +141,25 @@ cookie 只存在本机 `cookies/music_*.txt`，不上传、不共享。用的是
 
 ### 视频号
 
-视频号没有公开的视频流接口，只能二选一：
+先说结论：**别人的视频号视频，网页端拿不到播放地址**。这不是没做，是微信的设计——
+分享链接在浏览器里打开是白页（实测：`weixin.qq.com/sph/xxx` 会 302 到
+`channels.weixin.qq.com/finder-preview/pages/sph?id=xxx`，这个预览页在非微信环境里
+不发任何播放请求，DOM 是空的），视频流只发给微信客户端，且带解密 key。
+所以「扫码登录一下就能下别人的视频」这条路物理上不存在。
 
-1. 直接粘 `finder.video.qq.com/.../stodownload?...` 这类直链
+**自己的作品**可以下，而且是官方原片：设置里点「打开视频号助手」→ 扫码登录 →
+内容管理 → 已发布 → 某条右边「更多」→「下载视频」。
+
+软件本身还能干这两件事：
+
+1. 直接粘 `finder.video.qq.com/.../stodownload?...` 这类直链（带 key 的那种能下）
 2. 在设置里填一个解析接口（POST `{"url": "分享链接"}`，返回里含 `stodownload` / `.mp4` / `.m3u8` 即可）
+   —— 接口现在收在「高级设置 → 视频号 → 我有解析接口」里，不填就不占地方
 
-解析接口从哪来（设置里该项下有「怎么获取？」引导）：
+解析接口从哪来：
 
 - 用任意解析工具把分享链接换成直链再粘，接口留空
-- 自己照接口约定搭个小服务；开源工具 [wx_channels_download](https://github.com/ltaoo/wx_channels_download) 自带解析服务，也支持一键部署成 Cloudflare Worker
+- 自己照接口约定搭个小服务；开源工具 [wx_channels_download](https://github.com/ltaoo/wx_channels_download) 自带解析服务（走的是注入微信客户端那条路），也支持一键部署成 Cloudflare Worker
 - 用同事 / 服务商给的现成接口地址
 
 仓储里没有内置任何第三方解析服务，也不打算接。

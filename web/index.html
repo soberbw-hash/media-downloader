@@ -235,33 +235,17 @@
         </div>
 
         <div class="field">
-          <label for="cfgSph">视频号解析接口 <span class="opt">可选</span></label>
-          <input id="cfgSph" placeholder="https://你的解析服务/api/fetch_video_profile">
-          <div class="hint">视频号要登录态才发地址。填接口后，粘分享链接就能下。</div>
+          <label>视频号 <span class="opt">只能下自己的作品</span></label>
+          <div class="hint">微信只把视频地址发给微信客户端，别人的视频网页里拿不到。自己的作品去「视频号助手」扫码登录，点「下载视频」就是原片。</div>
+          <button type="button" class="s-btn" id="btnChannels">打开视频号助手</button>
           <details class="qbox">
-            <summary>这是什么？怎么获取？</summary>
+            <summary>我有解析接口（进阶，一般不用管）</summary>
             <div class="qbox-body">
-              <p><b>它是什么。</b>一个网址，作用只有一个：把视频号「分享链接」换成「视频直链」。
-              粘分享链接时，软件把链接发给它，拿回直链再下载。</p>
-              <p><b>为什么要它。</b>微信只把视频地址发给带登录态的请求，分享链接里没有视频，
-              所以视频号没法像抖音那样开箱即用。</p>
-              <p class="q-t">三条路，任选一条：</p>
-              <ol>
-                <li><b>不填也能下（最省事）</b>——拿到直链直接粘首页。
-                直链长这样：<code>finder.video.qq.com/…/stodownload?…</code>，
-                用任意能解析视频号的工具或网站换出这种地址就行，这个设置留空。</li>
-                <li><b>自己搭一个（一劳永逸）</b>——照下面的接口约定做个几行的小服务，
-                把地址填上面。开源工具 wx_channels_download 自带解析服务，
-                还支持一键部署到 Cloudflare Worker，部署出来的网址直接填。</li>
-                <li><b>用现成的</b>——同事、朋友或服务商给你的解析接口地址，填上面即可。</li>
-              </ol>
-              <p class="q-t">接口约定（给搭接口的人看）：</p>
-              <p>软件会 POST <code>{"url": "分享链接"}</code> 到这个地址
-              （也支持 GET <code>?url=</code>，或地址里写 <code>{url}</code> 占位符）。
-              返回任意 JSON，只要含视频地址就行——字段叫 <code>videoUrl</code> /
-              <code>playable_url</code> / <code>url</code> / <code>src</code> /
-              <code>video</code> 都认，或者任何带 <code>stodownload</code> 的字符串。
-              可选 <code>title</code> / <code>nickname</code> 字段，软件会拿来命名文件。</p>
+              <input id="cfgSph" placeholder="https://你的解析服务/api/fetch_video_profile">
+              <p>填了它，粘视频号分享链接就能下别人的视频。约定：软件 POST
+              <code>{"url": "分享链接"}</code> 到这个地址，返回的 JSON 里带视频地址就行
+              （字段名 <code>videoUrl</code> / <code>url</code> / <code>src</code> 都认，
+              或者任何带 <code>stodownload</code> 的字符串）。</p>
             </div>
           </details>
         </div>

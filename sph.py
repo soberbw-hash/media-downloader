@@ -171,9 +171,11 @@ def download(url, out_dir, progress, quality="best", api=""):
             raise RuntimeError("这不是视频号链接")
         if not (api or "").strip():
             raise RuntimeError(
-                "视频号的视频地址要登录态才发，分享链接本身不含视频。"
-                "请二选一：在设置里填「视频号解析接口」（旁边「怎么获取？」有三条路），"
-                "或直接粘 finder.video.qq.com 的直链")
+                "视频号分享链接里没有视频\n"
+                "微信只把地址发给微信客户端\n"
+                "别人的视频在网页里拿不到，这是微信的限制。自己的作品可以在"
+                "「设置 → 高级设置 → 视频号 → 打开视频号助手」里扫码登录后下载原片；"
+                "有解析接口的话也能填进去。")
         progress(stage="正在解析分享链接…")
         title, author, media = resolve(url, api)
         progress(title=title, author=author)

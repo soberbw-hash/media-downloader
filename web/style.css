@@ -2082,3 +2082,20 @@ button:focus-visible,
 
 .login-row .st.bad { color: var(--err); }
 .login-row .st.bad::before { background: var(--err); }
+
+/* ---------- 设置里的小按钮（视频号助手之类） ---------- */
+.s-btn {
+  width: auto;
+  height: 30px;
+  margin-top: 2px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.s-btn:hover { border-color: #cfcac4; color: var(--text); }

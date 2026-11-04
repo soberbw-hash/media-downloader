@@ -1122,6 +1122,16 @@ $("#openAcct").onclick = openAcct;
 $("#closeAcct").onclick = closeAllDrawers;
 $("#mask").onclick = closeAllDrawers;
 
+// 视频号：微信不给外部播放地址，能下的是自己账号的原片，
+// 直接把人送到官方的视频号助手，那边点「下载视频」就是原片
+const btnChannels = $("#btnChannels");
+if (btnChannels) {
+  btnChannels.onclick = async () => {
+    const r = await post("/api/open_url", { url: "https://channels.weixin.qq.com/platform" });
+    if (!r.ok) toast(r.error || "打不开浏览器");
+  };
+}
+
 // 高级设置默认收起，记住上次展开状态
 const advBox = $("#advBox");
 if (advBox) {

@@ -34,7 +34,7 @@ import core  # noqa: E402
 import login as login_mod  # noqa: E402
 import picker  # noqa: E402
 
-APP_VERSION = "1.9.1"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
+APP_VERSION = "1.9.2"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
 UPDATE_REPO = "soberbw-hash/media-downloader"
 
 CONFIG_PATH = os.path.join(BASE, "config.json")
@@ -483,6 +483,17 @@ class Handler(BaseHTTPRequestHandler):
                     self._json({"ok": False, "error": "路径不存在"})
             except Exception as e:
                 self._json({"ok": False, "error": str(e)})
+
+        elif p == "/api/open_url":
+            # 只在系统浏览器里打开白名单站点（现在只有视频号助手），
+            # 不接任意网址，免得变成「随便点一下就开网页」的口子
+            url = (data.get("url") or "").strip()
+            host = urllib.parse.urlsplit(url).hostname or ""
+            if not url.startswith("https://") or not host.endswith("weixin.qq.com"):
+                self._json({"ok": False, "error": "不支持的地址"})
+                return
+            threading.Thread(target=webbrowser.open, args=(url,), daemon=True).start()
+            self._json({"ok": True})
 
         elif p == "/api/pickdir":
             start = (data.get("path") or CFG.get("out_dir") or "").strip()

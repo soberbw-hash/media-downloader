@@ -140,10 +140,11 @@ brew install ffmpeg
 
 ```
 音视频下载器\
-    音视频下载器.exe     ← 唯一入口，带图标，双击即用
-    下载的文件\          ← 下载保存位置
+    音视频下载器.exe         ← 家用入口，带图标，双击即用
+    音视频下载器-公司.bat    ← 公司电脑入口，绕开被拦截的 exe
+    下载的文件\              ← 下载保存位置
     使用说明.txt
-    程序\               ← 代码 + 内置 Python 运行时（隐藏，正常看不见）
+    程序\                   ← 代码 + 内置 Python 运行时（隐藏，正常看不见）
 ```
 
 打包命令（需要 Pillow 和 PyInstaller）：
@@ -152,6 +153,8 @@ brew install ffmpeg
 python tools/build_portable.py --dst "D:\Desktop\音视频下载器" \
     --runtime "C:\path\to\python"      # 拿来当内置运行时的 Python 目录
 ```
+
+**为什么还要一个 .bat**：公司那类装了端点安全软件的电脑，会把 PyInstaller 打包的 exe 直接拦掉（双击没反应，或者提示已阻止）。`tools/company_bat.py` 生成的 `音视频下载器-公司.bat` 不经过 exe，直接用内置的 `runtime\pythonw.exe` 起 `server.py --app`，界面和功能完全一样，只是头几秒会闪一下黑框。`pythonw` 被拦时自动退回最小化的控制台窗口，至少能跑、报错也看得见。
 
 生成的 exe 只是个启动器（约 8.6 MB，PyInstaller 单文件），它找到旁边的 `程序\runtime\python.exe`，用无窗口方式拉起 `server.py --app` 就退出。所以：
 

@@ -3,10 +3,11 @@
 
 产物结构：
     音视频下载器\
-        音视频下载器.exe     ← 带图标的启动器
-        下载的文件\          ← 下载保存位置
+        音视频下载器.exe         ← 带图标的启动器（家用）
+        音视频下载器-公司.bat    ← 绕过 exe 拦截的入口（公司电脑）
+        下载的文件\              ← 下载保存位置
         使用说明.txt
-        程序\               ← 代码 + 内置 Python（隐藏）
+        程序\                   ← 代码 + 内置 Python（隐藏）
 
 用法（在有 Pillow、PyInstaller 的环境里跑）：
     python tools/build_portable.py --dst "D:\\Desktop\\音视频下载器" \
@@ -94,6 +95,10 @@ def main():
     if not a.no_exe:
         exe = build_exe(a.runtime)
         shutil.copy2(exe, os.path.join(dst, "音视频下载器.exe"))
+
+    # 公司电脑专用入口：exe 被端点安全拦下时走 bat
+    subprocess.run([sys.executable, os.path.join(BASE, "tools", "company_bat.py"), dst],
+                   check=False)
 
     # 隐藏 程序，桌面看起来才干净
     subprocess.run(["attrib", "+h", app], check=False)

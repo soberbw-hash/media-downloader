@@ -6,6 +6,7 @@ downloads/
 logs/
 cookies/
 runtime/
+Temp/
 
 # 下载产物
 *.mp3

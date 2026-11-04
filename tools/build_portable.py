@@ -10,6 +10,7 @@ r"""把源码目录打成一个「别人拿到就能双击用」的免安装文�
         程序\                   ← 代码 + 内置 Python（隐藏）
             音视频下载器-公司.bat   ← 备份入口（快捷方式失效时用）
             诊断.bat                ← 出问题排查用（不是启动入口）
+            bin\ffmpeg.exe          ← 转 mp3 用（Suno），约 97MB
 
 用法（在有 Pillow、PyInstaller 的环境里跑）：
     python tools/build_portable.py --dst "D:\\Desktop\\音视频下载器" \
@@ -54,6 +55,30 @@ def copytree(src, dst, skip=("__pycache__",)):
             if f.endswith(".pyc"):
                 continue
             shutil.copy2(os.path.join(root, f), os.path.join(target, f))
+
+
+#: ffmpeg 的常见安装位置（PATH 里找不到时按这些兜）
+FFMPEG_HINTS = [
+    "C:/ffmpeg/bin/ffmpeg.exe",
+    "C:/Program Files/ffmpeg/bin/ffmpeg.exe",
+]
+
+
+def find_sys_ffmpeg():
+    """找一个能用的 ffmpeg.exe，用来打进便携版（Suno 转 mp3 要用）。"""
+    p = shutil.which("ffmpeg")
+    if p and os.path.isfile(p):
+        return p
+    for h in FFMPEG_HINTS:
+        if os.path.isfile(h):
+            return h
+    import glob
+    for pat in ("C:/Users/*/AppData/Local/Microsoft/WinGet/Packages/*ffmpeg*/**/bin/ffmpeg.exe",
+                "C:/Users/*/scoop/apps/ffmpeg*/**/bin/ffmpeg.exe"):
+        hit = glob.glob(pat, recursive=True)
+        if hit:
+            return hit[0]
+    return ""
 
 
 def build_exe(runtime_env):
@@ -106,6 +131,16 @@ def main():
         copytree(a.runtime, os.path.join(app, "runtime"))
     elif not os.path.isdir(os.path.join(app, "runtime")):
         print("!! 目标里没有 程序\\runtime，也没给 --runtime，打出来的包跑不了")
+
+    # 内置 ffmpeg：Suno 的 mp4 抽音轨转 mp3 靠它，打包进去别人不用自己装
+    ff = find_sys_ffmpeg()
+    if ff:
+        bindir = os.path.join(app, "bin")
+        os.makedirs(bindir, exist_ok=True)
+        shutil.copy2(ff, os.path.join(bindir, "ffmpeg.exe"))
+        print("内置 ffmpeg:", ff, "->", os.path.join(bindir, "ffmpeg.exe"))
+    elif not os.path.isfile(os.path.join(app, "bin", "ffmpeg.exe")):
+        print("!! 没找到 ffmpeg，Suno 只能存 mp4。装一个再打包（winget install Gyan.FFmpeg）")
 
     os.makedirs(os.path.join(dst, "下载的文件"), exist_ok=True)
 

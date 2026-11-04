@@ -38,7 +38,6 @@ const BARE_RE = new RegExp(
 let cfg = {};
 let autoPaste = localStorage.getItem("autoPaste") !== "0";
 let supportRendered = false;
-let multiBatch = false;
 
 function toast(msg, ms = 2400) {
   const t = $("#toast");
@@ -246,7 +245,6 @@ function updateCard(el, t) {
     : null;
 
   const meta = [];
-  if (t.batch && multiBatch) meta.push(`第 ${t.batch} 批`);
   if (t.author) meta.push(t.author);
   if (t.duration) meta.push(fmtDur(t.duration));
   if (t.kind === "images" && t.count) meta.push(`图集 ${t.count} 张`);
@@ -529,8 +527,6 @@ function render(tasks) {
   lastTasks = tasks;
   const box = $("#tasks");
   renderStats(tasks);
-  const bs = new Set(tasks.map((t) => t.batch).filter(Boolean));
-  multiBatch = bs.size > 1;      // 只有一批时不显示「第 N 批」
 
   if (!tasks.length) {
     const blk = $("#tasksBlock");
@@ -688,11 +684,10 @@ async function submitBlocks(blocks, localUrls) {
     // 正在看「失败」列表时新任务加进来会看不见，先切回「全部」
     if (added.length && taskFilter !== "all") setFilter("all");
     if (added.length) {
-      const no = r.batches && r.batches.length ? r.batches[0].no : 0;
       if (added.length === 1) {
-        toast(`已加入第 ${no} 批 · ${added[0].platform_name}`);
+        toast(`已加入 · ${added[0].platform_name}`);
       } else {
-        toast(`第 ${no} 批 · 已加入 ${added.length} 条`);
+        toast(`已加入 ${added.length} 条`);
       }
     }
     if (skipped.length) {

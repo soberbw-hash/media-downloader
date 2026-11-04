@@ -170,7 +170,7 @@ https://cdn1.suno.ai/{uuid}.mp4              视频直链
 
 音频这块要说清楚，Suno 现在把直接下载关掉了：
 
-- `audio_url` 对游客返回 `https://studio-api.prod.suno.com/api/forbidden`
+- `audio_url` 对游客有时返回 `https://studio-api.prod.suno.com/api/forbidden`
 - `cdn1.suno.ai/{uuid}.mp3` 要 CloudFront 签名，裸链 403 `MissingKey`
 - 页面里那条 m4a（`d2lwuy8qc234o3.cloudfront.net`）是 AES 加密的，下下来是乱码
 
@@ -181,12 +181,26 @@ https://cdn1.suno.ai/{uuid}.mp4              视频直链
 - 机器上有 `ffmpeg` → 转成 192k mp3，歌名/作者/封面写进 ID3
 - 没有 `ffmpeg` → 留 mp4 原文件（剪映能直接分离音频）
 
+**下载会按这个顺序挨个试，第一个成功的就用**（1.9.1 起）：
+
+1. `audio_url`（有登录 cookie 时是签名好的 mp3，音质最好）
+2. `video_url`（mp4）
+3. `cdn1` / `cdn2` 的 `{uuid}.mp4`（接口没给地址时兜底）
+4. 分享页 HTML 里的媒体地址（页面播放器自己用的，签名通常有效）
+
+踩过的坑：S3 对**不存在的文件返回 403 `AccessDenied`**，不是 404。
+所以别把 403 一律当成「作者限制了下载」——新歌视频还没渲染好、
+或者这首只对登录用户开放，表现出来的都是同一个 403。界面上会写清楚
+试过哪些、建议怎么处理，长细节放在鼠标悬停的提示里。
+
 **便携版已经把 `ffmpeg.exe`（97MB）打进去了**，放在 `程序\bin\` 下，
 `tools/build_portable.py` 打包时会自动从系统里找一份复制进去。
 所以发给别人也不用对方装任何东西。查找顺序：
 `程序\` → `程序\bin\` → `程序\runtime\` → 系统 PATH。
 
 Suno 是境外站，没在设置里填代理时会自动走系统代理，所以浏览器能打开就能下。
+如果 `cookies/suno.txt` 存在（自己把登录 cookie 存进去），请求会带上它，
+私有 / 分享链接的音频往往就能拿到。
 
 ### 直链 / HLS（m3u8）
 

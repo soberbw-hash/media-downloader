@@ -897,10 +897,22 @@ class Task(object):
             "images": self.images, "count": len(self.images),
         }
         if self.status == "error" and self.error:
-            title, tip = explain_error(self.error)
+            # 允许「标题 \n 建议 \n 详情」三段式：
+            # 卡片上只显示标题 + 一句短建议，长细节塞进 tooltip，
+            # 否则一行几十个字会把卡片撑成两行，列表看着参差不齐
+            lines = [x.strip() for x in self.error.split("\n")]
+            head = lines[0]
+            tip = lines[1] if len(lines) > 1 else ""
+            more = " ".join(x for x in lines[2:] if x)
+            title, hint = explain_error(head)
+            if title:
+                tip = tip or hint
+            else:
+                title = head
             if title:
                 d["err_title"] = title
                 d["err_tip"] = tip
+                d["error"] = "" if (tip and not more) else (more or self.error)
         return d
 
 

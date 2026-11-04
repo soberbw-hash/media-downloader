@@ -154,7 +154,7 @@ python tools/build_portable.py --dst "D:\Desktop\音视频下载器" \
     --runtime "C:\path\to\python"      # 拿来当内置运行时的 Python 目录
 ```
 
-**为什么还要一个 .bat**：公司那类装了端点安全软件的电脑，会把 PyInstaller 打包的 exe 直接拦掉（双击没反应，或者提示已阻止）。`tools/company_bat.py` 生成的 `音视频下载器-公司.bat` 不经过 exe，直接用内置的 `runtime\pythonw.exe` 起 `server.py --app`，界面和功能完全一样，只是头几秒会闪一下黑框。`pythonw` 被拦时自动退回最小化的控制台窗口，至少能跑、报错也看得见。
+**为什么还要一个 .bat**：公司那类装了端点安全软件的电脑，会把 PyInstaller 打包的 exe 直接拦掉（双击没反应，或者提示已阻止）。`tools/company_bat.py` 生成的 `音视频下载器-公司.bat` 不经过 exe，直接用内置的 `runtime\pythonw.exe` 起 `server.py --app`，界面和功能完全一样。`pythonw` 是 GUI 子系统、没有控制台窗口，所以 bat 起完进程就 `exit`，黑框只闪 100 毫秒左右，不会像以前那样留一个终端在桌面上挡着。没有 `pythonw` 的极端情况才退回最小化的控制台。
 
 生成的 exe 只是个启动器（约 8.6 MB，PyInstaller 单文件），它找到旁边的 `程序\runtime\python.exe`，用无窗口方式拉起 `server.py --app` 就退出。所以：
 

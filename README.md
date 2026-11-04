@@ -134,6 +134,33 @@ brew install ffmpeg
 
 代价：依赖机器上有 Edge/Chrome 和 Python 3.11+，并且允许监听本地端口（默认从 8765 起，被占用会自动顺延）。
 
+## 免安装便携版（给别人用）
+
+源码目录不适合直接发给非技术同事：一堆 `.py`、三四个 `.bat`、没有图标。`tools/build_portable.py` 会把它打成一个干净的文件夹：
+
+```
+音视频下载器\
+    音视频下载器.exe     ← 唯一入口，带图标，双击即用
+    下载的文件\          ← 下载保存位置
+    使用说明.txt
+    程序\               ← 代码 + 内置 Python 运行时（隐藏，正常看不见）
+```
+
+打包命令（需要 Pillow 和 PyInstaller）：
+
+```bash
+python tools/build_portable.py --dst "D:\Desktop\音视频下载器" \
+    --runtime "C:\path\to\python"      # 拿来当内置运行时的 Python 目录
+```
+
+生成的 exe 只是个启动器（约 8.6 MB，PyInstaller 单文件），它找到旁边的 `程序\runtime\python.exe`，用无窗口方式拉起 `server.py --app` 就退出。所以：
+
+- 双击后没有任何黑窗口
+- 图标是 `tools/assets/icon.ico`（`tools/make_icon.py` 生成，改配色直接改脚本里三个常量）
+- 整个文件夹可以整体拷走，对方不需要装 Python / ffmpeg
+- 单独把 exe 放桌面也能用，它会按 `exe 旁边 → 下一层 → D:\Desktop\音视频下载器` 的顺序找 `程序`
+- 启动失败会弹中文提示框，不会默默没反应
+
 ## 目录结构
 
 ```
@@ -150,6 +177,7 @@ web/             界面（原生 HTML/CSS/JS，无框架）
 启动.command     macOS 的启动入口，双击运行
 start.bat        启动逻辑，start.bat web 走浏览器方式
 使用说明.txt      给人看的说明书
+tools/           打包用：图标生成、启动器、便携版打包脚本
 ```
 
 ## 已知限制

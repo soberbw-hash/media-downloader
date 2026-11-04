@@ -6,6 +6,8 @@
 import json
 import os
 import re
+import subprocess
+import sys
 import threading
 import time
 import urllib.parse
@@ -344,8 +346,41 @@ def http_get(url, headers=None, data=None, timeout=40):
 
 
 # ---------- 代理 ----------
+def _mac_proxy():
+    """mac 的系统代理不走环境变量，只能问 scutil。输出形如：
+        <dictionary> {
+          HTTPSEnable : 1
+          HTTPSProxy : 127.0.0.1
+          HTTPSPort : 7890
+        }
+    优先级：HTTPS > HTTP > SOCKS。
+    """
+    try:
+        r = subprocess.run(["scutil", "--proxy"], capture_output=True, text=True, timeout=5)
+    except Exception:
+        return None
+    if r.returncode != 0:
+        return None
+    vals = {}
+    for line in (r.stdout or "").splitlines():
+        if ":" not in line:
+            continue
+        k, v = line.split(":", 1)
+        vals[k.strip()] = v.strip()
+    for name, scheme in (("HTTPS", "http"), ("HTTP", "http"), ("SOCKS", "socks5")):
+        if vals.get(name + "Enable") != "1":
+            continue
+        host = vals.get(name + "Proxy") or ""
+        port = vals.get(name + "Port") or ""
+        if host and port:
+            return "%s://%s:%s" % (scheme, host, port)
+    return None
+
+
 def system_proxy():
-    """读 Windows 系统代理（IE/WinHTTP 设置），拿不到返回 None"""
+    """读系统代理：Windows 读 IE/WinHTTP 设置，mac 读 scutil --proxy。拿不到返回 None"""
+    if sys.platform == "darwin":
+        return _mac_proxy()
     try:
         import winreg
     except ImportError:

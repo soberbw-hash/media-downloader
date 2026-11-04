@@ -6,6 +6,7 @@
 后续下载直接复用。这样不用装浏览器内核，也不用教用户去 DevTools 里复制。
 """
 import os
+import sys
 import threading
 import time
 import json
@@ -158,12 +159,20 @@ def _netscape(cookies, domains):
 
 def _channel():
     """优先用系统 Edge，没有再试 Chrome；都不在就退化成 playwright 自带内核"""
-    cands = [
-        ("msedge", r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"),
-        ("msedge", r"C:\Program Files\Microsoft\Edge\Application\msedge.exe"),
-        ("chrome", r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
-        ("chrome", r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"),
-    ]
+    if sys.platform == "darwin":
+        home = os.path.expanduser("~")
+        cands = [
+            ("msedge", "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"),
+            ("chrome", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+            ("chrome", os.path.join(home, "Applications/Google Chrome.app/Contents/MacOS/Google Chrome")),
+        ]
+    else:
+        cands = [
+            ("msedge", r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"),
+            ("msedge", r"C:\Program Files\Microsoft\Edge\Application\msedge.exe"),
+            ("chrome", r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
+            ("chrome", r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"),
+        ]
     for ch, path in cands:
         if os.path.exists(path):
             return ch

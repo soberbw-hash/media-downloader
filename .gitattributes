@@ -1,10 +1,17 @@
 # 默认自动识别文本/二进制
 * text=auto
 
+# 这个文件自己必须保持 LF，否则规则里的行尾会混进 \r
+.gitattributes text eol=lf
+
 # 脚本要在 Windows 上双击运行，必须是 CRLF
 *.bat text eol=crlf
 *.cmd text eol=crlf
 *.txt text eol=crlf
+
+# macOS / Linux 的启动脚本必须是 LF，否则双击报错
+*.command text eol=lf
+*.sh      text eol=lf
 
 # Python / 前端统一 LF
 *.py text eol=lf

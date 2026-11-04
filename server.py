@@ -26,11 +26,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 BASE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE)
 
+IS_WIN = os.name == "nt"
+IS_MAC = sys.platform == "darwin"
+
 import core  # noqa: E402
 import login as login_mod  # noqa: E402
 import picker  # noqa: E402
 
-APP_VERSION = "1.5.0"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
+APP_VERSION = "1.6.0"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
 UPDATE_REPO = "soberbw-hash/media-downloader"
 
 CONFIG_PATH = os.path.join(BASE, "config.json")
@@ -462,9 +465,9 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 if target and os.path.exists(target):
                     if os.path.isfile(target):
-                        os.startfile(os.path.dirname(target))
+                        _open_path(os.path.dirname(target))
                     else:
-                        os.startfile(target)
+                        _open_path(target)
                     self._json({"ok": True})
                 else:
                     self._json({"ok": False, "error": "路径不存在"})
@@ -598,16 +601,34 @@ def find_running():
 
 
 def _browser_exe():
-    pf = os.environ.get("ProgramFiles", r"C:\Program Files")
-    pf86 = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
-    la = os.environ.get("LOCALAPPDATA", "")
-    cands = [
-        os.path.join(pf86, r"Microsoft\Edge\Application\msedge.exe"),
-        os.path.join(pf, r"Microsoft\Edge\Application\msedge.exe"),
-        os.path.join(pf, r"Google\Chrome\Application\chrome.exe"),
-        os.path.join(pf86, r"Google\Chrome\Application\chrome.exe"),
-        os.path.join(la, r"Google\Chrome\Application\chrome.exe"),
-    ]
+    """找一个能开 --app 独立窗口的 Chromium 系浏览器。
+
+    Safari 不支持 --app，所以 mac 上只认装了 Chrome / Edge / Chromium / Brave 的机器；
+    一个都没有就退化成普通浏览器标签（功能一样，只是多了地址栏）。
+    """
+    if IS_MAC:
+        home = os.path.expanduser("~")
+        cands = [
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            os.path.join(home, "Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+            "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+            "/Applications/Chromium.app/Contents/MacOS/Chromium",
+            "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+        ]
+    elif IS_WIN:
+        pf = os.environ.get("ProgramFiles", r"C:\Program Files")
+        pf86 = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
+        la = os.environ.get("LOCALAPPDATA", "")
+        cands = [
+            os.path.join(pf86, r"Microsoft\Edge\Application\msedge.exe"),
+            os.path.join(pf, r"Microsoft\Edge\Application\msedge.exe"),
+            os.path.join(pf, r"Google\Chrome\Application\chrome.exe"),
+            os.path.join(pf86, r"Google\Chrome\Application\chrome.exe"),
+            os.path.join(la, r"Google\Chrome\Application\chrome.exe"),
+        ]
+    else:
+        cands = ["/usr/bin/google-chrome", "/usr/bin/chromium",
+                 "/usr/bin/chromium-browser", "/usr/bin/microsoft-edge"]
     for p in cands:
         if p and os.path.isfile(p):
             return p
@@ -615,6 +636,12 @@ def _browser_exe():
 
 
 def app_profile_dir():
+    if IS_MAC:
+        return os.path.join(os.path.expanduser("~"), "Library", "Application Support",
+                            "VideoDL", "appwin")
+    if not IS_WIN:
+        root = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+        return os.path.join(root, "VideoDL", "appwin")
     root = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
     return os.path.join(root, "VideoDL", "appwin")
 
@@ -695,7 +722,28 @@ def open_window(url, mode):
         return "browser"
 
 
+def _open_path(target):
+    """用系统默认程序打开文件 / 文件夹。Windows 用 startfile，mac 用 open，Linux 用 xdg-open。"""
+    if IS_WIN:
+        os.startfile(target)                # noqa: 只有 Windows 有
+        return
+    try:
+        subprocess.Popen(["open" if IS_MAC else "xdg-open", target], close_fds=True)
+    except Exception:
+        pass
+
+
 def fail_box(msg):
+    if IS_MAC:
+        try:
+            esc = str(msg).replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")
+            subprocess.run(["osascript", "-e",
+                            'display alert "音视频下载器" message "%s" as critical' % esc],
+                           capture_output=True, timeout=120)
+            return
+        except Exception:
+            print(msg)
+            return
     try:
         import ctypes
         ctypes.windll.user32.MessageBoxW(

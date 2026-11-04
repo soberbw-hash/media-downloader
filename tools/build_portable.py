@@ -9,7 +9,7 @@ r"""把源码目录打成一个「别人拿到就能双击用」的免安装文�
         使用说明.txt
         程序\                   ← 代码 + 内置 Python（隐藏）
             音视频下载器-公司.bat   ← 备份入口（快捷方式失效时用）
-            启动.bat                ← 出问题时看原因
+            诊断.bat                ← 出问题排查用（不是启动入口）
 
 用法（在有 Pillow、PyInstaller 的环境里跑）：
     python tools/build_portable.py --dst "D:\\Desktop\\音视频下载器" \
@@ -28,7 +28,7 @@ BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CODE_FILES = [
     "server.py", "core.py", "cn_sites.py", "sph.py", "music.py", "login.py",
     "picker.py", "picker_win.py", "version.txt", "README.md", "LICENSE",
-    "requirements.txt", "start.bat", "启动.bat", "启动.command",
+    "requirements.txt", "start.bat", "诊断.bat", "启动.command",
 ]
 CODE_DIRS = ["web"]
 DATA_FILES = ["config.json", "history.json"]
@@ -39,7 +39,7 @@ DATA_DIRS = ["cookies"]
 #   mac 包：两个 bat 都是 Windows 专用，不带
 IS_WIN = os.name == "nt"
 SKIP_ON_WIN = {"start.bat", "启动.command"}
-SKIP_ON_MAC = {"start.bat", "启动.bat"}
+SKIP_ON_MAC = {"start.bat", "诊断.bat"}
 
 
 def copytree(src, dst, skip=("__pycache__",)):

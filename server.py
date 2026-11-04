@@ -2,8 +2,9 @@
 """音视频下载器 - 本地服务
 
 启动方式（默认就是独立窗口，不用选）：
-  启动.bat        -> server.py --app   无地址栏的独立窗口，关窗即退出
-  start.bat web   -> server.py --web   普通浏览器标签，仅作兜底
+  诊断.bat        -> server.py --app   无地址栏的独立窗口，关窗即退出
+  诊断.bat web    -> server.py --web   普通浏览器标签，仅作兜底
+  （诊断.bat 是前台跑，报错会留在窗口里；它不是日常启动入口）
 
 服务只跑一个实例：第二次双击会复用已在运行的服务，只负责开窗口。
 """
@@ -33,7 +34,7 @@ import core  # noqa: E402
 import login as login_mod  # noqa: E402
 import picker  # noqa: E402
 
-APP_VERSION = "1.6.5"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
+APP_VERSION = "1.6.6"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
 UPDATE_REPO = "soberbw-hash/media-downloader"
 
 CONFIG_PATH = os.path.join(BASE, "config.json")

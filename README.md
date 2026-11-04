@@ -48,7 +48,9 @@
 
 1. 装 [Python 3.11+](https://www.python.org/downloads/)（安装时勾选 Add to PATH）
 2. 装依赖：`pip install -r requirements.txt`
-3. 双击 **`启动.bat`**
+3. 双击 **`诊断.bat`**
+
+   （这个文件同时是排障用的：前台运行，报错会留在窗口里，方便截图发出来）
 
 窗口会自己弹出来。关掉窗口就等于退出，不会在后台留进程。
 
@@ -146,7 +148,7 @@ brew install ffmpeg
     使用说明.txt
     程序\                   ← 代码 + 内置 Python 运行时（隐藏，正常看不见）
         音视频下载器-公司.bat   ← 备份入口，换电脑导致快捷方式失效时用
-        启动.bat                ← 诊断入口（前台运行，报错留在窗口里）
+        诊断.bat                ← 出问题排查用（前台运行，报错留在窗口里）
 ```
 
 打包命令（需要 Pillow 和 PyInstaller）：
@@ -185,7 +187,7 @@ login.py         账号登录，导出 cookies
 picker.py        系统「选择文件夹」对话框（跨平台入口）
 picker_win.py    Windows 那份实现（Win32 IFileOpenDialog）
 web/             界面（原生 HTML/CSS/JS，无框架）
-启动.bat         Windows 启动入口（自带 Python 探测；web 参数走浏览器）
+诊断.bat         Windows 排障入口（自带 Python 探测；web 参数走浏览器）
 启动.command     macOS 的启动入口，双击运行
 start.bat        旧的启动逻辑，仓库里留着，便携版不打包
 使用说明.txt      给人看的说明书

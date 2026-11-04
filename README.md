@@ -97,6 +97,12 @@ python server.py --server  # 只起服务，不动浏览器
 1. 直接粘 `finder.video.qq.com/.../stodownload?...` 这类直链
 2. 在设置里填一个解析接口（POST `{"url": "分享链接"}`，返回里含 `stodownload` / `.mp4` / `.m3u8` 即可）
 
+解析接口从哪来（设置里该项下有「怎么获取？」引导）：
+
+- 用任意解析工具把分享链接换成直链再粘，接口留空
+- 自己照接口约定搭个小服务；开源工具 [wx_channels_download](https://github.com/ltaoo/wx_channels_download) 自带解析服务，也支持一键部署成 Cloudflare Worker
+- 用同事 / 服务商给的现成接口地址
+
 仓储里没有内置任何第三方解析服务，也不打算接。
 
 ## 为什么不是 exe

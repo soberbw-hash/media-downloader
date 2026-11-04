@@ -240,7 +240,33 @@
         <div class="field">
           <label for="cfgSph">视频号解析接口 <span class="opt">可选</span></label>
           <input id="cfgSph" placeholder="https://你的解析服务/api/fetch_video_profile">
-          <div class="hint" title="留空时只支持 finder.video.qq.com 的直链">视频号要登录态才发地址。填接口后，粘分享链接就能下。</div>
+          <div class="hint">视频号要登录态才发地址。填接口后，粘分享链接就能下。</div>
+          <details class="qbox">
+            <summary>这是什么？怎么获取？</summary>
+            <div class="qbox-body">
+              <p><b>它是什么。</b>一个网址，作用只有一个：把视频号「分享链接」换成「视频直链」。
+              粘分享链接时，软件把链接发给它，拿回直链再下载。</p>
+              <p><b>为什么要它。</b>微信只把视频地址发给带登录态的请求，分享链接里没有视频，
+              所以视频号没法像抖音那样开箱即用。</p>
+              <p class="q-t">三条路，任选一条：</p>
+              <ol>
+                <li><b>不填也能下（最省事）</b>——拿到直链直接粘首页。
+                直链长这样：<code>finder.video.qq.com/…/stodownload?…</code>，
+                用任意能解析视频号的工具或网站换出这种地址就行，这个设置留空。</li>
+                <li><b>自己搭一个（一劳永逸）</b>——照下面的接口约定做个几行的小服务，
+                把地址填上面。开源工具 wx_channels_download 自带解析服务，
+                还支持一键部署到 Cloudflare Worker，部署出来的网址直接填。</li>
+                <li><b>用现成的</b>——同事、朋友或服务商给你的解析接口地址，填上面即可。</li>
+              </ol>
+              <p class="q-t">接口约定（给搭接口的人看）：</p>
+              <p>软件会 POST <code>{"url": "分享链接"}</code> 到这个地址
+              （也支持 GET <code>?url=</code>，或地址里写 <code>{url}</code> 占位符）。
+              返回任意 JSON，只要含视频地址就行——字段叫 <code>videoUrl</code> /
+              <code>playable_url</code> / <code>url</code> / <code>src</code> /
+              <code>video</code> 都认，或者任何带 <code>stodownload</code> 的字符串。
+              可选 <code>title</code> / <code>nickname</code> 字段，软件会拿来命名文件。</p>
+            </div>
+          </details>
         </div>
 
       </div>

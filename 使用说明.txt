@@ -215,6 +215,11 @@ cookies 文件 一般不用填，用上面的账号登录就行；填了会优�
 视频号解析接口 只在要下视频号时用。填一个能接受 POST {"url": "分享链接"} 的地址，
              返回 JSON 里带视频地址就行（字段叫 videoUrl / playable_url / url 都能识别）。
              留空 = 只支持粘 finder.video.qq.com 直链。
+             这东西怎么来？设置里该项下面有「怎么获取？」，写了三条路：
+               1) 不填接口，用别的工具把分享链接换成 finder.video.qq.com 直链再粘
+               2) 自己照接口约定搭个小服务（开源工具 wx_channels_download 也能干这活，
+                  还支持一键部署成 Cloudflare Worker，网址直接填）
+               3) 用同事/服务商给的现成接口地址
 
 
 代理与速度（实测）

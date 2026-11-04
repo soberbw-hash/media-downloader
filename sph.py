@@ -145,7 +145,8 @@ def resolve(share_url, api, timeout=25):
     """把分享链接交给用户配的解析接口，返回 (title, author, media_url)。"""
     data = _call_api(api, share_url, timeout)
     if not data:
-        raise RuntimeError("解析接口没有响应，检查设置里的「视频号解析接口」是否正确")
+        raise RuntimeError("解析接口没有响应，检查设置里的「视频号解析接口」地址对不对"
+                           "（接口约定见设置里「怎么获取？」）")
     media = _find_media(data)
     if not media:
         msg = _text_field(data, "error", "errMsg", "msg", "message", "detail")
@@ -171,7 +172,8 @@ def download(url, out_dir, progress, quality="best", api=""):
         if not (api or "").strip():
             raise RuntimeError(
                 "视频号的视频地址要登录态才发，分享链接本身不含视频。"
-                "请二选一：在设置里填「视频号解析接口」，或直接粘 finder.video.qq.com 的直链")
+                "请二选一：在设置里填「视频号解析接口」（旁边「怎么获取？」有三条路），"
+                "或直接粘 finder.video.qq.com 的直链")
         progress(stage="正在解析分享链接…")
         title, author, media = resolve(url, api)
         progress(title=title, author=author)

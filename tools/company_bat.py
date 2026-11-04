@@ -22,9 +22,11 @@ rem  黑框只会闪一下，那是启动时的正常现象，不用管。
 rem  想关掉软件：关掉「音视频下载器」窗口即可。
 rem ==========================================================
 
-rem 找程序本体：先看同目录，再看下一层的子文件夹，最后兜到默认位置
+rem 找程序本体：先看自己所在目录（bat 就放在 程序 里），再看同目录，
+rem 再看下一层子文件夹，最后兜到默认位置
 set "APP="
-if exist "%~dp0程序\server.py" set "APP=%~dp0程序"
+if exist "%~dp0server.py" set "APP=%~dp0"
+if not defined APP if exist "%~dp0程序\server.py" set "APP=%~dp0程序"
 if not defined APP if exist "%~dp0音视频下载器\程序\server.py" set "APP=%~dp0音视频下载器\程序"
 if not defined APP if exist "D:\Desktop\音视频下载器\程序\server.py" set "APP=D:\Desktop\音视频下载器\程序"
 

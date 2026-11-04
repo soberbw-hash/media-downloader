@@ -141,10 +141,12 @@ brew install ffmpeg
 ```
 音视频下载器\
     音视频下载器.exe         ← 家用入口，带图标，双击即用
-    音视频下载器-公司.bat    ← 公司电脑入口，绕开被拦截的 exe
+    音视频下载器-公司.lnk    ← 公司电脑入口，同样带图标，绕开被拦截的 exe
     下载的文件\              ← 下载保存位置
     使用说明.txt
     程序\                   ← 代码 + 内置 Python 运行时（隐藏，正常看不见）
+        音视频下载器-公司.bat   ← 备份入口，换电脑导致快捷方式失效时用
+        启动.bat                ← 出问题看原因
 ```
 
 打包命令（需要 Pillow 和 PyInstaller）：
@@ -154,7 +156,14 @@ python tools/build_portable.py --dst "D:\Desktop\音视频下载器" \
     --runtime "C:\path\to\python"      # 拿来当内置运行时的 Python 目录
 ```
 
-**为什么还要一个 .bat**：公司那类装了端点安全软件的电脑，会把 PyInstaller 打包的 exe 直接拦掉（双击没反应，或者提示已阻止）。`tools/company_bat.py` 生成的 `音视频下载器-公司.bat` 不经过 exe，直接用内置的 `runtime\pythonw.exe` 起 `server.py --app`，界面和功能完全一样。`pythonw` 是 GUI 子系统、没有控制台窗口，所以 bat 起完进程就 `exit`，黑框只闪 100 毫秒左右，不会像以前那样留一个终端在桌面上挡着。没有 `pythonw` 的极端情况才退回最小化的控制台。
+**为什么公司电脑要换一个入口，而且还要分 .lnk 和 .bat 两份**：公司那类装了端点安全软件的电脑，会把 PyInstaller 打包的 exe 直接拦掉（双击没反应，或者提示已阻止）。绕开的办法是直接拿内置的 `runtime\pythonw.exe` 起 `server.py --app`，功能完全一样。
+
+但这里有两个 Windows 规矩绕不开：
+
+1. `.bat` 文件自己没地方存图标资源，资源管理器只给它那个默认的齿轮窗口图标，改不了（除非改注册表把所有 `.bat` 的图标一起换掉，那是污染系统）。能带自定义图标的只有 exe 和快捷方式。
+2. 快捷方式（`.lnk`）里存的是绝对路径，换台电脑、或者把文件夹改名搬走，就会提示「找不到目标」。
+
+所以最终是两份：根目录放带图标的 `音视频下载器-公司.lnk`（`tools/make_shortcut.py` 用 ctypes 调 `IShellLink` 生成，图标指向 `程序\assets\icon.ico`，直接指向 `pythonw.exe`，**连黑框都不闪**）；`音视频下载器-公司.bat`（`tools/company_bat.py` 生成）放进 `程序\` 当备份，换电脑后快捷方式失效时用它——`pythonw` 是 GUI 子系统、没有控制台，bat 起完进程就 `exit`，黑框只闪 100 毫秒左右。
 
 生成的 exe 只是个启动器（约 8.6 MB，PyInstaller 单文件），它找到旁边的 `程序\runtime\python.exe`，用无窗口方式拉起 `server.py --app` 就退出。所以：
 

@@ -1,13 +1,15 @@
 # -*- coding: utf-8 -*-
-"""把源码目录打成一个「别人拿到就能双击用」的免安装文件夹。
+r"""把源码目录打成一个「别人拿到就能双击用」的免安装文件夹。
 
 产物结构：
     音视频下载器\
         音视频下载器.exe         ← 带图标的启动器（家用）
-        音视频下载器-公司.bat    ← 绕过 exe 拦截的入口（公司电脑）
+        音视频下载器-公司.lnk    ← 绕过 exe 拦截的入口（公司电脑，带图标、无黑框）
         下载的文件\              ← 下载保存位置
         使用说明.txt
         程序\                   ← 代码 + 内置 Python（隐藏）
+            音视频下载器-公司.bat   ← 备份入口（快捷方式失效时用）
+            启动.bat                ← 出问题时看原因
 
 用法（在有 Pillow、PyInstaller 的环境里跑）：
     python tools/build_portable.py --dst "D:\\Desktop\\音视频下载器" \
@@ -96,9 +98,13 @@ def main():
         exe = build_exe(a.runtime)
         shutil.copy2(exe, os.path.join(dst, "音视频下载器.exe"))
 
-    # 公司电脑专用入口：exe 被端点安全拦下时走 bat
-    subprocess.run([sys.executable, os.path.join(BASE, "tools", "company_bat.py"), dst],
+    # 公司电脑专用入口：exe 被端点安全拦下时走它
+    #   · 根目录生成带图标的快捷方式（.lnk 才有地方存图标，bat 没有）
+    #   · bat 本体放「程序」里当备份，换电脑后快捷方式失效时还能用
+    subprocess.run([sys.executable, os.path.join(BASE, "tools", "company_bat.py"), app],
                    check=False)
+    subprocess.run([sys.executable, os.path.join(BASE, "tools", "make_shortcut.py"),
+                    dst, dst], check=False)
 
     # 隐藏 程序，桌面看起来才干净
     subprocess.run(["attrib", "+h", app], check=False)

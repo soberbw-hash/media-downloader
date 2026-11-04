@@ -620,15 +620,17 @@ async function poll() {
   }
 }
 
-/* ---------- 独立窗口模式：显示退出按钮，关窗即退出软件 ---------- */
+/* ---------- 独立窗口模式：关窗即退出软件 ---------- */
 let modeDone = false;
 function applyMode(mode) {
   if (modeDone) return;
   modeDone = true;
   if (mode !== "app") return;
   document.body.classList.add("app-mode");
-  const q = $("#quitApp");
-  if (q) q.hidden = false;
+  // 右上角不再放「退出」——关窗本来就会退出，那个按钮只是"没退干净"时的兜底，
+  // 放到设置抽屉最下面，不占地方
+  const g = $("#quitGrp");
+  if (g) g.hidden = false;
   // 告诉服务端"页面已经加载好了"，用于区分刷新和关窗
   post("/api/alive", {}).catch(() => {});
   // 关掉窗口 -> 服务一起退出
@@ -1163,7 +1165,7 @@ $("#quitApp").onclick = async () => {
       document.body.innerHTML =
         '<div style="display:flex;height:100vh;align-items:center;justify-content:center;' +
         'font:15px/1.7 system-ui;color:#6b7280;text-align:center">' +
-        "已退出，可以把窗口关掉了</div>";
+        "已退出，窗口不会自己关的话，点右上角的 × 就行</div>";
     }, 300);
   }, 900);
 };

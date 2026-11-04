@@ -99,23 +99,6 @@ header {
   display: none !important;
 }
 
-.icon-btn.quit {
-  color: #b91c1c;
-  border-color: #f3d7d7;
-  background: #fef7f7;
-}
-
-.icon-btn.quit:hover {
-  color: #fff;
-  border-color: #dc2626;
-  background: #dc2626;
-}
-
-.icon-btn.quit:disabled {
-  opacity: .6;
-  cursor: default;
-}
-
 /* ---------- 输入区 ---------- */
 .composer {
   background: var(--surface);

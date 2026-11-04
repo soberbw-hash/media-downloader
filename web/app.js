@@ -82,6 +82,12 @@ function platformOf(url) {
   for (const [list, name] of HOSTS) {
     for (const d of list) if (h === d || h.endsWith("." + d)) return name;
   }
+  // 域名不认识不代表下不了：m3u8 / mp4 这种直链单独一条路，
+  // 后端也是同一个判断（core.detect_platform → hls.looks_like）
+  let path = "";
+  try { const u = new URL(url); path = (u.pathname + u.search).toLowerCase(); } catch (e) {}
+  if (/\.(m3u8|m3u|mpd|mp4|m4v|mov|mkv|webm|flv|ts|m4s|m4a|mp3|aac|flac|wav|ogg|opus)(\?|#|$)/.test(path)
+      || /(^|[?&])(format=m3u|format=mpd)/.test(path)) return "直链 / HLS";
   return null;
 }
 

@@ -73,6 +73,8 @@ PLATFORMS = [
     {"id": "suno", "name": "Suno", "level": "full",
      "hosts": ["suno.com", "suno.ai", "studio-api.prod.suno.com",
                "cdn1.suno.ai", "cdn2.suno.ai"]},
+    # —— 直链 / HLS：没有固定域名，按后缀和参数判断，走 hls.py ——
+    {"id": "direct", "name": "直链 / HLS", "level": "full", "hosts": []},
 ]
 PINFO = {p["id"]: p for p in PLATFORMS}
 
@@ -150,6 +152,14 @@ def detect_platform(url):
         for d in p["hosts"]:
             if h == d or h.endswith("." + d):
                 return p["id"], p["name"], p["level"]
+    # 域名不认识不代表下不了：m3u8 / mp4 这类直链单独处理，
+    # 否则会掉进 yt-dlp 的通用模式，既没有码率选择也不会带对 Referer
+    try:
+        import hls
+        if hls.looks_like(url):
+            return "direct", "直链 / HLS", "full"
+    except Exception:
+        pass
     return "unknown", "未知平台", "unknown"
 
 
@@ -1146,6 +1156,12 @@ class Manager(object):
             with self.lock:
                 t.kind = "audio"
             res = suno.download(t.url, suno_out, progress, quality, proxy)
+        elif t.platform == "direct":
+            import hls  # 延迟导入，避免循环依赖
+            if hls.is_audio_name(t.url):
+                with self.lock:
+                    t.kind = "audio"
+            res = hls.download(t.url, out_dir, progress, quality, proxy)
         elif t.platform == "weixin":
             import sph  # 延迟导入，避免循环依赖
             res = sph.download(t.url, out_dir, progress, quality,

@@ -40,6 +40,7 @@
 | QQ音乐 | | ⚠️ | 必须先登录，vkey 按账号下发 |
 | 酷狗音乐 | | ⚠️ | 只做了搜索，播放地址拿不到 |
 | Suno | | ✅ | 贴分享链接；下 mp4 抽音轨转 mp3，需 ffmpeg |
+| 直链 / HLS | | ✅ | 任意 `.m3u8` / `.mp4` 地址，多码率自动挑最高 |
 
 ✅ 直接可用　⚠️ 有条件可用
 
@@ -159,6 +160,25 @@ https://cdn1.suno.ai/{uuid}.mp4              视频直链
 
 Suno 是境外站，没在设置里填代理时会自动走系统代理，所以浏览器能打开就能下。
 
+### 直链 / HLS（m3u8）
+
+任何 `.m3u8`、`.mp4`、`.mpd` 结尾的地址贴进来就能下，不需要对应的平台规则。
+
+这块的判断顺序参考了浏览器嗅探扩展（猫抓 cat-catch）的做法，代码是自己写的：
+
+1. `#EXT-X-STREAM-INF` 存在 → 多码率清单，按设置里的清晰度挑一档
+   （`best` 取最高的；设成 `720` 就取不超过 720 的最高档）
+2. 否则就是单码率切片列表，直接交给 ffmpeg
+3. `#EXT-X-KEY` 的 AES-128、`#EXT-X-MAP` 的 fMP4 初始化段，ffmpeg 都认，
+   不用自己写解密
+4. 没装 ffmpeg 时退回纯 Python：下切片自己拼（只支持未加密的 TS/MP4）
+
+进度按 `#EXTINF` 累加出的总时长算百分比，输出 `.mp4`，失败自动换 `.mkv` 再试一次。
+
+**Referer 是这里的关键**：大部分 CDN 只认自己域名下的 Referer，
+默认按 URL 的 origin 生成（`https://host/`），实测能过绝大多数站。
+`yt-dlp` 的通用模式不会做这件事，所以直链没走它。
+
 ## 为什么不是 exe
 
 公司电脑上 exe 经常被终端管控拦掉，而 `.bat` 和 `.py` 只是文本文件，不触发白名单审核。真正干活的 `python.exe` 和画窗口的 `msedge.exe` 都是机器上早就在跑的东西，我们只是让它们配合一下。
@@ -219,6 +239,7 @@ music.py         网易云 / QQ音乐 / 酷狗，ID3 标签写入
 cn_sites.py      快手 / 小红书专用解析
 sph.py           视频号（直链 + 自定义接口）
 suno.py          Suno（AI 音乐）分享链接解析，见下
+hls.py           直链 / HLS(m3u8) 下载，多码率解析 + ffmpeg 拉流
 login.py         账号登录，导出 cookies
 picker.py        系统「选择文件夹」对话框（跨平台入口）
 picker_win.py    Windows 那份实现（Win32 IFileOpenDialog）

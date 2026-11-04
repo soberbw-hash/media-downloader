@@ -34,6 +34,13 @@ CODE_DIRS = ["web"]
 DATA_FILES = ["config.json", "history.json"]
 DATA_DIRS = ["cookies"]
 
+# 打包时按平台剔掉用不上的启动脚本，免得用户打开「程序」看到一堆不认识的东西
+#   Windows 包：启动.command 是 mac 的，start.bat 是旧的开发用壳，都不带
+#   mac 包：两个 bat 都是 Windows 专用，不带
+IS_WIN = os.name == "nt"
+SKIP_ON_WIN = {"start.bat", "启动.command"}
+SKIP_ON_MAC = {"start.bat", "启动.bat"}
+
 
 def copytree(src, dst, skip=("__pycache__",)):
     if not os.path.isdir(src):
@@ -80,10 +87,18 @@ def main():
     app = os.path.join(dst, "程序")
     os.makedirs(app, exist_ok=True)
 
+    skip = SKIP_ON_WIN if IS_WIN else SKIP_ON_MAC
     for f in CODE_FILES + DATA_FILES:
+        if f in skip:
+            continue
         p = os.path.join(BASE, f)
         if os.path.isfile(p):
             shutil.copy2(p, os.path.join(app, f))
+    # 顺带清掉上一版留下来的、这一版不该有的启动脚本
+    for f in skip:
+        old = os.path.join(app, f)
+        if os.path.isfile(old):
+            os.remove(old)
     for d in CODE_DIRS + DATA_DIRS:
         copytree(os.path.join(BASE, d), os.path.join(app, d))
 
@@ -94,20 +109,20 @@ def main():
 
     os.makedirs(os.path.join(dst, "下载的文件"), exist_ok=True)
 
-    if not a.no_exe:
+    if IS_WIN and not a.no_exe:
         exe = build_exe(a.runtime)
         shutil.copy2(exe, os.path.join(dst, "音视频下载器.exe"))
 
-    # 公司电脑专用入口：exe 被端点安全拦下时走它
-    #   · 根目录生成带图标的快捷方式（.lnk 才有地方存图标，bat 没有）
-    #   · bat 本体放「程序」里当备份，换电脑后快捷方式失效时还能用
-    subprocess.run([sys.executable, os.path.join(BASE, "tools", "company_bat.py"), app],
-                   check=False)
-    subprocess.run([sys.executable, os.path.join(BASE, "tools", "make_shortcut.py"),
-                    dst, dst], check=False)
-
-    # 隐藏 程序，桌面看起来才干净
-    subprocess.run(["attrib", "+h", app], check=False)
+    if IS_WIN:
+        # 公司电脑专用入口：exe 被端点安全拦下时走它
+        #   · 根目录生成带图标的快捷方式（.lnk 才有地方存图标，bat 没有）
+        #   · bat 本体放「程序」里当备份，换电脑后快捷方式失效时还能用
+        subprocess.run([sys.executable, os.path.join(BASE, "tools", "company_bat.py"),
+                        app], check=False)
+        subprocess.run([sys.executable, os.path.join(BASE, "tools", "make_shortcut.py"),
+                        dst, dst], check=False)
+        # 隐藏 程序，桌面看起来才干净
+        subprocess.run(["attrib", "+h", app], check=False)
     print("打包完成:", dst)
 
 

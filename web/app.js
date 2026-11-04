@@ -526,15 +526,14 @@ function render(tasks) {
   multiBatch = bs.size > 1;      // 只有一批时不显示「第 N 批」
 
   if (!tasks.length) {
-    if (!box.querySelector(".empty")) {
-      box.innerHTML = '<div class="empty"><span class="e-main">还没有任务</span>'
-        + '<span class="e-sub">在上面粘贴链接，下载会自动开始</span></div>';
-    }
+    const blk = $("#tasksBlock");
+    if (blk) blk.hidden = true;      // 没任务就整块收起来，不留空白也不带出滚动条
+    if (box) box.innerHTML = "";
     selMap.clear();
     return;
   }
-  const empty = box.querySelector(".empty");
-  if (empty) empty.remove();
+  const blk = $("#tasksBlock");
+  if (blk) blk.hidden = false;
 
   const ids = new Set(tasks.map((t) => t.id));
   box.querySelectorAll(".task").forEach((el) => {
@@ -1235,9 +1234,7 @@ function applyTab(m) {
   });
   const box = $("#composer");
   const mus = $("#musicPanel");
-  const sup = $("#support");
   if (box) box.hidden = m !== "video";
-  if (sup) sup.hidden = m !== "video";
   if (mus) mus.hidden = m !== "music";
   if (m === "music") {
     setTimeout(() => { const q = $("#mQuery"); if (q) q.focus(); }, 60);
@@ -1328,6 +1325,7 @@ function renderMusic() {
     return;
   }
   box.innerHTML = mItems.map(musicRow).join("");
+  box.scrollTop = 0;                 // 换一批结果要从头看，别继承上次的滚动位置
   box.querySelectorAll(".dl").forEach((b) => {
     b.onclick = () => addMusic([mItems[+b.dataset.i]], b);
   });
@@ -1356,9 +1354,8 @@ async function musicSearch(q) {
     if (!r.ok) { $("#mHint").textContent = r.error || "搜索失败"; return; }
     mItems = r.items || [];
     renderMusic();
-    $("#mHint").textContent = mItems.length
-      ? `找到 ${mItems.length} 首 · 勾上多首可以一起下`
-      : "没搜到，换个关键词或换个平台";
+    // 有结果时不再叠一句「找到 N 首」，下面的「共 N 首」已经说了
+    $("#mHint").textContent = mItems.length ? "" : "没搜到，换个关键词或换个平台";
   } catch (e) {
     $("#mHint").textContent = "搜索失败，服务可能已经关了";
   } finally {

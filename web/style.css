@@ -20,6 +20,7 @@
 html, body {
   margin: 0;
   padding: 0;
+  height: 100%;
   background: var(--bg);
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
@@ -29,11 +30,21 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* 视口不滚动，滚动只发生在内容区里 —— 避免「整页往下拉」 */
+body { overflow: hidden; }
+
 .wrap {
   max-width: 860px;
   margin: 0 auto;
-  padding: 40px 24px 80px;
+  padding: 32px 24px 20px;
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
+
+header { flex: 0 0 auto; }
 
 /* ---------- 头部 ---------- */
 header {
@@ -111,6 +122,7 @@ header {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 4px;
+  flex: 0 0 auto;
   transition: border-color .18s ease, box-shadow .18s ease;
 }
 
@@ -227,11 +239,21 @@ header {
 .tag.no { color: var(--hint); text-decoration: line-through; }
 
 /* ---------- 任务列表 ---------- */
+/* 有任务才存在；标题固定，列表自己滚 */
+.tasks-block {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin-top: 26px;
+}
+
 .list-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin: 34px 2px 12px;
+  margin: 0 2px 12px;
+  flex: 0 0 auto;
 }
 
 .list-head h2 {
@@ -265,7 +287,16 @@ header {
 #retryFailed:hover { color: #92400e; }
 #retryFailed:disabled { color: #d9d5d1; }
 
-#tasks { display: flex; flex-direction: column; gap: 8px; }
+#tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 2px 4px 2px 0;
+}
 
 .empty {
   text-align: center;
@@ -1165,7 +1196,7 @@ header {
 .login-bar button:hover { color: var(--err); }
 
 @media (max-width: 620px) {
-  .wrap { padding: 24px 16px 60px; }
+  .wrap { padding: 22px 16px 16px; }
   .thumb { width: 44px; height: 44px; }
   .composer-foot { flex-wrap: wrap; }
   .foot-right { width: 100%; justify-content: space-between; }
@@ -1514,12 +1545,20 @@ button:focus-visible,
   }
 }
 
-/* 小屏 / 笔记本：纵向留白收一点，多留空间给任务列表 */
+/* 小屏 / 笔记本：纵向留白收一点，多留空间给列表 */
 @media (max-height: 760px) {
-  .wrap { padding: 22px 24px 48px; }
+  .wrap { padding: 20px 24px 16px; }
   #input { min-height: 62px; }
   .support { margin-top: 10px; }
-  .list-head { margin-top: 22px; }
+  .tasks-block { margin-top: 18px; }
+}
+
+/* 窗口很矮时退回整页滚动，否则固定区域会把内容挤没 */
+@media (max-height: 560px) {
+  html, body { height: auto; }
+  body { overflow-y: auto; }
+  .wrap { height: auto; min-height: 100%; }
+  .mresults, #tasks { flex: 0 1 auto; max-height: 48vh; }
 }
 
 /* ---------- 视频 / 音乐 切换 ---------- */
@@ -1527,6 +1566,7 @@ button:focus-visible,
   display: flex;
   margin: 2px 0 16px;
   border-bottom: 1px solid var(--line);
+  flex: 0 0 auto;
 }
 .tab {
   position: relative;
@@ -1553,7 +1593,19 @@ button:focus-visible,
 }
 
 /* ---------- 音乐搜索 ---------- */
-.music { margin-bottom: 20px; }
+/* 面板整体撑满剩余高度，结果列表是唯一滚动区 */
+.music {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.msearch,
+.mplats,
+.mhint,
+.mbar { flex: 0 0 auto; }
+
 .msearch { display: flex; gap: 8px; align-items: center; }
 .msearch select,
 .msearch input {
@@ -1639,12 +1691,17 @@ button:focus-visible,
 .psrc[data-p="kugou"] { background: #fdf4e9; color: #b85c00; }
 
 .mhint { margin: 9px 2px 0; font-size: 12px; color: var(--hint); }
+.mhint:empty { display: none; }
+
 .mresults {
   margin-top: 8px;
   display: flex;
   flex-direction: column;
-  max-height: 44vh;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 2px 4px 2px 0;
 }
 .mresults:empty { display: none; }
 .msong {

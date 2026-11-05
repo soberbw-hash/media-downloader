@@ -470,6 +470,50 @@ def save_desc_txt(task, path):
         return ""
 
 
+#: 附件的类型（封面/字幕/弹幕/简介），归拢时只认这些，绝不误伤同名视频音频
+SIDE_EXTS = (".txt", ".xml", ".srt", ".vtt", ".ass", ".sub", ".lrc",
+             ".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp")
+
+
+def gather_side_files(path, old_stem):
+    """封面/字幕/弹幕/简介这些附件收进同名文件夹，文件夹名跟视频一致（同一套命名模板）。
+    视频自己留在外面——下载目录里还是一排视频，附件不碍眼。
+    命名模板改名前写下的附件（比如 yt-dlp 的字幕）顺手换成新名。
+    返回文件夹路径；没东西可收返回 ""。"""
+    d = os.path.dirname(path)
+    stem = os.path.splitext(os.path.basename(path))[0]
+    folder = os.path.join(d, stem)
+    made = False
+    try:
+        names = os.listdir(d)
+    except OSError:
+        return ""
+    for f in names:
+        full = os.path.join(d, f)
+        if not os.path.isfile(full) or os.path.abspath(full) == os.path.abspath(path):
+            continue
+        if f.startswith(stem + "."):
+            newname = f
+        elif old_stem and old_stem != stem and f.startswith(old_stem + "."):
+            newname = stem + f[len(old_stem):]      # 改名前的字幕等，跟着换新名
+        else:
+            continue
+        tail = newname[len(stem):].lower()
+        if ".part" in tail or not tail.endswith(SIDE_EXTS):
+            continue
+        if not made:
+            try:
+                os.makedirs(folder, exist_ok=True)
+            except OSError:
+                return ""
+            made = True
+        try:
+            os.replace(full, os.path.join(folder, newname))
+        except OSError:
+            pass            # 文件被占着就留在外面，不值当报错
+    return folder if made else ""
+
+
 def http_get(url, headers=None, data=None, timeout=40):
     req = urllib.request.Request(url, data=data, headers=headers or {})
     return urllib.request.urlopen(req, timeout=timeout)
@@ -1477,6 +1521,7 @@ class Manager(object):
             return path
         is_dir = os.path.isdir(path)
 
+        old_stem = os.path.splitext(os.path.basename(path))[0]
         tpl = (self.cfg.get("name_tpl") or "").strip()
         if tpl and not is_dir:
             newbase = render_name(tpl, t)
@@ -1499,15 +1544,22 @@ class Manager(object):
         # 先写本地的 .txt，再拉要走网络的弹幕——状态已经显示「已完成」了，
         # 本地文件越早落地越好
         base = os.path.splitext(path)[0]
-        if self.cfg.get("save_desc", True) and not is_dir:
+        if self.cfg.get("save_desc", False) and not is_dir:
             try:
                 save_desc_txt(t, path)
             except Exception:
                 pass
-        if (self.cfg.get("save_danmaku", True) and not is_dir
+        if (self.cfg.get("save_danmaku", False) and not is_dir
                 and t.platform == "bilibili"):
             try:
                 save_danmaku(t.url, base)
+            except Exception:
+                pass
+
+        # 封面/字幕/弹幕/简介收进同名文件夹，文件夹跟视频用同一套命名
+        if not is_dir:
+            try:
+                gather_side_files(path, old_stem)
             except Exception:
                 pass
         return path

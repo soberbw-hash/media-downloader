@@ -1093,8 +1093,8 @@ function openDrawer() {
   $("#cfgMusicDir").value = cfg.music_dir || "";
   $("#cfgCover").checked = !!cfg.save_cover;
   $("#cfgSubs").checked = !!cfg.down_subs;
-  $("#cfgDanmaku").checked = cfg.save_danmaku !== false;   // 默认开
-  $("#cfgDesc").checked = cfg.save_desc !== false;         // 默认开
+  $("#cfgDanmaku").checked = !!cfg.save_danmaku;   // 默认关
+  $("#cfgDesc").checked = !!cfg.save_desc;         // 默认关
   loadLogins(true);          // 只为刷新「已登录 n/8」这行摘要
 }
 

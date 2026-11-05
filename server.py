@@ -34,7 +34,7 @@ import core  # noqa: E402
 import login as login_mod  # noqa: E402
 import picker  # noqa: E402
 
-APP_VERSION = "1.11.0"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
+APP_VERSION = "1.12.0"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
 UPDATE_REPO = "soberbw-hash/media-downloader"
 
 CONFIG_PATH = os.path.join(BASE, "config.json")
@@ -46,12 +46,12 @@ DEFAULT_CFG = {
     "cookies_file": "",
     "concurrency": 3,
     "sph_api": "",
-    "name_tpl": "",          # 空 = 沿用解析器自己的命名
+    "name_tpl": "{date}_{platform}_{author}_{title}",   # 默认按日期_平台_作者_标题命名，空 = 沿用解析器自己的命名
     "save_cover": False,     # 下载完顺手存一张封面
     "music_dir": "",         # 音乐单独放一个目录，空 = 跟视频同目录
     "down_subs": False,      # 顺便把字幕存成 .srt
-    "save_danmaku": True,    # B站弹幕存成同名 .xml
-    "save_desc": True,       # 简介/元信息存成同名 .txt
+    "save_danmaku": False,   # B站弹幕存成同名 .xml（附件都收进同名文件夹）
+    "save_desc": False,      # 简介/元信息存成同名 .txt（附件都收进同名文件夹）
 }
 
 PORT_MIN = 8765

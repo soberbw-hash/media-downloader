@@ -149,7 +149,7 @@
         <label for="cfgNamePre">文件命名 <span class="opt">可选</span></label>
         <select id="cfgNamePre">
           <option value="">默认（沿用原标题）</option>
-          <option value="{date}_{platform}_{author}_{title}">日期_平台_作者_标题</option>
+          <option value="{date}_{platform}_{author}_{title}" selected>日期_平台_作者_标题</option>
           <option value="{platform}_{author}_{title}">平台_作者_标题</option>
           <option value="{author}_{title}">作者_标题</option>
           <option value="{date}_{title}">日期_标题</option>
@@ -174,7 +174,7 @@
         <label class="tg">
           <span class="tg-txt">
             <b>保存封面图</b>
-            <i>视频旁边多一张同名 .cover.jpg</i>
+            <i>多一张同名 .cover.jpg</i>
           </span>
           <span class="switch">
             <input type="checkbox" id="cfgCover">
@@ -194,7 +194,7 @@
         <label class="tg">
           <span class="tg-txt">
             <b>保存弹幕</b>
-            <i>B站视频旁边多一个同名 .xml 弹幕文件</i>
+            <i>B站弹幕存成同名 .xml 文件</i>
           </span>
           <span class="switch">
             <input type="checkbox" id="cfgDanmaku">
@@ -212,6 +212,7 @@
           </span>
         </label>
       </div>
+      <div class="hint">开着的附件（封面/字幕/弹幕/简介）会收进一个跟视频同名的文件夹，下载目录里还是一排视频。</div>
     </section>
 
     <section class="grp">

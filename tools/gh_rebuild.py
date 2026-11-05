@@ -24,7 +24,9 @@ def git(*args):
 
 
 def main():
-    if git("status", "--porcelain").strip():
+    # 只看「已跟踪文件」有没有改动。测试残留（未跟踪的目录/文件）不影响推送，
+    # 之前因为 tests/ 下的临时产物卡住过一次
+    if git("status", "--porcelain", "--untracked-files=no").strip():
         raise SystemExit("工作区不干净，先提交")
 
     remote = git("rev-parse", "origin/main").strip()

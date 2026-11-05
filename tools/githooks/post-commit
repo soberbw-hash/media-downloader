@@ -1,0 +1,7 @@
+#!/bin/sh
+# 提交后自动同步 GitHub（重建 SHA -> API 推送）。
+# 失败只提示、不拦提交，exit 0 保证 git commit 永远看起来是成功的。
+root=$(git rev-parse --show-toplevel) || exit 0
+command -v python >/dev/null 2>&1 || exit 0
+python "$root/tools/gh_auto_push.py" || echo "[自动推送] 没同步上，稍后可手动跑 python tools/gh_auto_push.py"
+exit 0

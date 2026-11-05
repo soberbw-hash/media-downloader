@@ -1093,6 +1093,8 @@ function openDrawer() {
   $("#cfgMusicDir").value = cfg.music_dir || "";
   $("#cfgCover").checked = !!cfg.save_cover;
   $("#cfgSubs").checked = !!cfg.down_subs;
+  $("#cfgDanmaku").checked = cfg.save_danmaku !== false;   // 默认开
+  $("#cfgDesc").checked = cfg.save_desc !== false;         // 默认开
   loadLogins(true);          // 只为刷新「已登录 n/8」这行摘要
 }
 
@@ -1290,6 +1292,8 @@ $("#saveCfg").onclick = async () => {
     music_dir: $("#cfgMusicDir").value.trim(),
     save_cover: $("#cfgCover").checked,
     down_subs: $("#cfgSubs").checked,
+    save_danmaku: $("#cfgDanmaku").checked,
+    save_desc: $("#cfgDesc").checked,
   });
   if (r.ok) { cfg = r.config; toast("已保存"); closeAllDrawers(); }
   else toast(r.error || "保存失败", 3600);

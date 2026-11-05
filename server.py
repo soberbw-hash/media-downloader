@@ -34,7 +34,7 @@ import core  # noqa: E402
 import login as login_mod  # noqa: E402
 import picker  # noqa: E402
 
-APP_VERSION = "1.10.0"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
+APP_VERSION = "1.11.0"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
 UPDATE_REPO = "soberbw-hash/media-downloader"
 
 CONFIG_PATH = os.path.join(BASE, "config.json")
@@ -50,6 +50,8 @@ DEFAULT_CFG = {
     "save_cover": False,     # 下载完顺手存一张封面
     "music_dir": "",         # 音乐单独放一个目录，空 = 跟视频同目录
     "down_subs": False,      # 顺便把字幕存成 .srt
+    "save_danmaku": True,    # B站弹幕存成同名 .xml
+    "save_desc": True,       # 简介/元信息存成同名 .txt
 }
 
 PORT_MIN = 8765
@@ -455,6 +457,10 @@ class Handler(BaseHTTPRequestHandler):
                     CFG["save_cover"] = bool(data["save_cover"])
                 if "down_subs" in data:
                     CFG["down_subs"] = bool(data["down_subs"])
+                if "save_danmaku" in data:
+                    CFG["save_danmaku"] = bool(data["save_danmaku"])
+                if "save_desc" in data:
+                    CFG["save_desc"] = bool(data["save_desc"])
                 if "concurrency" in data:
                     try:
                         CFG["concurrency"] = max(1, min(8, int(data["concurrency"])))

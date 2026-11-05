@@ -13,6 +13,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import zlib
 
 try:
     import yt_dlp
@@ -354,6 +355,118 @@ def save_cover(thumb_url, base_path, headers=None):
             f.write(data)
         return base_path + ext
     except Exception:
+        return ""
+
+
+# ---------- B站弹幕 ----------
+_BILI_HDR = {
+    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                   "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"),
+    "Referer": "https://www.bilibili.com/",
+}
+
+
+def bili_cid(url):
+    """拿 B 站视频的 cid（弹幕按这个编号）。分P视频按 ?p= 选对那一页。拿不到返回 0。"""
+    url = url or ""
+    m = re.search(r"(BV[0-9A-Za-z]{10})", url)
+    q = {"bvid": m.group(1)} if m else None
+    if not q:
+        m = re.search(r"/av(\d+)", url)
+        if m:
+            q = {"aid": m.group(1)}
+    if not q:
+        # b23.tv 这类短链里没有 BV 号，跟一次跳转再看
+        try:
+            r = http_get(url, _BILI_HDR, timeout=12)
+            final = r.geturl() or url
+            r.close()
+        except Exception:
+            return 0
+        m = re.search(r"(BV[0-9A-Za-z]{10})", final) or re.search(r"/av(\d+)", final)
+        if not m:
+            return 0
+        q = {"bvid": m.group(1)} if m.group(0).startswith("BV") else {"aid": m.group(1)}
+        url = final
+    p = re.search(r"[?&]p=(\d+)", url)
+    want = int(p.group(1)) if p else 1
+    try:
+        api = "https://api.bilibili.com/x/web-interface/view?%s" % urllib.parse.urlencode(q)
+        r = http_get(api, _BILI_HDR, timeout=15)
+        d = json.loads(r.read().decode("utf-8", "replace") or "{}")
+        r.close()
+    except Exception:
+        return 0
+    data = d.get("data") or {}
+    pages = data.get("pages") or []
+    for pg in pages:
+        if int(pg.get("page") or 0) == want:
+            return int(pg.get("cid") or 0)
+    return int(data.get("cid") or 0)
+
+
+def save_danmaku(url, base_path):
+    """把 B 站弹幕存成同名 .xml。失败就当没这回事，绝不影响主任务。"""
+    out = base_path + ".xml"
+    if os.path.exists(out):
+        return out
+    cid = bili_cid(url)
+    if not cid:
+        return ""
+    try:
+        r = http_get("https://comment.bilibili.com/%d.xml" % cid, _BILI_HDR, timeout=25)
+        raw = r.read()
+        r.close()
+    except Exception:
+        return ""
+    # 接口给的是 raw deflate（Content-Encoding: deflate 但没包 zlib 头）
+    try:
+        text = zlib.decompress(raw).decode("utf-8", "replace")
+    except Exception:
+        try:
+            text = zlib.decompress(raw, -15).decode("utf-8", "replace")
+        except Exception:
+            text = raw.decode("utf-8", "replace")
+    if "<d " not in text and "<i>" not in text:
+        return ""                    # 不是弹幕 XML，别存垃圾
+    out = base_path + ".xml"
+    try:
+        with open(out, "w", encoding="utf-8") as f:
+            f.write(text)
+        return out
+    except OSError:
+        return ""
+
+
+def save_desc_txt(task, path):
+    """标题 / 作者 / 链接 / 简介写成同名 .txt，方便日后翻。失败返回 ""。"""
+    t = task
+    dur = int(getattr(t, "duration", 0) or 0)
+    lines = [
+        "标题：%s" % (getattr(t, "title", "") or os.path.splitext(os.path.basename(path))[0]),
+        "作者：%s" % (getattr(t, "author", "") or "未知"),
+        "平台：%s" % (getattr(t, "platform_name", "") or ""),
+        "链接：%s" % (getattr(t, "url", "") or ""),
+    ]
+    if dur:
+        lines.append("时长：%d 分 %d 秒" % (dur // 60, dur % 60) if dur >= 60
+                     else "时长：%d 秒" % dur)
+    try:
+        size = os.path.getsize(path)
+        lines.append("大小：%s" % (("%.1f MB" % (size / 1048576.0)) if size >= 1048576
+                                  else ("%d KB" % (size // 1024))))
+    except OSError:
+        pass
+    lines.append("下载时间：%s" % time.strftime("%Y-%m-%d %H:%M"))
+    desc = (getattr(t, "desc", "") or "").strip()
+    if desc:
+        lines += ["", "简介：", desc]
+    out = os.path.splitext(path)[0] + ".txt"
+    try:
+        with open(out, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+        return out
+    except OSError:
         return ""
 
 
@@ -887,6 +1000,7 @@ def ytdlp_download(url, out_dir, progress, quality="best", proxy=None, cookies_f
         "outtmpl": os.path.join(out_dir, "%(title).80s - %(uploader,channel,id)s.%(ext)s"),
         "progress_hooks": [hook],
         "quiet": True, "no_warnings": True, "noplaylist": True,
+        "noprogress": True,       # 进度走自己的回调，别往控制台刷
         "merge_output_format": "mp4",
         "restrictfilenames": False,
         "windowsfilenames": True,
@@ -915,7 +1029,20 @@ def ytdlp_download(url, out_dir, progress, quality="best", proxy=None, cookies_f
 
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(url, download=True)
+            # 先只解析不下载：标题/作者/时长/封面/简介立刻递回去，
+            # 下载的这几分钟里任务卡片就有内容，简介也能写进 .txt
+            info = ydl.extract_info(url, download=False)
+            if info.get("_type") == "playlist":
+                info = (info.get("entries") or [{}])[0]
+            try:
+                progress(title=info.get("title") or "",
+                         author=info.get("uploader") or info.get("channel") or "",
+                         duration=int(info.get("duration") or 0),
+                         thumb=info.get("thumbnail") or "",
+                         desc=info.get("description") or "")
+            except Exception:
+                pass            # 被取消了就让下面的下载自己抛
+            info = ydl.process_ie_result(info, download=True)
             path = ydl.prepare_filename(info)
     except Exception:
         # 取消 / 失败：什么都别删。.part 是断点检查点，重试能接着下；
@@ -993,6 +1120,7 @@ class Task(object):
         self.author = ""
         self.thumb = ""
         self.duration = 0
+        self.desc = ""
         self.status = "queued"      # queued / running / done / error / canceled
         self.percent = 0.0
         self.speed = 0.0
@@ -1261,6 +1389,8 @@ class Manager(object):
                     t.thumb = kw["thumb"]
                 if kw.get("duration"):
                     t.duration = int(kw["duration"])
+                if kw.get("desc"):
+                    t.desc = kw["desc"]
                 if "percent" in kw:
                     t.percent = kw["percent"]
                 if "speed" in kw:
@@ -1364,6 +1494,22 @@ class Manager(object):
         if (self.cfg.get("save_cover") and not is_dir and t.thumb
                 and t.kind != "audio"):
             save_cover(t.thumb, os.path.splitext(path)[0] + ".cover")
+
+        # 弹幕（B站）与简介/元信息：同名 .xml / .txt，失败不影响任务。
+        # 先写本地的 .txt，再拉要走网络的弹幕——状态已经显示「已完成」了，
+        # 本地文件越早落地越好
+        base = os.path.splitext(path)[0]
+        if self.cfg.get("save_desc", True) and not is_dir:
+            try:
+                save_desc_txt(t, path)
+            except Exception:
+                pass
+        if (self.cfg.get("save_danmaku", True) and not is_dir
+                and t.platform == "bilibili"):
+            try:
+                save_danmaku(t.url, base)
+            except Exception:
+                pass
         return path
 
     def cancel(self, tid):

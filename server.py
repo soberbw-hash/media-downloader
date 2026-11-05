@@ -34,7 +34,7 @@ import core  # noqa: E402
 import login as login_mod  # noqa: E402
 import picker  # noqa: E402
 
-APP_VERSION = "1.12.0"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
+APP_VERSION = "1.13.0"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
 UPDATE_REPO = "soberbw-hash/media-downloader"
 
 CONFIG_PATH = os.path.join(BASE, "config.json")
@@ -438,6 +438,22 @@ class Handler(BaseHTTPRequestHandler):
                         t.author = str(it["artist"])
                     added.append(t.id)
             self._json({"ok": True, "added": added, "count": len(added)})
+
+        elif p == "/api/search":
+            kw = str(data.get("q") or "").strip()
+            limit = int(data.get("limit") or 20)
+            plat = str(data.get("platform") or "all")
+            if not kw:
+                self._json({"ok": False, "error": "先输入关键词", "items": []})
+                return
+            try:
+                import search as search_mod
+                items, errs = search_mod.search_video(
+                    kw, limit, plat,
+                    proxy=(CFG.get("proxy") or "").strip() or None)
+                self._json({"ok": True, "items": items, "errors": errs})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)[:200], "items": []})
 
         elif p == "/api/config":
             with _lock:

@@ -1367,7 +1367,9 @@ let mItems = [];
 let mSel = new Set();
 let searching = false;
 
-const PLAT_NAME = { all: "全网", netease: "网易云", qqmusic: "QQ音乐", kugou: "酷狗" };
+const PLAT_NAME = { all: "全网", netease: "网易云", qqmusic: "QQ音乐", kugou: "酷狗", bili: "B站", youtube: "YouTube" };
+let mMode = "music";      // music=搜歌 / video=搜视频素材
+let vPlat = "all";
 
 function applyPlat(p) {
   mPlat = p;
@@ -1386,12 +1388,33 @@ document.querySelectorAll("#mPlats .plat").forEach((b) => {
 });
 applyPlat(mPlat);
 
+document.querySelectorAll("#mSrc .plat").forEach((b) => {
+  b.onclick = () => {
+    mMode = b.dataset.s;
+    document.querySelectorAll("#mSrc .plat").forEach((x) => x.classList.toggle("on", x === b));
+    $("#mPlats").hidden = mMode !== "music";
+    $("#mVPlats").hidden = mMode !== "video";
+    $("#mQuery").placeholder = mMode === "video" ? "视频关键词：电影解说、运镜、猫咪…" : "歌名、歌手";
+    const q = $("#mQuery").value.trim();
+    if (q) musicSearch(q);
+  };
+});
+
+document.querySelectorAll("#mVPlats .plat").forEach((b) => {
+  b.onclick = () => {
+    vPlat = b.dataset.p;
+    document.querySelectorAll("#mVPlats .plat").forEach((x) => x.classList.toggle("on", x === b));
+    const q = $("#mQuery").value.trim();
+    if (q) musicSearch(q);
+  };
+});
+
 function musicRow(s, i) {
   const on = mSel.has(i);
   const cov = s.cover
     ? '<img class="cov" src="' + esc(s.cover) + '" alt="" loading="lazy" onerror="this.style.visibility=\'hidden\'">'
     : '<span class="cov" data-p="' + esc(s.platform || "") + '"></span>';
-  const sub = esc(s.artist || "未知歌手") + (s.album ? " · " + esc(s.album) : "");
+  const sub = esc(s.artist || s.author || "未知歌手") + (s.album ? " · " + esc(s.album) : "");
   const src = s.platform
     ? '<span class="psrc" data-p="' + esc(s.platform) + '">' +
       esc(PLAT_NAME[s.platform] || s.platform) + "</span>"
@@ -1420,7 +1443,8 @@ function syncMusicSel() {
     all.indeterminate = n > 0 && n < total;
   }
   const cnt = $("#mCount");
-  if (cnt) cnt.textContent = n ? `已选 ${n} / ${total} 首` : `共 ${total} 首`;
+  const unit = mMode === "video" ? "条" : "首";
+  if (cnt) cnt.textContent = n ? `已选 ${n} / ${total} ${unit}` : `共 ${total} ${unit}`;
   const b = $("#mBatch");
   if (b) {
     b.disabled = n === 0;
@@ -1459,17 +1483,22 @@ async function musicSearch(q) {
   if (!q) { $("#mQuery").focus(); return; }
   $("#mResults").innerHTML = "";
   $("#mBar").hidden = true;
-  $("#mHint").textContent = `${PLAT_NAME[mPlat] || "全网"} 搜索「${q}」…`;
+  const where = mMode === "video" ? ((PLAT_NAME[vPlat] || "") + " 视频") : (PLAT_NAME[mPlat] || "全网");
+  $("#mHint").textContent = `${where} 搜索「${q}」…`;
   mSel.clear();
   searching = true;
   $("#mGo").disabled = true;
   try {
-    const r = await post("/api/music/search", { platform: mPlat, q, limit: 24 });
+    const r = mMode === "video"
+      ? await post("/api/search", { q, limit: 24, platform: vPlat })
+      : await post("/api/music/search", { platform: mPlat, q, limit: 24 });
     if (!r.ok) { $("#mHint").textContent = r.error || "搜索失败"; return; }
     mItems = r.items || [];
     renderMusic();
-    // 有结果时不再叠一句「找到 N 首」，下面的「共 N 首」已经说了
-    $("#mHint").textContent = mItems.length ? "" : "没搜到，换个关键词或换个平台";
+    // 有结果时不再叠一句「找到 N 条」，下面的「共 N 条」已经说了；
+    // 但哪个来源没搜成（比如没开代理连不上 YouTube）要让人知道
+    const errs = (r.errors || []).join("；");
+    $("#mHint").textContent = mItems.length ? errs : (errs || "没搜到，换个关键词或换个平台");
   } catch (e) {
     $("#mHint").textContent = "搜索失败，服务可能已经关了";
   } finally {
@@ -1480,6 +1509,17 @@ async function musicSearch(q) {
 
 async function addMusic(list, btn) {
   if (!list.length) return;
+  // 视频结果：把链接丢回普通下载管线，跟贴链接一个待遇
+  if (list.every((x) => x.kind === "video")) {
+    const old = btn ? btn.textContent : "";
+    if (btn) { btn.disabled = true; btn.textContent = "…"; }
+    try {
+      await submitBlocks(list.map((x) => ({ text: x.url })));
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = old; }
+    }
+    return;
+  }
   await ensureDir();
   const old = btn ? btn.textContent : "";
   if (btn) { btn.disabled = true; btn.textContent = "…"; }

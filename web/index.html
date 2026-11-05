@@ -23,7 +23,7 @@
 
   <div class="tabs" id="tabs" role="tablist">
     <button class="tab on" data-tab="video" role="tab" aria-selected="true">链接下载</button>
-    <button class="tab" data-tab="music" role="tab" aria-selected="false">搜歌</button>
+    <button class="tab" data-tab="music" role="tab" aria-selected="false">搜索</button>
   </div>
 
   <div class="composer" id="composer">
@@ -41,17 +41,26 @@
     </div>
   </div>
 
-  <!-- 搜歌：按名字全网检索，结果混排并标出平台 -->
+  <!-- 搜索：按名字全网检索，结果混排并标出来源 -->
   <div class="music" id="musicPanel" hidden>
     <div class="msearch">
       <input id="mQuery" placeholder="歌名、歌手" autocomplete="off">
       <button id="mGo">搜索</button>
+    </div>
+    <div class="mplats" id="mSrc">
+      <button class="plat on" data-s="music">音乐</button>
+      <button class="plat" data-s="video">视频</button>
     </div>
     <div class="mplats" id="mPlats">
       <button class="plat on" data-p="all">全部平台</button>
       <button class="plat" data-p="netease">网易云</button>
       <button class="plat" data-p="qqmusic">QQ 音乐</button>
       <button class="plat" data-p="kugou">酷狗</button>
+    </div>
+    <div class="mplats" id="mVPlats" hidden>
+      <button class="plat on" data-p="all">全部</button>
+      <button class="plat" data-p="bili">B站</button>
+      <button class="plat" data-p="youtube">YouTube</button>
     </div>
     <div class="mhint" id="mHint"></div>
     <div class="mbar" id="mBar" hidden>

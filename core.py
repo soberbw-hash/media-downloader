@@ -208,7 +208,9 @@ NOT_VIDEO = {
         (r"//search\.bilibili\.com", "这是搜索页"),
         (r"/space/", "这是 UP 主空间页，不是单个视频"),
         (r"/list/", "这是播放列表，请贴单集视频链接"),
-        (r"/bangumi/", "番剧多数带 DRM，暂不支持"),
+        # 番剧/影视正片页能正常下（yt-dlp 走 B站 pgc 接口）。
+        # 只拦整季页（ss 开头的）——那是一堆集数，得让用户挑单集
+        (r"/bangumi/play/ss\d+", "这是番剧整季页，请从电影卡里挑单集下"),
     ],
     "xiaohongshu": [
         (r"/user/profile/", "这是小红书主页，不是单篇笔记"),
@@ -1007,7 +1009,7 @@ def ytdlp_probe(url, proxy=None, cookies_file=None):
 
 
 def ytdlp_download(url, out_dir, progress, quality="best", proxy=None, cookies_file=None,
-                   subs=False):
+                   subs=False, title_hint=""):
     if yt_dlp is None:
         raise RuntimeError("yt-dlp 未安装")
     fmt = {
@@ -1041,7 +1043,10 @@ def ytdlp_download(url, out_dir, progress, quality="best", proxy=None, cookies_f
 
     opts = {
         "format": fmt,
-        "outtmpl": os.path.join(out_dir, "%(title).80s - %(uploader,channel,id)s.%(ext)s"),
+        # 原来带 %(uploader,channel,id) 后缀，是为了区分同名视频；
+        # 但 B站番剧页没有 uploader，会退化成数字 id，文件名变成「正片 - 744327」。
+        # 这里只留标题，重名由后面的命名模板 / 唯一化处理
+        "outtmpl": os.path.join(out_dir, "%(title).80s.%(ext)s"),
         "progress_hooks": [hook],
         "quiet": True, "no_warnings": True, "noplaylist": True,
         "noprogress": True,       # 进度走自己的回调，别往控制台刷
@@ -1078,8 +1083,20 @@ def ytdlp_download(url, out_dir, progress, quality="best", proxy=None, cookies_f
             info = ydl.extract_info(url, download=False)
             if info.get("_type") == "playlist":
                 info = (info.get("entries") or [{}])[0]
+            # B站番剧/影视正片页 yt-dlp 给的标题是「正片」，没信息量。
+            # 用户贴链接时带的标题（电影卡下正片）更准，用它顶着
+            raw_title = (info.get("title") or "").strip()
+            if raw_title in ("正片", "预告", "PV", "PV1", "片头", "default"):
+                raw_title = ""
+            if title_hint:
+                raw_title = title_hint
+            if raw_title:
+                try:
+                    info["title"] = raw_title
+                except Exception:
+                    pass
             try:
-                progress(title=info.get("title") or "",
+                progress(title=raw_title,
                          author=info.get("uploader") or info.get("channel") or "",
                          duration=int(info.get("duration") or 0),
                          thumb=info.get("thumbnail") or "",
@@ -1165,6 +1182,9 @@ class Task(object):
         self.thumb = ""
         self.duration = 0
         self.desc = ""
+        # 提交时带的片名（电影卡下正片时给的）。解析器给的标题是「正片」那种
+        # 没信息量的值时，用它顶上，文件名才不会变成「正片 - 744327」
+        self.title_hint = ""
         self.status = "queued"      # queued / running / done / error / canceled
         self.percent = 0.0
         self.speed = 0.0
@@ -1479,8 +1499,26 @@ class Manager(object):
             else:
                 res = cn_sites.xhs_download(t.url, out_dir, progress, quality, cookies)
         else:
+            # B站番剧/影视正片页 yt-dlp 只给「正片」，片名和作者都空着。
+            # 先用 B站 pgc 接口把真名查出来，文件名和简介才像样
+            if t.platform == "bilibili" and "/bangumi/play/" in t.url:
+                try:
+                    import movies as movies_mod
+                    mi = movies_mod.bili_media_info(t.url) or {}
+                    if mi.get("title") and not t.title_hint:
+                        t.title_hint = mi["title"]
+                        t.title = mi["title"]
+                    if mi.get("credit") and not t.author:
+                        t.author = mi["credit"]
+                    if mi.get("director") and not t.author:
+                        t.author = mi["director"]
+                    if mi.get("cover") and not t.thumb:
+                        t.thumb = mi["cover"]
+                except Exception:
+                    pass
             res = ytdlp_download(t.url, out_dir, progress, quality, proxy, cookies,
-                                 subs=bool(self.cfg.get("down_subs")))
+                                 subs=bool(self.cfg.get("down_subs")),
+                                 title_hint=t.title_hint)
 
         # 图集返回 (目录, 图片列表)，视频返回单个文件路径
         if isinstance(res, tuple):
@@ -1670,6 +1708,8 @@ def add_blocks(manager, blocks):
         if not usable:
             continue
 
+        # 这一块自己带的标题提示（比如电影卡下正片，番剧页 yt-dlp 只给「正片」）
+        hint_title = (b.get("title") or "").strip()
         batch = manager.next_batch()
         n = 0
         for u, pname, mtitle, martist in usable:
@@ -1680,6 +1720,9 @@ def add_blocks(manager, blocks):
             # 歌单里已经知道歌名和歌手，先写上，列表里立刻能看懂
             if mtitle:
                 t.title = mtitle
+            elif hint_title:
+                t.title = hint_title
+                t.title_hint = hint_title
             if martist:
                 t.author = martist
             added.append(t.to_dict())

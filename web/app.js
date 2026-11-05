@@ -1368,7 +1368,7 @@ let mSel = new Set();
 let searching = false;
 
 const PLAT_NAME = { all: "全网", netease: "网易云", qqmusic: "QQ音乐", kugou: "酷狗", bili: "B站", youtube: "YouTube" };
-let mMode = "music";      // music=搜歌 / video=搜视频素材
+let mMode = "music";      // music=搜歌 / video=搜视频素材 / movie=搜电影
 let vPlat = "all";
 
 function applyPlat(p) {
@@ -1394,7 +1394,12 @@ document.querySelectorAll("#mSrc .plat").forEach((b) => {
     document.querySelectorAll("#mSrc .plat").forEach((x) => x.classList.toggle("on", x === b));
     $("#mPlats").hidden = mMode !== "music";
     $("#mVPlats").hidden = mMode !== "video";
-    $("#mQuery").placeholder = mMode === "video" ? "视频关键词：电影解说、运镜、猫咪…" : "歌名、歌手";
+    $("#mQuery").placeholder =
+      mMode === "video" ? "视频关键词：电影解说、运镜、猫咪…"
+      : mMode === "movie" ? "片名：哪吒、流浪地球、三体…"
+      : "歌名、歌手";
+    // 电影卡不需要勾选批量下载，隐藏批量条
+    $("#mBar").hidden = mMode === "movie";
     const q = $("#mQuery").value.trim();
     if (q) musicSearch(q);
   };
@@ -1478,9 +1483,205 @@ function renderMusic() {
   syncMusicSel();
 }
 
+/* ================= 电影条目卡 ================= */
+
+/* 豆瓣图床防盗链，浏览器直连拿不到图，走服务端代取 */
+function posterUrl(u) {
+  if (!u) return "";
+  if (/doubanio\.com/.test(u)) return "/api/proxy_img?u=" + encodeURIComponent(u);
+  return u;
+}
+
+function movieCard(m, i) {
+  const cov = m.cover
+    ? '<img class="poster" src="' + esc(posterUrl(m.cover)) + '" alt="" loading="lazy" onerror="this.style.visibility=\'hidden\'">'
+    : "";
+  const rate = m.rating
+    ? '<span class="mrate">' + esc(String(m.rating)) + " 分</span>"
+    : "";
+  const bits = [];
+  if (m.year) bits.push(esc(m.year));
+  if (m.genres && m.genres.length) bits.push(esc(m.genres.join(" / ")));
+  if (m.duration) bits.push(esc(m.duration));
+  if (m.region) bits.push(esc(m.region));
+  const crew = [];
+  if (m.director) crew.push("导演 " + esc(m.director));
+  if (m.actors) crew.push("主演 " + esc(m.actors));
+
+  const b = m.bili;
+  let tags = "";
+  if (b) {
+    tags += '<span class="mtag" data-k="ok">B站有正版 · ' + esc(b.kind || "") + "</span>";
+    if (b.vip) tags += '<span class="mtag" data-k="vip">大会员</span>';
+    if (b.ep_size) tags += '<span class="mtag">' + esc(String(b.ep_size)) + " 集</span>";
+    if (b.score) tags += '<span class="mtag">站内 ' + esc(String(b.score)) + " 分</span>";
+  } else {
+    tags += '<span class="mtag">B站暂无正版</span>';
+  }
+
+  let acts = "";
+  if (b && b.dl_url) {
+    acts += '<button class="mbtn primary" data-act="dl" data-i="' + i + '">下载正片</button>';
+  }
+  if (b && b.ep_size) {
+    acts += '<button class="mbtn" data-act="eps" data-i="' + i + '">选集</button>';
+  }
+  if (b && b.url) {
+    acts += '<button class="mbtn" data-act="open" data-i="' + i + '">在B站看</button>';
+  }
+  acts += '<button class="mbtn" data-act="mat" data-i="' + i + '">找解说素材</button>';
+  if (m.url) acts += '<button class="mbtn" data-act="db" data-i="' + i + '">豆瓣详情</button>';
+
+  return '<div class="mmovie">' + cov +
+    '<div class="mbody"><div class="mtop"><span class="mt">' + esc(m.title || "未命名") + "</span>" +
+    '<span class="my">' + (m.year ? esc(m.year) : "") + "</span>" + rate + "</div>" +
+    (bits.length ? '<div class="mmeta">' + bits.join(" · ") + "</div>" : "") +
+    (crew.length ? '<div class="mmeta">' + crew.join(" · ") + "</div>" : "") +
+    (m.summary ? '<div class="mline">' + esc(m.summary) + "</div>" : "") +
+    '<div class="mactions">' + tags + acts + "</div>" +
+    "</div></div>";
+}
+
+function renderMovies() {
+  const box = $("#mResults");
+  if (!mItems.length) {
+    box.innerHTML = '<div class="mempty">没搜到这部片子，换个简称试试</div>';
+    return;
+  }
+  box.innerHTML = mItems.map(movieCard).join("");
+  box.scrollTop = 0;
+  box.querySelectorAll(".mbtn").forEach((b) => {
+    b.onclick = () => movieAction(b.dataset.act, +b.dataset.i, b);
+  });
+}
+
+async function movieAction(act, i, btn) {
+  const m = mItems[i];
+  if (!m) return;
+  if (act === "open") {
+    if (m.bili && m.bili.url) window.open(m.bili.url, "_blank", "noopener");
+    return;
+  }
+  if (act === "db") {
+    if (m.url) window.open(m.url, "_blank", "noopener");
+    return;
+  }
+  if (act === "mat") {
+    // 跳到视频搜索，找这部片的解说/花絮/混剪
+    const t = (m.title || "").split(" ")[0];
+    document.querySelectorAll("#mSrc .plat").forEach((x) =>
+      x.classList.toggle("on", x.dataset.s === "video"));
+    mMode = "video";
+    $("#mPlats").hidden = true;
+    $("#mVPlats").hidden = false;
+    $("#mBar").hidden = true;
+    $("#mQuery").placeholder = "视频关键词：电影解说、运镜、猫咪…";
+    $("#mQuery").value = t + " 解说";
+    musicSearch(t + " 解说");
+    return;
+  }
+  if (act === "dl") {
+    const u = m.bili && (m.bili.dl_url || m.bili.url);
+    if (!u) return;
+    const old = btn ? btn.textContent : "";
+    if (btn) { btn.disabled = true; btn.textContent = "…"; }
+    // 带上片名：番剧页 yt-dlp 只给「正片」，用我们查到的真名
+    await submitBlocks([{ text: u, title: m.title || "" }]);
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "已加入";
+      setTimeout(() => { btn.textContent = old; }, 1600);
+    }
+    return;
+  }
+  if (act === "eps") {
+    if (!m.bili || !m.bili.url) return;
+    const old = btn ? btn.textContent : "";
+    if (btn) { btn.disabled = true; btn.textContent = "…"; }
+    try {
+      const r = await post("/api/movie/episodes", { url: m.bili.url, limit: 40 });
+      if (!r.ok || !(r.items || []).length) {
+        toast(r.error || "没取到集数，正片页可以直接下");
+        return;
+      }
+      showEpisodes(m, r.items);
+    } catch (e) {
+      toast("取集数失败，稍后再试");
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = old; }
+    }
+  }
+}
+
+/* 选集弹层：列出每一集，点一下就加进任务 */
+function showEpisodes(m, eps) {
+  const old = $("#mEps");
+  if (old) old.remove();
+  const box = document.createElement("div");
+  box.id = "mEps";
+  box.className = "meps";
+  box.innerHTML = '<div class="meps-box"><div class="meps-hd"><b>' + esc(m.title || "") + "</b>" +
+    '<button class="meps-x" title="关闭">×</button></div>' +
+    '<div class="meps-list">' + eps.map((e, i) =>
+      '<div class="mep"><span class="mep-n">' + esc(e.index || (i + 1)) + "</span>" +
+      '<span class="mep-t">' + esc(e.title || "") + "</span>" +
+      '<button class="mep-dl" data-u="' + esc(e.url) + '" data-t="' +
+      esc((m.title || "") + " " + (e.index || "") + " " + (e.title || "")) + '">下</button></div>'
+    ).join("") + "</div>" +
+    '<div class="meps-ft"><button class="mep-all">全下（' + eps.length + " 集）</button></div></div>";
+  document.body.appendChild(box);
+  box.querySelector(".meps-x").onclick = () => box.remove();
+  box.querySelectorAll(".mep-dl").forEach((b) => {
+    b.onclick = async () => {
+      b.disabled = true;
+      b.textContent = "…";
+      await submitBlocks([{ text: b.dataset.u, title: b.dataset.t }]);
+      b.disabled = false;
+      b.textContent = "已加";
+    };
+  });
+  const all = box.querySelector(".mep-all");
+  if (all) {
+    all.onclick = async () => {
+      all.disabled = true;
+      all.textContent = "加入中…";
+      await submitBlocks(eps.map((e, i) => ({
+        text: e.url,
+        title: (m.title || "") + " " + (e.index || "") + " " + (e.title || "")
+      })));
+      all.textContent = "已加入 " + eps.length + " 集";
+      setTimeout(() => { all.disabled = false; }, 1500);
+    };
+  }
+}
+
+async function movieSearch(q) {
+  q = (q || $("#mQuery").value || "").trim();
+  if (!q) { $("#mQuery").focus(); return; }
+  $("#mResults").innerHTML = "";
+  $("#mBar").hidden = true;
+  $("#mHint").textContent = `电影搜索「${q}」…`;
+  searching = true;
+  $("#mGo").disabled = true;
+  try {
+    const r = await post("/api/movie/search", { q, limit: 10 });
+    if (!r.ok) { $("#mHint").textContent = r.error || "搜索失败"; return; }
+    mItems = r.items || [];
+    renderMovies();
+    const errs = (r.errors || []).join("；");
+    $("#mHint").textContent = mItems.length ? errs : (errs || "没搜到，换个片名或简称试试");
+  } catch (e) {
+    $("#mHint").textContent = "搜索失败，服务可能已经关了";
+  } finally {
+    searching = false;
+    $("#mGo").disabled = false;
+  }
+}
+
 async function musicSearch(q) {
   q = (q || $("#mQuery").value || "").trim();
   if (!q) { $("#mQuery").focus(); return; }
+  if (mMode === "movie") return movieSearch(q);
   $("#mResults").innerHTML = "";
   $("#mBar").hidden = true;
   const where = mMode === "video" ? ((PLAT_NAME[vPlat] || "") + " 视频") : (PLAT_NAME[mPlat] || "全网");

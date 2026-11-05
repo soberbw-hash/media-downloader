@@ -34,7 +34,7 @@ import core  # noqa: E402
 import login as login_mod  # noqa: E402
 import picker  # noqa: E402
 
-APP_VERSION = "1.13.0"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
+APP_VERSION = "1.14.0"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
 UPDATE_REPO = "soberbw-hash/media-downloader"
 
 CONFIG_PATH = os.path.join(BASE, "config.json")
@@ -294,6 +294,32 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_error(404)
                 return
             self._file(fp, self._img_ctype(fp))
+        elif p == "/api/proxy_img":
+            # 豆瓣图床有防盗链，浏览器直连拿不到图。
+            # 这儿代取一次（带 Referer），前端把海报指向这个接口
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            u = (qs.get("u") or [""])[0]
+            if not u.startswith(("http://", "https://")):
+                self.send_error(400)
+                return
+            try:
+                req = urllib.request.Request(u, headers={
+                    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                                   "AppleWebKit/537.36 (KHTML, like Gecko) "
+                                   "Chrome/131.0.0.0 Safari/537.36"),
+                    "Referer": "https://movie.douban.com/",
+                })
+                with urllib.request.urlopen(req, timeout=15) as r:
+                    data = r.read()
+                    ct = r.headers.get("Content-Type") or "image/jpeg"
+                self.send_response(200)
+                self.send_header("Content-Type", ct)
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "public, max-age=3600")
+                self.end_headers()
+                self.wfile.write(data)
+            except Exception:
+                self.send_error(404)
         elif p == "/api/check_update":
             self._json(self._check_update())
         elif p == "/api/ping":
@@ -452,6 +478,45 @@ class Handler(BaseHTTPRequestHandler):
                     kw, limit, plat,
                     proxy=(CFG.get("proxy") or "").strip() or None)
                 self._json({"ok": True, "items": items, "errors": errs})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)[:200], "items": []})
+
+        elif p == "/api/movie/search":
+            kw = str(data.get("q") or "").strip()
+            limit = int(data.get("limit") or 10)
+            if not kw:
+                self._json({"ok": False, "error": "先输入片名", "items": []})
+                return
+            try:
+                import movies as movies_mod
+                items, errs = movies_mod.search_movie(kw, limit)
+                self._json({"ok": True, "items": items, "errors": errs})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)[:200], "items": []})
+
+        elif p == "/api/movie/source":
+            # 单片「查正版」：只查 B站影视区有没有正版、是不是大会员
+            kw = str(data.get("q") or "").strip()
+            if not kw:
+                self._json({"ok": False, "error": "先输入片名", "items": []})
+                return
+            try:
+                import movies as movies_mod
+                got = movies_mod.bili_sources(kw)
+                self._json({"ok": True, "items": got})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)[:200], "items": []})
+
+        elif p == "/api/movie/episodes":
+            # 挑集：番剧整季页里选单集
+            u = str(data.get("url") or "").strip()
+            if not u:
+                self._json({"ok": False, "error": "先输入番剧链接", "items": []})
+                return
+            try:
+                import movies as movies_mod
+                eps = movies_mod.bili_episodes(u, int(data.get("limit") or 30))
+                self._json({"ok": True, "items": eps})
             except Exception as e:
                 self._json({"ok": False, "error": str(e)[:200], "items": []})
 

@@ -123,7 +123,8 @@ def push_one(local_sha, remote_sha, remote_tree, dry=False):
 def main():
     if not TOKEN:
         raise SystemExit("缺少 GH_TOKEN_API")
-    dirty = git("status", "--porcelain").strip()
+    # 只看已跟踪文件：测试残留（未跟踪）不影响推送
+    dirty = git("status", "--porcelain", "--untracked-files=no").strip()
     if dirty:
         raise SystemExit("工作区不干净，先提交：\n" + dirty)
 

@@ -1350,6 +1350,17 @@ class Manager(object):
             threading.Thread(target=self._run_wrapper, args=(t,), daemon=True).start()
         return t, ""
 
+    def find_task(self, url):
+        """按 url 找同一条已有的任务（在下 / 已下好），找不到返回 None"""
+        key = video_key(url)
+        if not key:
+            return None
+        with self.lock:
+            for x in self.tasks.values():
+                if x.key == key:
+                    return x
+        return None
+
     def cancel_all(self):
         n = 0
         with self.lock:

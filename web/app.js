@@ -533,6 +533,7 @@ function render(tasks) {
     if (blk) blk.hidden = true;      // 没任务就整块收起来，不留空白也不带出滚动条
     if (box) box.innerHTML = "";
     selMap.clear();
+    syncMusicRows(tasks);
     return;
   }
   const blk = $("#tasksBlock");
@@ -570,6 +571,7 @@ function render(tasks) {
     const tip = box.querySelector(".filtered-out");
     if (tip) tip.remove();
   }
+  syncMusicRows(tasks);   // 搜索结果行里同步显示下载进度
 }
 
 function refreshLast() { if (lastTasks.length) render(lastTasks); }
@@ -1346,6 +1348,8 @@ function applyTab(m) {
     b.classList.toggle("on", on);
     b.setAttribute("aria-selected", on ? "true" : "false");
   });
+  // 搜索页的任务区要贴底显示（不能被搜索结果挤没），用 body 上的类来区分
+  document.body.classList.toggle("tab-music", m === "music");
   const box = $("#composer");
   const mus = $("#musicPanel");
   if (box) box.hidden = m !== "video";
@@ -1367,7 +1371,30 @@ let mItems = [];
 let mSel = new Set();
 let searching = false;
 
+/* 搜索结果 ↔ 下载任务的对应关系。
+   key = 平台|歌曲ID，这样换一批结果、同一个歌再搜一次，状态都认得。
+   mTask 里存 { tid, t }：t 是最近一次看到的任务快照，
+   任务被「清空已完成」清走后，靠它还能继续显示「已下好」。 */
+const mTask = new Map();
+const mNote = new Map();     // 一次性提示，比如「这条以前下过了」
+
+function mkey(s) {
+  return (s && s.platform ? s.platform : "") + "|" + (s && s.id ? s.id : "");
+}
+
+/* 音乐的链接模板要跟后端一致，才能拿链接反查任务 */
+const MUSIC_URL_TPL = {
+  netease: "https://music.163.com/song?id=%s",
+  qqmusic: "https://y.qq.com/n/ryqq/songDetail/%s",
+  kugou: "https://www.kugou.com/song/#hash=%s",
+};
+function musicUrlOf(s) {
+  const tpl = s ? MUSIC_URL_TPL[s.platform] : "";
+  return (tpl && s.id) ? tpl.replace("%s", s.id) : "";
+}
+
 const PLAT_NAME = { all: "全网", netease: "网易云", qqmusic: "QQ音乐", kugou: "酷狗", bili: "B站", youtube: "YouTube" };
+const MUSIC_PLATS = ["netease", "qqmusic", "kugou"];   // 能搜歌、也能试听的平台
 let mMode = "music";      // music=搜歌 / video=搜视频素材 / movie=搜电影
 let vPlat = "all";
 
@@ -1424,12 +1451,20 @@ function musicRow(s, i) {
     ? '<span class="psrc" data-p="' + esc(s.platform) + '">' +
       esc(PLAT_NAME[s.platform] || s.platform) + "</span>"
     : "";
-  return '<div class="msong' + (on ? " on" : "") + '">' +
+  // 试听按钮：只有这三个音乐平台的歌才有（视频结果不给听）
+  const canPlay = MUSIC_PLATS.indexOf(s.platform || "") >= 0 && s.kind !== "video";
+  const pv = canPlay
+    ? '<button class="pv" data-i="' + i + '" title="试听" aria-label="试听这首歌">' +
+      '<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true">' +
+      '<path d="M8.5 5.6l10 6.4-10 6.4z" fill="currentColor"/></svg></button>'
+    : "";
+  return '<div class="msong' + (on ? " on" : "") + '" data-i="' + i + '">' +
     '<input type="checkbox" class="mpick" data-i="' + i + '"' +
     (on ? " checked" : "") + ' aria-label="勾选这首歌">' + cov +
     '<div class="meta"><div class="t">' + esc(s.title || "未知曲目") + "</div>" +
     '<div class="a">' + src + sub + "</div></div>" +
-    '<span class="d">' + (s.duration ? fmtDur(s.duration) : "") + "</span>" +
+    '<span class="mst"></span>' +
+    '<span class="d">' + (s.duration ? fmtDur(s.duration) : "") + "</span>" + pv +
     '<button class="dl" data-i="' + i + '" title="下载" aria-label="下载这首歌">' +
     '<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true">' +
     '<path d="M12 3v11m0 0l-4.2-4.2M12 14l4.2-4.2M5 19h14" fill="none" stroke="currentColor"' +
@@ -1472,6 +1507,9 @@ function renderMusic() {
   box.querySelectorAll(".dl").forEach((b) => {
     b.onclick = () => addMusic([mItems[+b.dataset.i]], b);
   });
+  box.querySelectorAll(".pv").forEach((b) => {
+    b.onclick = () => previewSong(mItems[+b.dataset.i], b);
+  });
   box.querySelectorAll(".mpick").forEach((cb) => {
     cb.onchange = () => {
       const i = +cb.dataset.i;
@@ -1481,6 +1519,210 @@ function renderMusic() {
     };
   });
   syncMusicSel();
+  syncMusicRows(lastTasks);   // 重画之后把下载状态贴回去
+  syncPvButtons();
+}
+
+/* ---------- 行内下载状态：让人一眼看出「这首下好没有」 ---------- */
+function syncMusicRows(tasks) {
+  const box = $("#mResults");
+  if (!box || !mItems.length) return;
+  const byId = new Map();
+  for (const t of tasks || []) byId.set(String(t.id), t);
+
+  box.querySelectorAll(".msong").forEach((el) => {
+    const s = mItems[+el.dataset.i];
+    if (!s) return;
+    const key = mkey(s);
+    let rec = mTask.get(key);
+    if (rec && rec.tid) {
+      const t = byId.get(String(rec.tid));
+      if (t) rec.t = t;                 // 记住最后一次看到的快照
+    }
+    let t = rec ? rec.t : null;
+    if (!t) {
+      // 还没关联过，就按链接在当前任务里找一遍
+      // （从「粘贴链接」加进来的歌，也能在这儿对上）
+      const u = musicUrlOf(s);
+      if (u) {
+        const hit = (tasks || []).find((x) => x.url === u);
+        if (hit) {
+          rec = { tid: hit.id, t: hit };
+          mTask.set(key, rec);
+          t = hit;
+        }
+      }
+    }
+    const badge = el.querySelector(".mst");
+    if (!badge) return;
+
+    let text = "", kind = "";
+    if (t) {
+      if (t.status === "done") {
+        text = "已下好"; kind = "ok";
+      } else if (t.status === "error") {
+        text = t.err_title || "下载失败"; kind = "err";
+      } else if (t.status === "canceled") {
+        text = "已取消"; kind = "dim";
+      } else if (t.status === "running") {
+        text = "下载中 " + Math.floor(t.percent || 0) + "%"; kind = "run";
+      } else {
+        text = "排队中"; kind = "dim";
+      }
+    } else {
+      const note = mNote.get(key);
+      if (note) { text = note.text; kind = note.kind; }
+    }
+
+    if (text.length > 9) {
+      badge.title = text;
+      text = text.slice(0, 9) + "…";
+    } else {
+      badge.title = text;
+    }
+    if (badge.textContent !== text) badge.textContent = text;
+    badge.className = "mst" + (kind ? " " + kind : "");
+    badge.hidden = !text;
+    // 下好了就能点开所在文件夹，不用再翻到底下任务区
+    badge.classList.toggle("act", kind === "ok");
+    badge.onclick = kind === "ok"
+      ? () => post("/api/open", { id: rec.tid }).then((r) => {
+        if (!r.ok) toast(r.error || "文件还没下载好");
+      })
+      : null;
+  });
+}
+
+/* ================= 试听：不用先下载就能听 ================= */
+
+let pvKey = "";        // 正在试听的那首歌（platform|id）
+
+/* 播放器上用 3:45 这种写法，比「3分45秒」省地方 */
+function mmss(sec) {
+  sec = Math.max(0, Math.floor(sec || 0));
+  const m = Math.floor(sec / 60);
+  const r = sec % 60;
+  return m + ":" + (r < 10 ? "0" : "") + r;
+}
+
+function previewSong(s, btn) {
+  if (!s) return;
+  const au = $("#auPlayer");
+  if (!au) return;
+  const key = mkey(s);
+
+  // 点同一首 = 暂停 / 继续
+  if (pvKey === key && au.getAttribute("src")) {
+    if (au.paused) au.play().catch(() => toast("这条播不出来，换一首试试"));
+    else au.pause();
+    syncPvButtons();
+    return;
+  }
+
+  btn.classList.add("busy");
+  btn.disabled = true;
+  post("/api/music/preview", {
+    platform: s.platform, id: s.id, title: s.title, artist: s.artist,
+  }).then((r) => {
+    if (!r.ok) {
+      toast(r.error || "这首暂时试听不了", 4200);
+      return;
+    }
+    pvKey = key;
+    au.src = r.url;
+    au.play().catch(() => toast("这条播不出来，换一首试试"));
+    showPlayer(s);
+  }).catch(() => {
+    toast("连接失败，服务可能已经关了");
+  }).finally(() => {
+    btn.classList.remove("busy");
+    btn.disabled = false;
+    syncPvButtons();
+  });
+}
+
+function showPlayer(s) {
+  const bar = $("#pBar");
+  if (!bar) return;
+  bar.hidden = false;
+  document.body.classList.add("playing");
+  const t = $("#pbTitle");
+  if (t) t.textContent = (s.title || "未知曲目") + (s.artist ? " · " + s.artist : "");
+  updatePvTime();
+}
+
+function stopPreview() {
+  const au = $("#auPlayer");
+  if (au) {
+    au.pause();
+    au.removeAttribute("src");
+    try { au.load(); } catch (e) {}
+  }
+  pvKey = "";
+  const bar = $("#pBar");
+  if (bar) bar.hidden = true;
+  document.body.classList.remove("playing");
+  syncPvButtons();
+}
+
+function updatePvTime() {
+  const au = $("#auPlayer");
+  if (!au) return;
+  const dur = (isFinite(au.duration) && au.duration > 0) ? au.duration : 0;
+  const fill = $("#pbBar i");
+  if (fill) fill.style.width = (dur ? (au.currentTime / dur * 100) : 0) + "%";
+  const tm = $("#pbTime");
+  if (tm) tm.textContent = mmss(au.currentTime) + (dur ? " / " + mmss(dur) : "");
+}
+
+function syncPvButtons() {
+  const box = $("#mResults");
+  if (box) {
+    box.querySelectorAll(".msong").forEach((el) => {
+      const s = mItems[+el.dataset.i];
+      const b = el.querySelector(".pv");
+      if (!b || !s) return;
+      b.classList.toggle("on", pvKey === mkey(s));
+    });
+  }
+  const au = $("#auPlayer");
+  const bar = $("#pBar");
+  if (au && bar) {
+    const on = !!pvKey && !au.paused && !au.ended;
+    bar.classList.toggle("playing", on);
+  }
+}
+
+function initPreview() {
+  const au = $("#auPlayer");
+  if (!au) return;
+  au.addEventListener("timeupdate", updatePvTime);
+  au.addEventListener("loadedmetadata", updatePvTime);
+  au.addEventListener("play", syncPvButtons);
+  au.addEventListener("pause", syncPvButtons);
+  au.addEventListener("ended", () => { au.currentTime = 0; syncPvButtons(); });
+  au.addEventListener("error", () => {
+    if (!au.getAttribute("src")) return;      // 主动 stopPreview 也会触发 error
+    toast("这条音频拉不下来，换一首试试", 3600);
+    stopPreview();
+  });
+
+  const play = $("#pbPlay");
+  if (play) play.onclick = () => {
+    if (!pvKey) return;
+    if (au.paused) au.play().catch(() => toast("这条播不出来，换一首试试"));
+    else au.pause();
+  };
+  const stop = $("#pbStop");
+  if (stop) stop.onclick = stopPreview;
+  const pbar = $("#pbBar");
+  if (pbar) pbar.onclick = (e) => {
+    if (!isFinite(au.duration) || au.duration <= 0) return;
+    const r = pbar.getBoundingClientRect();
+    const x = (e.clientX - r.left) / r.width;
+    au.currentTime = Math.max(0, Math.min(1, x)) * au.duration;
+    updatePvTime();
+  };
 }
 
 /* ================= 电影条目卡 ================= */
@@ -1727,7 +1969,43 @@ async function addMusic(list, btn) {
   try {
     const r = await post("/api/music/add", { items: list });
     if (r.ok) {
-      toast("已加入 " + r.count + " 首");
+      // 记下「哪首歌对应哪个任务」，搜索结果行里才能直接显示进度和结果
+      (r.pairs || []).forEach((p) => {
+        const key = p.platform + "|" + p.song;
+        const rec = mTask.get(key) || {};
+        rec.tid = p.tid;
+        mTask.set(key, rec);
+        mNote.delete(key);
+      });
+      const skipped = r.skipped || [];
+      skipped.forEach((s) => {
+        const key = s.platform + "|" + s.song;
+        if (s.tid) {
+          // 已经有这条任务了：跟着那条任务走，状态交给轮询填
+          const st = s.status || "";
+          mTask.set(key, {
+            tid: String(s.tid),
+            t: st ? { id: String(s.tid), status: st, percent: st === "done" ? 100 : 0 } : null,
+          });
+          mNote.delete(key);
+        } else {
+          // 以前下过、文件还在历史里
+          mNote.set(key, { text: "以前下过", kind: "dim" });
+        }
+      });
+
+      let msg = r.count ? "已加入 " + r.count + " 首" : "";
+      if (skipped.length) {
+        const done = skipped.filter((s) => s.status === "done").length;
+        if (done === skipped.length) {
+          msg += (msg ? "，" : "") + done + " 首早就下好了";
+        } else {
+          msg += (msg ? "，" : "") + skipped.length + " 首没加："
+            + (skipped[0].reason || "已经在列表里了");
+          if (skipped.length > 1) msg += " 等";
+        }
+      }
+      toast(msg || "没有可添加的", skipped.length ? 4200 : 2400);
       if (taskFilter !== "all") setFilter("all");   // 否则音乐标签下看不到新任务
     } else {
       toast(r.error || "加入失败");
@@ -1845,6 +2123,7 @@ document.addEventListener("keydown", (e) => {
 });
 
 applyTab(tabMode);
+initPreview();
 
 if ($("#pickMusic")) {
   $("#pickMusic").onclick = async () => {

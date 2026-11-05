@@ -34,7 +34,7 @@ import core  # noqa: E402
 import login as login_mod  # noqa: E402
 import picker  # noqa: E402
 
-APP_VERSION = "1.14.0"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
+APP_VERSION = "1.15.0"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
 UPDATE_REPO = "soberbw-hash/media-downloader"
 
 CONFIG_PATH = os.path.join(BASE, "config.json")
@@ -261,6 +261,63 @@ class Handler(BaseHTTPRequestHandler):
         base = core.safe_name("%s - %s" % (t.title or "图集", t.author or ""), 50)
         return "%s（%d张）.zip" % (base, len(idxs))
 
+    def _music_audio(self):
+        """试听音频代理：把 CDN 的音频流转给浏览器的 <audio>。
+
+        要点：
+        - 带对 Referer，否则 CDN 回 403（网易云尤其明显）
+        - 浏览器的 Range 头原样带过去，<audio> 才能拖进度、读时长
+        - 只允许转发这三个音乐平台的地址，不做通用代理，免得变成漏洞
+        """
+        qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        plat = (qs.get("platform") or [""])[0]
+        sid = (qs.get("id") or [""])[0]
+        if plat not in ("netease", "qqmusic", "kugou") or not sid:
+            self.send_error(400)
+            return
+        try:
+            import music as music_mod
+            info = music_mod.preview_url(plat, sid)
+        except Exception:
+            self.send_error(404)
+            return
+
+        referer = {"qqmusic": "https://y.qq.com/",
+                   "kugou": "https://www.kugou.com/"}.get(plat, "https://music.163.com/")
+        headers = {
+            "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                           "AppleWebKit/537.36 (KHTML, like Gecko) "
+                           "Chrome/131.0.0.0 Safari/537.36"),
+            "Referer": referer,
+        }
+        rng = self.headers.get("Range")
+        if rng:
+            headers["Range"] = rng
+        try:
+            req = urllib.request.Request(info["url"], headers=headers)
+            with urllib.request.urlopen(req, timeout=30) as r:
+                ctype = r.headers.get("Content-Type") or "audio/mpeg"
+                if "html" in ctype.lower() or "json" in ctype.lower():
+                    self.send_error(502)
+                    return
+                self.send_response(r.status)
+                self.send_header("Content-Type", ctype)
+                for h in ("Content-Length", "Content-Range", "Accept-Ranges"):
+                    v = r.headers.get(h)
+                    if v:
+                        self.send_header(h, v)
+                self.end_headers()
+                while True:
+                    chunk = r.read(65536)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+        except Exception:
+            try:
+                self.send_error(502)
+            except Exception:
+                pass
+
     # ---------- GET ----------
     def do_GET(self):
         p = urllib.parse.urlparse(self.path).path
@@ -320,6 +377,11 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(data)
             except Exception:
                 self.send_error(404)
+        elif p == "/api/music/audio":
+            # 试听代理：网易云/QQ 的 CDN 有防盗链，浏览器直连拿不到。
+            # 这儿代取音频流，顺带把浏览器的 Range 请求原样带过去，
+            # 这样 <audio> 能拖进度、也能显示时长
+            self._music_audio()
         elif p == "/api/check_update":
             self._json(self._check_update())
         elif p == "/api/ping":
@@ -449,10 +511,14 @@ class Handler(BaseHTTPRequestHandler):
             items = data.get("items") or []
             batch = MANAGER.next_batch()
             added = []
+            pairs = []
+            skipped = []
             for it in items:
                 if not isinstance(it, dict):
                     continue
-                url = _music_url(it.get("platform") or "netease", str(it.get("id") or ""))
+                plat = it.get("platform") or "netease"
+                sid = str(it.get("id") or "")
+                url = _music_url(plat, sid)
                 if not url:
                     continue
                 t, why = MANAGER.add(url, batch=batch)
@@ -463,7 +529,37 @@ class Handler(BaseHTTPRequestHandler):
                     if it.get("artist"):
                         t.author = str(it["artist"])
                     added.append(t.id)
-            self._json({"ok": True, "added": added, "count": len(added)})
+                    # 回一份「哪首歌对应哪个任务」，前端才能在搜索结果行里
+                    # 直接显示这首的进度，不用翻到底部任务区才知道下好没有
+                    pairs.append({"tid": t.id, "platform": plat, "song": sid})
+                elif why:
+                    # 已经有同一条任务时，把那条任务的状态也带回去，
+                    # 这样搜索结果行里能直接显示「已下好」，
+                    # 而不是笼统一句「已经在列表里了」
+                    ex = MANAGER.find_task(url)
+                    skipped.append({"platform": plat, "song": sid, "reason": why,
+                                    "tid": ex.id if ex else "",
+                                    "status": ex.status if ex else ""})
+            self._json({"ok": True, "added": added, "count": len(added),
+                        "pairs": pairs, "skipped": skipped})
+
+        elif p == "/api/music/preview":
+            # 试听：先探一条能播的直链，把本地代理地址给前端
+            plat = str(data.get("platform") or "")
+            sid = str(data.get("id") or "")
+            if plat not in ("netease", "qqmusic", "kugou") or not sid:
+                self._json({"ok": False, "error": "这个平台暂时不能试听"})
+                return
+            try:
+                import music as music_mod
+                music_mod.preview_url(plat, sid)
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)[:200]})
+                return
+            qs = urllib.parse.urlencode({"platform": plat, "id": sid})
+            self._json({"ok": True, "url": "/api/music/audio?" + qs,
+                        "title": str(data.get("title") or ""),
+                        "artist": str(data.get("artist") or "")})
 
         elif p == "/api/search":
             kw = str(data.get("q") or "").strip()

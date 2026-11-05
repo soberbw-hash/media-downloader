@@ -568,6 +568,53 @@ def resolve(platform, sid, quality="best"):
     raise RuntimeError("不认识这个音乐平台")
 
 
+# ---------- 试听 ----------
+# 试听的地址跟下载的是同一条直链，但要求放宽一点：
+# 只要能播就行，音质差一点无所谓，VIP 歌能试就试。
+# 直链带时效（网易云的地址里带时间戳），所以只缓存一小会儿。
+_PREVIEW_CACHE = {}
+_PREVIEW_TTL = 600
+
+
+def preview_url(platform, sid):
+    """拿一条能直接在浏览器里播的地址。失败抛 RuntimeError（消息说人话）。"""
+    key = "%s:%s" % (platform, sid)
+    hit = _PREVIEW_CACHE.get(key)
+    if hit and time.time() - hit[0] < _PREVIEW_TTL:
+        return hit[1]
+
+    cands = []
+    err = ""
+    try:
+        cands = resolve(platform, sid, "720")
+    except Exception as e:
+        err = str(e)
+
+    # 网易云：直链拿不到时还有一条公开外链（song/media/outer/url），
+    # 不少歌（尤其是老歌）走这条能出 mp3
+    if not cands and platform == "netease":
+        try:
+            u = "https://music.163.com/song/media/outer/url?id=%s.mp3" % sid
+            r = _request(u, {"Referer": "https://music.163.com/"}, follow=True, timeout=15)
+            ctype = (r.headers.get("Content-Type") or "").lower()
+            real = r.geturl()
+            r.close()
+            if "audio" in ctype or "mpeg" in ctype:
+                cands = [{"url": real, "br": 0, "size": 0, "ext": "mp3"}]
+        except Exception:
+            pass
+
+    if not cands:
+        # 试听场景把「下不了」改成「试不了」，别让人以为下载也坏了
+        msg = (err or "这首暂时试听不了").replace("暂时下不了", "暂时试不了")
+        raise RuntimeError(msg)
+
+    c = cands[0]
+    out = {"url": c["url"], "ext": c.get("ext") or "mp3"}
+    _PREVIEW_CACHE[key] = (time.time(), out)
+    return out
+
+
 def _ext_of(url, br=0, default="mp3"):
     """从地址后缀猜格式。有些 CDN 地址不带后缀，就按码率猜。"""
     p = urllib.parse.urlsplit(url or "").path.lower()

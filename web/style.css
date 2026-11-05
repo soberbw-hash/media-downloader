@@ -231,6 +231,20 @@ header {
   margin-top: 26px;
 }
 
+/* 搜索页：任务区改成贴底的一条，高度按内容但有上限。
+   之前它跟搜索面板都是 flex:1，结果一多就把任务区压成一条缝，
+   底下的任务卡完全看不见。现在任务区永远在底部露出来，
+   任务多了就在任务区里自己滚。 */
+body.tab-music .music {
+  flex: 1 1 0;
+  min-height: 0;
+}
+body.tab-music .tasks-block {
+  flex: 0 0 auto;
+  max-height: 42%;
+  margin-top: 16px;
+}
+
 .list-head {
   display: flex;
   align-items: center;
@@ -889,6 +903,8 @@ header {
 }
 
 .toast.on { opacity: 1; transform: translate(-50%, 0); }
+/* 播放条在底下时，提示往上挪，别压住它 */
+body.playing .toast { bottom: 84px; }
 
 /* ---------- 粘贴闸门 / 交互反馈 ---------- */
 .composer.pulse {
@@ -1756,7 +1772,132 @@ button:focus-visible,
   color: #fff;
 }
 .msong .dl svg { display: block; }
+
+/* ---------- 试听按钮 ---------- */
+.msong .pv {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: border-color .14s ease, color .14s ease, background .14s ease;
+}
+.msong .pv:hover {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: #fff;
+}
+.msong .pv.on {
+  border-color: var(--run);
+  background: var(--run);
+  color: #fff;
+}
+.msong .pv.busy { opacity: .45; cursor: default; }
+
+/* ---------- 行内下载状态 ----------
+   点完下载后，这一行直接告诉你下好没有，
+   不用再翻到最底下找任务卡。 */
+.msong .mst {
+  flex: 0 0 auto;
+  max-width: 116px;
+  padding: 3px 7px;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.2;
+  color: var(--muted);
+  background: var(--line-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.msong .mst.ok { color: var(--ok); background: #eaf6ee; }
+.msong .mst.err { color: var(--err); background: #fdecec; }
+.msong .mst.run { color: var(--run); background: #eaf0fd; }
+.msong .mst.act { cursor: pointer; }
+.msong .mst.act:hover { text-decoration: underline; }
+
 .mempty { padding: 18px 4px; font-size: 13px; color: var(--hint); }
+
+/* ---------- 试听播放条 ----------
+   贴在窗口最底下，不占正文地方。 */
+.pbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+  margin: 0 auto;
+  max-width: 860px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 24px 12px;
+  background: rgba(255, 255, 255, .93);
+  backdrop-filter: blur(10px);
+  border-top: 1px solid var(--line);
+}
+.pbar[hidden] { display: none; }
+/* 播放条出现时给正文让出位置，别盖住任务区 */
+body.playing .wrap { padding-bottom: 78px; }
+
+.pbar .pb-btn {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color .14s ease, color .14s ease, background .14s ease;
+}
+.pbar .pb-btn:hover {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: #fff;
+}
+.pbar .pb-info { flex: 1; min-width: 0; }
+.pbar .pb-t {
+  font-size: 12px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pbar .pb-bar {
+  height: 3px;
+  margin-top: 5px;
+  border-radius: 2px;
+  background: var(--line);
+  cursor: pointer;
+}
+.pbar .pb-bar i {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--ink);
+}
+.pbar .pb-time {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--hint);
+  font-variant-numeric: tabular-nums;
+}
+.pbar .ic-pause { display: none; }
+.pbar.playing .ic-play { display: none; }
+.pbar.playing .ic-pause { display: inline; }
 
 /* ---------- 电影条目卡 ---------- */
 .mmovie {

@@ -100,6 +100,31 @@
 
 </div>
 
+<!-- ---------- 试听播放器：全局只有一个，搜歌时点 ▶ 就能听 ---------- -->
+<audio id="auPlayer" preload="none"></audio>
+<div class="pbar" id="pBar" hidden>
+  <button class="pb-btn" id="pbPlay" title="播放 / 暂停" aria-label="播放或暂停">
+    <svg class="ic-play" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+      <path d="M8.5 5.6l10 6.4-10 6.4z" fill="currentColor"/>
+    </svg>
+    <svg class="ic-pause" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+      <path d="M9 5.5v13M15 5.5v13" fill="none" stroke="currentColor"
+            stroke-width="2.2" stroke-linecap="round"/>
+    </svg>
+  </button>
+  <div class="pb-info">
+    <div class="pb-t" id="pbTitle">试听</div>
+    <div class="pb-bar" id="pbBar"><i></i></div>
+  </div>
+  <span class="pb-time" id="pbTime">0:00</span>
+  <button class="pb-btn" id="pbStop" title="停止试听" aria-label="停止试听">
+    <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+      <path d="M6.5 6.5l11 11M17.5 6.5l-11 11" fill="none" stroke="currentColor"
+            stroke-width="1.7" stroke-linecap="round"/>
+    </svg>
+  </button>
+</div>
+
 <div class="mask" id="mask"></div>
 
 <!-- ---------- 设置 ---------- -->

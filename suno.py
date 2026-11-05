@@ -293,46 +293,33 @@ def _to_mp3(ffmpeg, src, dst):
 
 # ---------- 下载 ----------
 def _stream(url, out_path, progress, proxy="", label="下载中"):
-    r = _get(url, proxy, timeout=60)
-    total = int(r.headers.get("Content-Length") or 0)
-    got = 0
-    t0 = time.time()
-    try:
-        with open(out_path, "wb") as f:
-            while True:
-                chunk = r.read(262144)
-                if not chunk:
-                    break
-                f.write(chunk)
-                got += len(chunk)
-                if total:
-                    progress(done=got, total=total,
-                             speed=got / 1048576.0 / max(time.time() - t0, 0.01),
-                             percent=got * 100.0 / total, stage=label)
-    finally:
-        try:
-            r.close()
-        except Exception:
-            pass
-    if total and got < total:
-        raise RuntimeError("下载中断了（%d/%d 字节）" % (got, total))
+    from core import resumable_download
+
+    def _open(u, h, t):
+        return _get(u, proxy, timeout=t, headers=h)
+
+    resumable_download(url, out_path, progress, _open,
+                       {"User-Agent": UA, "Referer": "https://suno.com/"},
+                       timeout=60, label=label)
     return out_path
 
 
 def _try_all(urls, base, out_dir, progress, proxy):
-    """按顺序试，第一个成功的就返回 (临时文件, 扩展名)。"""
+    """按顺序试，第一个成功的就返回 (临时文件, 扩展名)。
+
+    临时名固定（不 unique_path），断点才接得上——重试时 .part 还是同一个名字，
+    地址没变就用 Range 接着下。半截文件全部以 .part 结尾，不会顶正式名。
+    """
     tried = []
     for u in urls:
         ext = _ext_of(u)
-        tmp = unique_path(os.path.join(out_dir, base + ".part" + ext))
+        tmp = os.path.join(out_dir, base + ".part" + ext)
         try:
             _stream(u, tmp, progress, proxy, "下载中")
             return tmp, ext, tried
         except urllib.error.HTTPError as e:
-            _quiet_rm(tmp)
             why = "%s %s" % (ext.lstrip("."), e.code)
         except Exception as e:
-            _quiet_rm(tmp)
             why = "%s %s" % (ext.lstrip("."), type(e).__name__)
         if why not in tried:      # cdn1 / cdn2 都 403 时别重复说两遍
             tried.append(why)
@@ -374,6 +361,13 @@ def download(url, out_dir, progress, quality="best", proxy=""):
             "刚做好的歌要等几分钟才有视频版；如果一直这样，说明这首只对"
             "登录用户开放，先在浏览器里打开它确认能播放。"
             % ("、".join(tried[:4]) or "没有可用地址"))
+
+    # 其他候选留下的半截文件（比如先试 mp3 没成、最后用 mp4 成了）顺手清掉
+    for fn in os.listdir(out_dir):
+        if fn.startswith(base + ".part"):
+            p = os.path.join(out_dir, fn)
+            if p != tmp:
+                _quiet_rm(p)
 
     # 收尾：mp4 抽音轨 / mp3 直接留
     ffmpeg = find_ffmpeg()

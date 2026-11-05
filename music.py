@@ -864,7 +864,7 @@ def download_song(platform, sid, out_dir, progress, quality="best",
 
 
 def _stream(cand, out_path, progress, platform):
-    from core import unique_path
+    from core import resumable_download, unique_path
     out_path = unique_path(out_path)
     hd = {"User-Agent": UA_PC, "Referer": "https://music.163.com/"}
     if platform == "qqmusic":
@@ -872,24 +872,16 @@ def _stream(cand, out_path, progress, platform):
     elif platform == "kugou":
         hd["Referer"] = "https://www.kugou.com/"
 
-    with _request(cand["url"], hd, follow=True, timeout=60) as r:
+    def _open(url, headers, timeout):
+        r = _request(url, headers, follow=True, timeout=timeout)
         ctype = (r.headers.get("Content-Type") or "").lower()
         if "text/html" in ctype or "json" in ctype:
+            r.close()
             raise RuntimeError("这个地址返回的是网页，不是音频（多半没版权或要登录）")
-        total = int(r.headers.get("Content-Length") or 0)
-        got = 0
-        t0 = time.time()
-        with open(out_path, "wb") as f:
-            while True:
-                chunk = r.read(65536)
-                if not chunk:
-                    break
-                f.write(chunk)
-                got += len(chunk)
-                if total:
-                    progress(done=got, total=total,
-                             speed=got / 1048576.0 / max(time.time() - t0, 0.01),
-                             percent=got * 100.0 / total)
+        return r
+
+    resumable_download(cand["url"], out_path, progress, _open, hd,
+                       timeout=60, label="下载中", chunk=65536)
     if os.path.getsize(out_path) < 30000:
         try:
             os.remove(out_path)

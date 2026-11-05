@@ -10,6 +10,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -453,54 +454,171 @@ def resolve_proxy(platform, cfg_proxy):
     return ""
 
 
+def _rm_quiet(path):
+    if path and os.path.exists(path):
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+def _read_ckpt(src):
+    """读 .part.src：第一行是文件全长，第二行是上次用的地址。返回 (total, url)。"""
+    try:
+        with open(src, "r", encoding="utf-8") as f:
+            lines = f.read().splitlines()
+        total = int(lines[0].strip() or 0)
+        url = lines[1].strip() if len(lines) > 1 else ""
+        return total, url
+    except (OSError, ValueError, IndexError):
+        return 0, ""
+
+
+def resumable_download(url, out_path, progress, open_fn=None, headers=None,
+                       min_bytes=0, timeout=60, label="下载中", chunk=262144):
+    """带断点续传的单地址下载：写 out_path + ".part"，下完再原子改名。
+
+    中断 / 失败 / 取消都**保留** .part，重试时用 HTTP Range 从断点接着下。
+    所以半截文件永远不会顶着正式名字出现在下载目录里。
+
+    能不能续不看地址——CDN / 网盘的签名地址每次都变（网易云就是），
+    看的是**文件全长对不对**：全长一致当同一个文件接着下，对不上就重头来。
+    open_fn(url, headers, timeout) 返回能 read()/close() 的响应对象，
+    各平台的证书、代理差异由调用方自己封好传进来。
+    """
+    open_fn = open_fn or (lambda u, h, t: http_get(u, h, timeout=t))
+    part = out_path + ".part"
+    src = out_path + ".part.src"
+    have = os.path.getsize(part) if os.path.exists(part) else 0
+    old_total, old_url = _read_ckpt(src)
+
+    if have and not old_total and not old_url:
+        _rm_quiet(part)              # 这半截来历不明，不敢往上拼
+        have = 0
+
+    def _open_with_range():
+        h = dict(headers or {})
+        if have:
+            h["Range"] = "bytes=%d-" % have
+        return open_fn(url, h, timeout)
+
+    def _total_of(r, base):
+        cr = r.headers.get("Content-Range") or ""
+        m = re.search(r"/(\d+)\s*$", cr)
+        if m:
+            return int(m.group(1))
+        try:
+            return int(r.headers.get("Content-Length") or 0) + base
+        except ValueError:
+            return 0
+
+    try:
+        r = _open_with_range()
+    except urllib.error.HTTPError as e:
+        # 416 = 断点已经顶到文件尾，上次其实下完了
+        if e.code == 416 and have and (old_total == have or not old_total):
+            e.close()
+            os.replace(part, out_path)
+            _rm_quiet(src)
+            progress(done=have, total=have, speed=0, percent=100, stage=label)
+            return out_path
+        raise
+
+    code = getattr(r, "status", None) or getattr(r, "code", 0) or 200
+    if code != 206:                  # 服务器不认 Range、整份重发 → 丢掉半截重写
+        have = 0
+    total = _total_of(r, have)
+
+    if have and old_total and total and total != old_total:
+        # 同名不同文件（换了个源 / 换了档位），半截的不能往上拼
+        try:
+            r.close()
+        except Exception:
+            pass
+        _rm_quiet(part)
+        have = 0
+        r = _open_with_range()
+        code = getattr(r, "status", None) or getattr(r, "code", 0) or 200
+        if code != 206:
+            have = 0
+        total = _total_of(r, have)
+
+    try:
+        with open(src, "w", encoding="utf-8") as f:
+            f.write("%d\n%s" % (total, url))
+    except OSError:
+        pass
+
+    got = 0
+    t0 = time.time()
+    try:
+        with open(part, "ab" if have else "wb") as f:
+            while True:
+                b = r.read(chunk)
+                if not b:
+                    break
+                f.write(b)
+                got += len(b)
+                done = have + got
+                now = time.time()
+                progress(done=done, total=total or done,
+                         speed=done / 1048576.0 / max(now - t0, 0.01),
+                         percent=min(100.0, done * 100.0 / total) if total else 0.0,
+                         stage=label)
+    except Exception:
+        if not have and not got:
+            _rm_quiet(part)          # 一个字节没写就别留垃圾
+        # 其余情况留着 .part，重试能接着下
+        raise
+    finally:
+        try:
+            r.close()
+        except Exception:
+            pass
+
+    size = os.path.getsize(part) if os.path.exists(part) else 0
+    # 连接硬断时 read() 可能安静地返回空串，光看循环结束判断不出来
+    if total and size < total:
+        raise RuntimeError("下载中断了（%d/%d 字节）" % (size, total))
+    if not size:
+        _rm_quiet(part)
+        _rm_quiet(src)
+        raise RuntimeError("下下来是空的")
+    if min_bytes and size < min_bytes:
+        _rm_quiet(part)
+        _rm_quiet(src)
+        raise RuntimeError("文件过小")
+    os.replace(part, out_path)       # 下完才顶正式名字，半截文件永远不叫成品名
+    _rm_quiet(src)
+    return out_path
+
+
 def stream_download(urls, out_path, progress, headers=None, min_bytes=102400):
-    """按候选地址依次尝试下载，成功返回 (路径, 实际地址)"""
+    """按候选地址依次尝试下载，成功返回 (路径, 实际地址)。支持断点续传。"""
     headers = headers or {"User-Agent": UA_M}
     last = None
+
+    def _open(u, h, t):
+        r = http_get(u, h, timeout=t)
+        code = getattr(r, "status", 0) or 200
+        ctype = (r.headers.get("Content-Type") or "").lower()
+        # 续传回包（206）不看类型；其余只拦「明显不是媒体」的网页/JSON
+        if code != 206 and ctype and not any(
+                k in ctype for k in ("video", "audio", "octet-stream")):
+            r.close()
+            raise RuntimeError("返回的不是视频")
+        return r
+
     for u in urls:
         if not u:
             continue
         try:
-            r = http_get(u, headers, timeout=60)
+            path = resumable_download(u, out_path, progress, _open, headers,
+                                      min_bytes=min_bytes, timeout=60)
+            return path, u
         except Exception as e:
             last = e
             continue
-        if "video" not in (r.headers.get("Content-Type") or ""):
-            r.close()
-            last = RuntimeError("返回的不是视频")
-            continue
-        total = int(r.headers.get("Content-Length") or 0)
-        got = 0
-        t0 = time.time()
-        try:
-            with open(out_path, "wb") as f:
-                while True:
-                    chunk = r.read(262144)
-                    if not chunk:
-                        break
-                    f.write(chunk)
-                    got += len(chunk)
-                    if total:
-                        progress(done=got, total=total,
-                                 speed=got / 1048576.0 / max(time.time() - t0, 0.01),
-                                 percent=got * 100.0 / total)
-        except Exception:
-            # 取消 / 断线：把半截文件删掉，别留下一个能点开但放不了的视频
-            try:
-                r.close()
-            except Exception:
-                pass
-            if os.path.exists(out_path):
-                try:
-                    os.remove(out_path)
-                except OSError:
-                    pass
-            raise
-        if got > min_bytes:
-            return out_path, u
-        last = RuntimeError("文件过小")
-        if os.path.exists(out_path):
-            os.remove(out_path)
     raise RuntimeError("所有播放源都失败：%s" % last)
 
 
@@ -775,7 +893,8 @@ def ytdlp_download(url, out_dir, progress, quality="best", proxy=None, cookies_f
         "concurrent_fragment_downloads": 4,
         "retries": 5,
         "fragment_retries": 5,
-        "nopart": True,
+        # 不要 nopart：yt-dlp 自己写 .part 检查点，中断后重试会用 Range 接着下
+        "continuedl": True,
         "socket_timeout": 25,
         # 同上：显式关闭环境变量代理，空字符串即直连
         "proxy": proxy or "",
@@ -799,9 +918,10 @@ def ytdlp_download(url, out_dir, progress, quality="best", proxy=None, cookies_f
             info = ydl.extract_info(url, download=True)
             path = ydl.prepare_filename(info)
     except Exception:
-        # 取消 / 失败：清掉半截文件（nopart 时会直接写成正式文件名）
-        for p in (state.get("path") or "", state.get("path", "") + ".part"):
-            if p and os.path.exists(p):
+        # 取消 / 失败：什么都别删。.part 是断点检查点，重试能接着下；
+        # 唯独空文件顺手清掉，免得占着正式名字
+        for p in (state.get("path") or "", (state.get("path") or "") + ".part"):
+            if p and os.path.exists(p) and os.path.getsize(p) == 0:
                 try:
                     os.remove(p)
                 except OSError:

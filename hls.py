@@ -266,6 +266,9 @@ def _ffmpeg_pull(ffmpeg, url, out, headers, proxy, total_sec, progress, stage):
         cmd += ["-headers", hdr]
     if proxy:
         cmd += ["-http_proxy", proxy]
+    # 网络抖一下自动重连，别一断就整个重来
+    cmd += ["-reconnect", "1", "-reconnect_streamed", "1",
+            "-reconnect_delay_max", "10"]
     cmd += ["-i", url, "-c", "copy", "-progress", "pipe:1", "-nostats", out]
 
     errs = []
@@ -305,6 +308,8 @@ def _quiet_rm(p):
 
 # ---------- 纯 Python 兜底（没有 ffmpeg 时）----------
 def _py_pull(media_url, text, out, headers, proxy, progress, stage):
+    """逐个切片拼进 out。支持断点：.idx 里记「拼到第几个、文件多长」，
+    重试时把半截的最后一段截掉，从下一个接着拼。"""
     init, segs = segments(text, media_url)
     if not segs:
         raise RuntimeError("切片列表是空的")
@@ -312,28 +317,55 @@ def _py_pull(media_url, text, out, headers, proxy, progress, stage):
         if s["key"] and s["key"].get("method") not in (None, "NONE"):
             raise RuntimeError("这个流是加密的（%s），需要 ffmpeg 才能下"
                                % s["key"]["method"])
+    items = ([{"url": init, "dur": 0.0}] if init else []) + segs
     total = sum(s["dur"] for s in segs) or 0
-    done = 0.0
-    with open(out, "wb") as f:
-        if init:
-            r = _open(init, headers, proxy)
-            try:
-                f.write(r.read())
-            finally:
-                r.close()
-        for i, s in enumerate(segs):
+
+    # 接着上次的进度拼：.idx 记「已完成几段 / 文件多长」
+    idx = out + ".idx"
+    done_n, done_bytes = 0, 0
+    if os.path.exists(out) and os.path.exists(idx):
+        try:
+            with open(idx, "r", encoding="utf-8") as f:
+                done_n, done_bytes = [int(x) for x in f.read().split()[:2]]
+        except (OSError, ValueError):
+            done_n, done_bytes = 0, 0
+        if done_n > len(items) or os.path.getsize(out) < done_bytes:
+            done_n, done_bytes = 0, 0        # 文件被动过就别信检查点
+        with open(out, "r+b") as f:          # 半截的最后一段丢掉
+            f.truncate(done_bytes)
+    elif os.path.exists(idx):
+        _quiet_rm(idx)
+
+    done = sum(s["dur"] for s in segs[:max(0, done_n - (1 if init else 0))])
+    with open(out, "ab" if done_bytes else "wb") as f:
+        for i, s in enumerate(items):
+            if i < done_n:
+                continue
             r = _open(s["url"], headers, proxy, timeout=40)
             try:
+                want = int(r.headers.get("Content-Length") or 0)
+                buf = bytearray()
                 while True:
-                    chunk = r.read(262144)
-                    if not chunk:
+                    c = r.read(262144)
+                    if not c:
                         break
-                    f.write(chunk)
+                    buf += c
             finally:
                 r.close()
-            done += s["dur"]
+            # 连接硬断时 read() 会安静返回空串，必须拿 Content-Length 兜底
+            if want and len(buf) != want:
+                raise RuntimeError("切片没下全（%d/%d 字节）" % (len(buf), want))
+            if not buf:
+                raise RuntimeError("切片是空的")
+            f.write(buf)
+            done_n = i + 1
+            if s["dur"]:
+                done += s["dur"]
+            with open(idx, "w", encoding="utf-8") as f2:
+                f2.write("%d %d" % (done_n, f.tell()))
             progress(stage=stage, percent=(done / total * 100.0) if total else 0.0,
-                     done=i + 1, total=len(segs), speed=0)
+                     done=min(done_n, len(segs)), total=len(segs), speed=0)
+    _quiet_rm(idx)
     return True
 
 
@@ -405,20 +437,25 @@ def download(url, out_dir, progress, quality="best", proxy=""):
         stage = "下载中"
         for oext in ((".m4a" if is_audio else ".mp4"), ".mkv"):
             out = unique_path(os.path.join(out_dir, name + oext))
+            tmp = os.path.splitext(out)[0] + ".part" + oext   # 下完才顶正式名
             try:
-                _ffmpeg_pull(ffmpeg, media_url, out, headers, proxy,
+                _ffmpeg_pull(ffmpeg, media_url, tmp, headers, proxy,
                              total_sec, progress, stage)
+                os.replace(tmp, out)
                 size = os.path.getsize(out)
                 progress(stage="完成", percent=100, done=1, total=size, speed=0)
                 return out
             except Exception as e:
+                _quiet_rm(tmp)
                 if oext != ".mkv":
                     continue          # 换个容器再试一次
                 raise e
     elif text:
-        # 3) 没 ffmpeg：只能下没加密的 TS/MP4 切片，拼起来
+        # 3) 没 ffmpeg：只能下没加密的 TS/MP4 切片，拼起来（支持断点）
         out = unique_path(os.path.join(out_dir, name + (".mp4" if "#EXT-X-MAP" in text else ".ts")))
-        _py_pull(media_url, text, out, headers, proxy, progress, "下载中")
+        tmp = os.path.splitext(out)[0] + ".part" + os.path.splitext(out)[1]
+        _py_pull(media_url, text, tmp, headers, proxy, progress, "下载中")
+        os.replace(tmp, out)
         size = os.path.getsize(out)
         progress(stage="完成", percent=100, done=1, total=size, speed=0)
         return out
@@ -432,30 +469,18 @@ def download(url, out_dir, progress, quality="best", proxy=""):
 
 
 def _plain_pull(url, out, headers, proxy, progress):
-    r = _open(url, headers, proxy, timeout=60)
-    try:
+    from core import resumable_download
+
+    def _req(u, h, t):
+        r = _open(u, h, proxy, timeout=t)
         ctype = (r.headers.get("Content-Type") or "").lower()
         if "text/html" in ctype:
+            r.close()
             raise RuntimeError("这条链接返回的是网页，不是文件")
-        total = int(r.headers.get("Content-Length") or 0)
-        got, t0, last = 0, time.time(), 0.0
-        with open(out, "wb") as f:
-            while True:
-                chunk = r.read(262144)
-                if not chunk:
-                    break
-                f.write(chunk)
-                got += len(chunk)
-                now = time.time()
-                if now - last > 0.4:
-                    last = now
-                    progress(
-                        stage="下载中",
-                        percent=(got / total * 100.0) if total else 0.0,
-                        done=got, total=total,
-                        speed=got / max(0.001, now - t0))
-    finally:
-        r.close()
+        return r
+
+    resumable_download(url, out, progress, _req, headers,
+                       min_bytes=1024, timeout=60, label="下载中")
     if os.path.getsize(out) < 1024:
         _quiet_rm(out)
         raise RuntimeError("文件太小，可能链接失效了")

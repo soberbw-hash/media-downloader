@@ -1406,9 +1406,31 @@ function applyPlat(p) {
   });
 }
 
+// 三个来源的引导语：没关键词时告诉用户该搜什么
+const SOURCE_GUIDE = {
+  music: "输入歌名或歌手开始搜",
+  video: "输入关键词找视频素材（解说、运镜、混剪…）",
+  movie: "输入片名开始搜",
+};
+
+// 把上一轮的结果整个清掉。
+// 换来源、换平台、清空搜索框时都要走这儿：
+// 留着旧的计数和旧的列表，界面就会说「共 24 条」而下面空空，
+// 或者列表里还是别的来源的东西。
+function resetResults() {
+  mItems = [];
+  mSel.clear();
+  syncMusicSel();
+  const box = $("#mResults");
+  if (box) box.innerHTML = "";
+  const hint = $("#mHint");
+  if (hint) hint.textContent = "";
+}
+
 document.querySelectorAll("#mPlats .plat").forEach((b) => {
   b.onclick = () => {
     applyPlat(b.dataset.p);
+    resetResults();
     const q = $("#mQuery").value.trim();
     if (q) musicSearch(q);      // 换平台直接重搜
   };
@@ -1425,10 +1447,12 @@ document.querySelectorAll("#mSrc .plat").forEach((b) => {
       mMode === "video" ? "视频关键词：电影解说、运镜、猫咪…"
       : mMode === "movie" ? "片名：哪吒、流浪地球、三体…"
       : "歌名、歌手";
-    // 电影卡不需要勾选批量下载，隐藏批量条
-    $("#mBar").hidden = mMode === "movie";
+    // 换来源就是换一套东西，旧的计数、旧的列表、旧的提示都得清掉。
+    // 不清就会出现「上面写着共 24 条，下面却是另一个来源的空列表」。
+    resetResults();
     const q = $("#mQuery").value.trim();
     if (q) musicSearch(q);
+    else $("#mHint").textContent = SOURCE_GUIDE[mMode] || "";
   };
 });
 
@@ -1436,6 +1460,7 @@ document.querySelectorAll("#mVPlats .plat").forEach((b) => {
   b.onclick = () => {
     vPlat = b.dataset.p;
     document.querySelectorAll("#mVPlats .plat").forEach((x) => x.classList.toggle("on", x === b));
+    resetResults();
     const q = $("#mQuery").value.trim();
     if (q) musicSearch(q);
   };
@@ -1480,7 +1505,9 @@ function syncMusicSel() {
   const total = mItems.length;
   const n = mSel.size;
   const bar = $("#mBar");
-  if (bar) bar.hidden = !total;
+  // 计数条只跟着结果走：没结果就不显示，别留一句「共 N 条」配上空列表。
+  // 电影卡没有勾选框，批量条用不上。
+  if (bar) bar.hidden = !total || mMode === "movie";
   const all = $("#mAll");
   if (all) {
     all.checked = n > 0 && n === total;
@@ -2038,6 +2065,14 @@ if ($("#mQuery")) {
   $("#mQuery").addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); musicSearch(); }
   });
+  // 搜索框被清空了，上一个关键词的结果就该跟着收起来，
+  // 不然会留着一屏旧结果看着像没反应
+  $("#mQuery").addEventListener("input", (e) => {
+    if (e.isComposing) return;
+    if ($("#mQuery").value.trim()) return;
+    resetResults();
+    $("#mHint").textContent = SOURCE_GUIDE[mMode] || "";
+  });
 }
 
 if ($("#mAll")) {
@@ -2141,6 +2176,11 @@ document.addEventListener("keydown", (e) => {
 
 applyTab(tabMode);
 initPreview();
+// 第一次进搜索页，先给句引导，别让人对着空白框发呆
+if (tabMode === "music") {
+  const h = $("#mHint");
+  if (h && !h.textContent) h.textContent = SOURCE_GUIDE[mMode] || "";
+}
 
 if ($("#pickMusic")) {
   $("#pickMusic").onclick = async () => {

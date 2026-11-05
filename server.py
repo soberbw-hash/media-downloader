@@ -34,7 +34,7 @@ import core  # noqa: E402
 import login as login_mod  # noqa: E402
 import picker  # noqa: E402
 
-APP_VERSION = "1.15.0"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
+APP_VERSION = "1.16.0"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
 UPDATE_REPO = "soberbw-hash/media-downloader"
 
 CONFIG_PATH = os.path.join(BASE, "config.json")
@@ -59,6 +59,25 @@ PORT_MAX = 8785
 
 # 搜索列表里点「下载」时，把 (平台, id) 还原成一条能走 classify 的链接
 _music_url = core.music_song_url
+
+# 封面 / 海报代理：只放行这几个域名
+# hdslb.com  —— 浏览器直连会被 Chrome 的 ORB 拦（net::ERR_BLOCKED_BY_ORB）
+# doubanio.com —— 有防盗链，必须带 Referer
+IMG_PROXY_HOSTS = ("hdslb.com", "doubanio.com", "bilibili.com")
+IMG_REFERER = {
+    "doubanio.com": "https://movie.douban.com/",
+    "bilibili.com": "https://www.bilibili.com/",
+}
+IMG_CACHE = {}          # url -> (content-type, bytes)
+
+
+def _img_referer(host):
+    """按域名后缀找 Referer。img3.doubanio.com 也要用豆瓣的 Referer，
+    拿不到的话豆瓣防盗链会直接拒掉。"""
+    for d, ref in IMG_REFERER.items():
+        if host == d or host.endswith("." + d):
+            return ref
+    return "https://www.bilibili.com/"
 
 MODE = "web"          # web | app
 _SRV = None
@@ -261,6 +280,84 @@ class Handler(BaseHTTPRequestHandler):
         base = core.safe_name("%s - %s" % (t.title or "图集", t.author or ""), 50)
         return "%s（%d张）.zip" % (base, len(idxs))
 
+    def _fetch_img(self, u, host):
+        """取一张图。取不到返回 (None, None)。"""
+        try:
+            req = urllib.request.Request(u, headers={
+                "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                               "AppleWebKit/537.36 (KHTML, like Gecko) "
+                               "Chrome/131.0.0.0 Safari/537.36"),
+                "Referer": _img_referer(host),
+                "Accept": "image/avif,image/webp,image/*,*/*;q=0.8",
+            })
+            with urllib.request.urlopen(req, timeout=15) as r:
+                data = r.read()
+                ct = r.headers.get("Content-Type") or ""
+            if not ct.startswith("image/"):
+                # 返回的不是图（比如被重定向到 HTML 页面），当失败处理
+                return None, None
+            if len(IMG_CACHE) > 300:
+                IMG_CACHE.clear()
+            IMG_CACHE[u] = (ct, data)
+            return ct, data
+        except Exception:
+            return None, None
+
+    def _proxy_img(self):
+        """封面 / 海报代理。
+
+        为什么要有这个：
+        - B站图床（i0/i1/i2.hdslb.com）浏览器直连会被 Chrome 的 ORB 拦掉，
+          报 net::ERR_BLOCKED_BY_ORB，图根本进不来
+        - 豆瓣图床（img*.doubanio.com）有防盗链，必须带 Referer 才给图
+
+        顺带两件实在事：
+        - B站原图一张 1.8MB，列表里 24 张就是 40 多兆；
+          加上 @320w_200h_1c.jpg 之后一张 18KB，够看就行
+        - 豆瓣 l_ratio 海报一张 250KB，换 s_ratio 只要 30KB
+        - 取过的图缓存在内存里，重复翻同一页不用再下载一遍
+
+        只放行白名单里的域名，不做通用代理，免得本地服务变成漏洞。
+        """
+        qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        u = (qs.get("u") or [""])[0]
+        if not u.startswith(("http://", "https://")):
+            self.send_error(400)
+            return
+        host = ""
+        try:
+            host = (urllib.parse.urlparse(u).hostname or "").lower()
+        except Exception:
+            host = ""
+        if not any(host == d or host.endswith("." + d) for d in IMG_PROXY_HOSTS):
+            self.send_error(403)
+            return
+
+        # 先换成小图规格；万一这个规格没有，再回头取原图
+        orig = u
+        if host.endswith("hdslb.com") and "@" not in u:
+            u = u + "@320w_200h_1c.jpg"
+        elif host.endswith("doubanio.com") and "/l_ratio_poster/" in u:
+            u = u.replace("/l_ratio_poster/", "/s_ratio_poster/")
+
+        hit = IMG_CACHE.get(u)
+        if hit:
+            ct, data = hit
+        else:
+            ct, data = self._fetch_img(u, host)
+            if not data and u != orig:
+                ct, data = self._fetch_img(orig, host)
+            if not data:
+                self.send_error(404)
+                return
+
+        self.send_response(200)
+        self.send_header("Content-Type", ct)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "public, max-age=3600")
+        self.end_headers()
+        self.wfile.write(data)
+
     def _music_audio(self):
         """试听音频代理：把 CDN 的音频流转给浏览器的 <audio>。
 
@@ -352,31 +449,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._file(fp, self._img_ctype(fp))
         elif p == "/api/proxy_img":
-            # 豆瓣图床有防盗链，浏览器直连拿不到图。
-            # 这儿代取一次（带 Referer），前端把海报指向这个接口
-            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-            u = (qs.get("u") or [""])[0]
-            if not u.startswith(("http://", "https://")):
-                self.send_error(400)
-                return
-            try:
-                req = urllib.request.Request(u, headers={
-                    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                                   "AppleWebKit/537.36 (KHTML, like Gecko) "
-                                   "Chrome/131.0.0.0 Safari/537.36"),
-                    "Referer": "https://movie.douban.com/",
-                })
-                with urllib.request.urlopen(req, timeout=15) as r:
-                    data = r.read()
-                    ct = r.headers.get("Content-Type") or "image/jpeg"
-                self.send_response(200)
-                self.send_header("Content-Type", ct)
-                self.send_header("Content-Length", str(len(data)))
-                self.send_header("Cache-Control", "public, max-age=3600")
-                self.end_headers()
-                self.wfile.write(data)
-            except Exception:
-                self.send_error(404)
+            # 豆瓣图床有防盗链、B站图床被 Chrome 的 ORB 拦，
+            # 封面和海报统一由服务端代取
+            self._proxy_img()
         elif p == "/api/music/audio":
             # 试听代理：网易云/QQ 的 CDN 有防盗链，浏览器直连拿不到。
             # 这儿代取音频流，顺带把浏览器的 Range 请求原样带过去，

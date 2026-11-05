@@ -126,8 +126,11 @@ def search_bili(kw, limit=10):
 def search_youtube(kw, limit=10, proxy=None):
     """YouTube 搜索（yt-dlp 自带 ytsearch）。网络要能到 Google。"""
     import yt_dlp
+    # 这几个参数很重要：代理隧道挂掉时 yt-dlp 会一路重试，
+    # 实测能磨到 80 秒才报错。限死重试次数和超时，别把搜索拖成卡死。
     opts = {"quiet": True, "no_warnings": True, "skip_download": True,
-            "extract_flat": True, "noplaylist": True}
+            "extract_flat": True, "noplaylist": True,
+            "socket_timeout": 8, "retries": 0, "extractor_retries": 0}
     if proxy:
         opts["proxy"] = proxy
     with yt_dlp.YoutubeDL(opts) as ydl:
@@ -158,6 +161,12 @@ def search_youtube(kw, limit=10, proxy=None):
 
 _NAME = {"bili": "B站", "youtube": "YouTube"}
 
+# YouTube 走代理，隧道挂掉时怎么试都过不去。
+# 与其每次搜索都干等一分多钟，不如失败一次就歇十分钟。
+YT_TIMEOUT = 12          # 最多等 YouTube 这么久（秒）
+YT_COOLDOWN = 180       # 连不上之后，多久之内不再试
+_yt_skip_until = [0.0]
+
 
 def search_video(kw, limit=10, platform="all", proxy=None):
     """B站 / YouTube 一起搜，结果交错排。返回 (items, errors)。"""
@@ -171,8 +180,15 @@ def search_video(kw, limit=10, platform="all", proxy=None):
         want.append("youtube")
     if not want:
         return [], []
-    half = max(5, limit // len(want))
+    # 每个平台都搜满，最后合并再截断到 limit。
+    # 之前按平台数平分额度，结果 YouTube 一挂，B站 就只能给一半
+    half = max(5, limit)
     res, errs = {}, []
+
+    # 刚踩过坑就先别试了，直接给B站的结果
+    if "youtube" in want and time.time() < _yt_skip_until[0]:
+        want.remove("youtube")
+        errs.append("YouTube 现在连不上，先给B站的结果，过一会儿会自动再试")
 
     def run(name):
         try:
@@ -180,13 +196,22 @@ def search_video(kw, limit=10, platform="all", proxy=None):
                          else search_youtube(kw, half, proxy))
         except Exception as e:
             res[name] = []
+            if name == "youtube":
+                _yt_skip_until[0] = time.time() + YT_COOLDOWN
             errs.append("%s没搜成：%s" % (_NAME.get(name, name), str(e)[:100]))
 
-    ths = [threading.Thread(target=run, args=(n,)) for n in want]
+    ths = [threading.Thread(target=run, args=(n,), daemon=True) for n in want]
     for t in ths:
         t.start()
+    # 不无限等：YouTube 卡住时先拿B站的结果出来
+    deadline = time.time() + YT_TIMEOUT
     for t in ths:
-        t.join()
+        t.join(max(0.1, deadline - time.time()))
+    if any(t.is_alive() for t in ths):
+        # 这次是真连不上（会卡在隧道里不抛错），先歇一会儿再试，
+        # 别让每次搜索都白等十几秒
+        _yt_skip_until[0] = time.time() + YT_COOLDOWN
+        errs.append("YouTube 超时没返回（网络到不了 Google），先给B站的结果")
     merged = []
     for i in range(max([len(res.get(n, [])) for n in want] or [0])):
         for n in want:

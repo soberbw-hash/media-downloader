@@ -1443,9 +1443,13 @@ document.querySelectorAll("#mVPlats .plat").forEach((b) => {
 
 function musicRow(s, i) {
   const on = mSel.has(i);
-  const cov = s.cover
-    ? '<img class="cov" src="' + esc(s.cover) + '" alt="" loading="lazy" onerror="this.style.visibility=\'hidden\'">'
-    : '<span class="cov" data-p="' + esc(s.platform || "") + '"></span>';
+  // 封面统一用 span 装着 img：图没出来时占位还在，不会塌成一个空白
+  // 视频封面是横图，用宽一点的框，不然 16:9 被裁成正方形只剩中间一小块
+  const wide = s.kind === "video";
+  const cov = '<span class="cov' + (wide ? " w" : "") + '" data-p="' + esc(s.platform || "") + '">'
+    + (s.cover ? '<img src="' + esc(imgUrl(s.cover)) + '" alt="" loading="lazy"'
+      + ' onerror="this.remove()">' : "")
+    + "</span>";
   const sub = esc(s.artist || s.author || "未知歌手") + (s.album ? " · " + esc(s.album) : "");
   const src = s.platform
     ? '<span class="psrc" data-p="' + esc(s.platform) + '">' +
@@ -1727,16 +1731,27 @@ function initPreview() {
 
 /* ================= 电影条目卡 ================= */
 
-/* 豆瓣图床防盗链，浏览器直连拿不到图，走服务端代取 */
-function posterUrl(u) {
+/* 封面 / 海报的地址。
+   B站图床浏览器直连会被 Chrome 的 ORB 拦掉（net::ERR_BLOCKED_BY_ORB），
+   豆瓣图床有防盗链 —— 这两类统一走服务端代取，
+   服务端还会顺手把 B站原图压成小图（原图一张 1.8MB，列表里扛不住）。 */
+const IMG_PROXY_HOST = /(^|\.)(hdslb|doubanio|bilibili)\.com/i;
+function imgUrl(u) {
   if (!u) return "";
-  if (/doubanio\.com/.test(u)) return "/api/proxy_img?u=" + encodeURIComponent(u);
+  // 网易云封面原图动辄几百 KB，列表里缩一下够看就行
+  if (/music\.126\.net/.test(u) && u.indexOf("param=") < 0) u += "?param=200y200";
+  // YouTube 的 hq720 换成 mqdefault，小一圈
+  if (/ytimg\.com/.test(u) && u.indexOf("hq720.jpg") > 0) {
+    u = u.replace("hq720.jpg", "mqdefault.jpg");
+  }
+  if (IMG_PROXY_HOST.test(u)) return "/api/proxy_img?u=" + encodeURIComponent(u);
   return u;
 }
 
 function movieCard(m, i) {
   const cov = m.cover
-    ? '<img class="poster" src="' + esc(posterUrl(m.cover)) + '" alt="" loading="lazy" onerror="this.style.visibility=\'hidden\'">'
+    ? '<span class="poster"><img src="' + esc(imgUrl(m.cover)) + '" alt="" loading="lazy"'
+      + ' onerror="this.remove()"></span>'
     : "";
   const rate = m.rating
     ? '<span class="mrate">' + esc(String(m.rating)) + " 分</span>"
@@ -2047,9 +2062,11 @@ if ($("#mBatch")) {
 let histItems = [];
 
 function histRow(x, i) {
-  const cov = x.thumb
-    ? '<img class="cov" src="' + esc(x.thumb) + '" alt="" loading="lazy" onerror="this.style.visibility=\'hidden\'">'
-    : '<span class="cov" data-p="' + esc(s.platform || "") + '"></span>';
+  // 跟搜索结果一样用 span 装着 img，图没出来时占位还在
+  const cov = '<span class="cov" data-p="' + esc(x.platform || "") + '">'
+    + (x.thumb ? '<img src="' + esc(imgUrl(x.thumb)) + '" alt="" loading="lazy"'
+      + ' onerror="this.remove()">' : "")
+    + "</span>";
   const sub = [x.platform_name || "", x.author || "", fmtSize(x.size || 0)]
     .filter(Boolean).join(" · ");
   return '<div class="hitem" data-i="' + i + '">' + cov +

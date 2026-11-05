@@ -46,6 +46,16 @@ def imgs(pg, sel, label):
     return r, ok
 
 
+def wait_rows(pg, sel, limit=30):
+    """等结果出来。搜索有时快有时慢（B站签名接口偶尔会慢几秒），
+    固定等待会误判成"没搜到"，所以改成轮询等。"""
+    for _ in range(limit):
+        if pg.evaluate("(s)=>document.querySelectorAll(s).length", sel):
+            return True
+        pg.wait_for_timeout(1000)
+    return False
+
+
 def main():
     with sync_playwright() as p:
         kw = {"headless": True, "args": ["--mute-audio"]}
@@ -68,7 +78,8 @@ def main():
         pg.wait_for_timeout(300)
         pg.fill("#mQuery", "人生")
         pg.click("#mGo")
-        pg.wait_for_timeout(7000)
+        assert wait_rows(pg, ".msong"), "视频搜索没出结果"
+        pg.wait_for_timeout(2500)          # 给图片一点加载时间
         r, ok = imgs(pg, ".msong img", "视频封面")
         assert ok, "视频封面一张都没出来"
         pg.screenshot(path=OUT + "/img_video.png")
@@ -78,7 +89,8 @@ def main():
         pg.wait_for_timeout(400)
         pg.fill("#mQuery", "十二公民")
         pg.click("#mGo")
-        pg.wait_for_timeout(7000)
+        assert wait_rows(pg, ".mmovie"), "电影搜索没出结果"
+        pg.wait_for_timeout(3000)
         r, ok = imgs(pg, ".mmovie .poster img", "电影海报")
         assert ok, "电影海报一张都没出来"
         # 容器占位：海报区宽度应该在（即使某张失败）
@@ -92,7 +104,8 @@ def main():
         pg.wait_for_timeout(400)
         pg.fill("#mQuery", "告白气球")
         pg.click("#mGo")
-        pg.wait_for_timeout(6000)
+        assert wait_rows(pg, ".msong"), "音乐搜索没出结果"
+        pg.wait_for_timeout(2500)
         r, ok = imgs(pg, ".msong img", "音乐封面")
         pg.screenshot(path=OUT + "/img_music.png")
 

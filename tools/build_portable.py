@@ -28,7 +28,7 @@ BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 CODE_FILES = [
     "server.py", "core.py", "cn_sites.py", "sph.py", "music.py", "suno.py",
-    "hls.py", "login.py",
+    "hls.py", "login.py", "search.py", "movies.py",
     "picker.py", "picker_win.py", "version.txt", "README.md", "LICENSE",
     "requirements.txt", "start.bat", "诊断.bat", "启动.command",
 ]
@@ -116,11 +116,13 @@ def main():
     os.makedirs(app, exist_ok=True)
 
     skip = SKIP_ON_WIN if IS_WIN else SKIP_ON_MAC
+    missing = []
     for f in CODE_FILES + DATA_FILES:
         if f in skip:
             continue
         p = os.path.join(BASE, f)
         if not os.path.isfile(p):
+            missing.append(f)
             continue
         tgt = os.path.join(app, f)
         # 配置和历史是用户数据：目标里已经有了就留着，别用开发机的覆盖过去
@@ -128,6 +130,8 @@ def main():
             print("保留已有:", f)
             continue
         shutil.copy2(p, tgt)
+    if missing:
+        raise SystemExit("源码里少了这些文件，打包中止：%s" % "、".join(missing))
     # 顺带清掉上一版留下来的、这一版不该有的启动脚本
     for f in skip:
         old = os.path.join(app, f)
@@ -159,6 +163,15 @@ def main():
         print("!! 没找到 ffmpeg，Suno 只能存 mp4。装一个再打包（winget install Gyan.FFmpeg）")
 
     os.makedirs(os.path.join(dst, "下载的文件"), exist_ok=True)
+
+    # 产物自检：每个代码文件都得真的落到目标里。
+    # 以前清单漏了一个文件，打出来的包就少个模块，运行时报 ImportError，
+    # 但打包过程一声不吭——这里直接把话说出来
+    absent = [f for f in CODE_FILES
+              if f not in skip and not os.path.isfile(os.path.join(app, f))]
+    if absent:
+        raise SystemExit("打包不完整，缺少：%s" % "、".join(absent))
+    print("自检通过：%d 个代码文件齐全" % len(CODE_FILES))
 
     if IS_WIN and not a.no_exe:
         exe = build_exe(a.runtime)

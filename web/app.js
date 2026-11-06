@@ -1450,6 +1450,10 @@ document.querySelectorAll("#mSrc .plat").forEach((b) => {
     // 换来源就是换一套东西，旧的计数、旧的列表、旧的提示都得清掉。
     // 不清就会出现「上面写着共 24 条，下面却是另一个来源的空列表」。
     resetResults();
+    // 识曲只在音乐来源下有入口：认出来的是歌，跟搜片名不是一回事
+    const mic = $("#mRec");
+    if (mic) mic.hidden = mMode !== "music";
+    if (mMode !== "music") recOpen(false);
     const q = $("#mQuery").value.trim();
     if (q) musicSearch(q);
     else $("#mHint").textContent = SOURCE_GUIDE[mMode] || "";
@@ -1754,6 +1758,223 @@ function initPreview() {
     au.currentTime = Math.max(0, Math.min(1, x)) * au.duration;
     updatePvTime();
   };
+}
+
+/* ================= 听歌识曲 ================= */
+
+// 不知道歌名的时候用：录一段（或丢个视频进来），让 Shazam 认。
+// 认出来直接当搜索词去搜，省掉自己敲歌名。
+const REC_SECONDS = 10;      // 录多久。10 秒足够认，再长只是白等
+const REC_MAX_MB = 20;       // 上传上限，跟后端对齐
+
+let recStream = null;        // 麦克风流
+let recMr = null;            // MediaRecorder
+let recChunks = [];
+let recTimer = null;
+let recLeft = 0;
+let recBusy = false;         // 正在识别，别让人连点
+let recAbort = false;        // 半路取消：录下的那段别拿去识别
+
+function recOpen(on) {
+  const bar = $("#recBar");
+  if (!bar) return;
+  bar.hidden = !on;
+  const btn = $("#mRec");
+  if (btn) btn.classList.toggle("on", on);
+  if (on) {
+    recIdle();
+  } else {
+    recCleanup();
+  }
+}
+
+// 平时：提示 + 两个入口
+function recIdle() {
+  recSetButtons({ act: "录一段", pick: true, x: "取消" });
+  recSetTip("对着音箱录一段，或者选个视频/音频文件进来", "");
+}
+
+function recSetTip(text, kind) {
+  const t = $("#recTip");
+  if (t) t.textContent = text;
+  const d = $("#recDot");
+  if (d) d.className = "rcdot" + (kind ? " " + kind : "");
+}
+
+function recSetButtons(o) {
+  const act = $("#recAct"), pick = $("#recPick"), x = $("#recX");
+  if (act) {
+    act.hidden = !o.act;
+    if (o.act) act.textContent = o.act;
+  }
+  if (pick) pick.hidden = !o.pick;
+  if (x) {
+    x.hidden = !o.x;
+    if (o.x) x.textContent = o.x;
+  }
+}
+
+function recCleanup() {
+  if (recTimer) { clearInterval(recTimer); recTimer = null; }
+  recAbort = true;                 // 收工了，正在录的那段别再去识别
+  try { if (recMr && recMr.state !== "inactive") recMr.stop(); } catch (e) {}
+  if (recStream) {
+    recStream.getTracks().forEach((t) => t.stop());
+    recStream = null;
+  }
+  recMr = null;
+  recChunks = [];
+  recBusy = false;
+}
+
+async function recStart() {
+  if (recStream) { recStop(); return; }        // 再点一下就是停
+  if (!navigator.mediaDevices || !window.MediaRecorder) {
+    recSetTip("这个浏览器录不了音，用「选文件」吧", "err");
+    return;
+  }
+  try {
+    recStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (e) {
+    recSetTip("没拿到麦克风。点地址栏左边的图标允许一下，或者直接用「选文件」", "err");
+    return;
+  }
+  recChunks = [];
+  recAbort = false;
+  const canOpus = window.MediaRecorder.isTypeSupported
+    && MediaRecorder.isTypeSupported("audio/webm;codecs=opus");
+  try {
+    recMr = new MediaRecorder(recStream, canOpus ? { mimeType: "audio/webm;codecs=opus" } : undefined);
+  } catch (e) {
+    recSetTip("录音没起来，用「选文件」吧", "err");
+    recCleanup();
+    return;
+  }
+  recMr.ondataavailable = (e) => { if (e.data && e.data.size) recChunks.push(e.data); };
+  recMr.onstop = () => {
+    if (recAbort) { recAbort = false; return; }
+    const blob = new Blob(recChunks, { type: (recMr && recMr.mimeType) || "audio/webm" });
+    recReleaseMic();
+    if (blob.size < 2048) {
+      recSetTip("这段太短了，没录到声音。再来一次", "err");
+      recIdle2();
+      return;
+    }
+    recUpload(blob, "webm");
+  };
+  recMr.start();
+  recLeft = REC_SECONDS;
+  recSetButtons({ act: "停止", pick: false, x: "取消" });
+  recSetTip("正在听… " + recLeft + " 秒", "rec");
+  recTimer = setInterval(() => {
+    recLeft -= 1;
+    if (recLeft <= 0) { recStop(); return; }
+    recSetTip("正在听… " + recLeft + " 秒", "rec");
+  }, 1000);
+}
+
+function recStop() {
+  if (recTimer) { clearInterval(recTimer); recTimer = null; }
+  if (recMr && recMr.state !== "inactive") recMr.stop();
+}
+
+function recReleaseMic() {
+  if (recStream) {
+    recStream.getTracks().forEach((t) => t.stop());
+    recStream = null;
+  }
+}
+
+// 出错后回到「可以再来一次」
+function recIdle2() {
+  recSetButtons({ act: "录一段", pick: true, x: "取消" });
+}
+
+function b64Of(buf) {
+  // 分块转，一次性 apply 会爆栈
+  const u8 = new Uint8Array(buf);
+  let s = "";
+  const CH = 0x8000;
+  for (let i = 0; i < u8.length; i += CH) {
+    s += String.fromCharCode.apply(null, u8.subarray(i, i + CH));
+  }
+  return btoa(s);
+}
+
+async function recUpload(blob, ext) {
+  if (recBusy) return;
+  recBusy = true;
+  recSetButtons({ act: "", pick: false, x: "取消" });
+  recSetTip("在找这首歌…", "rec");
+  try {
+    const b64 = b64Of(await blob.arrayBuffer());
+    const r = await post("/api/music/recognize", { data: b64, ext });
+    if (!r.ok) {
+      recSetTip(r.error || "没认出来，再来一次", "err");
+      recIdle2();
+      return;
+    }
+    recOpen(false);
+    // 认出来了：搜索框填上，直接搜。
+    // 先切回音乐来源 —— 视频页的搜索用的是另一套接口，歌名丢进去没意义
+    if (mMode !== "music") {
+      document.querySelectorAll("#mSrc .plat").forEach((x) =>
+        x.classList.toggle("on", x.dataset.s === "music"));
+      mMode = "music";
+      $("#mPlats").hidden = false;
+      $("#mVPlats").hidden = true;
+      $("#mQuery").placeholder = "歌名、歌手";
+    }
+    $("#mQuery").value = r.query || ((r.title || "") + " " + (r.artist || "")).trim();
+    resetResults();
+    const who = [r.title, r.artist].filter(Boolean).join(" · ");
+    await musicSearch($("#mQuery").value);
+    // 搜索过程会把提示刷成「搜索中…」，搜完再把「听出来了」补回去 ——
+    // 不然后面看这屏的人不知道这些结果是听出来的
+    $("#mHint").textContent = mItems.length
+      ? "听出来了：" + who
+      : "听出来了「" + who + "」，但国内几个平台都没搜到（多半是版权）";
+  } catch (e) {
+    recSetTip("识别失败了，再试一次", "err");
+    recIdle2();
+  } finally {
+    recBusy = false;
+  }
+}
+
+function recPickFile() {
+  const inp = $("#recFile");
+  if (inp) inp.click();
+}
+
+function initRecognize() {
+  const btn = $("#mRec");
+  if (!btn) return;
+  btn.onclick = () => {
+    const bar = $("#recBar");
+    recOpen(!bar || bar.hidden);
+  };
+  const act = $("#recAct");
+  if (act) act.onclick = () => { recStart(); };
+  const pick = $("#recPick");
+  if (pick) pick.onclick = recPickFile;
+  const x = $("#recX");
+  if (x) x.onclick = () => recOpen(false);
+  const file = $("#recFile");
+  if (file) {
+    file.onchange = () => {
+      const f = file.files && file.files[0];
+      file.value = "";                       // 同一个文件再选一次也要能触发
+      if (!f) return;
+      if (f.size > REC_MAX_MB * 1024 * 1024) {
+        recSetTip("文件太大了（超过 " + REC_MAX_MB + "MB）。截一小段，或者直接录音",
+          "err");
+        return;
+      }
+      const ext = (f.name.split(".").pop() || "").toLowerCase();
+      recUpload(f, ext || "mp3");
+    };
+  }
 }
 
 /* ================= 电影条目卡 ================= */
@@ -2176,6 +2397,7 @@ document.addEventListener("keydown", (e) => {
 
 applyTab(tabMode);
 initPreview();
+initRecognize();
 // 第一次进搜索页，先给句引导，别让人对着空白框发呆
 if (tabMode === "music") {
   const h = $("#mHint");

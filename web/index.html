@@ -45,7 +45,26 @@
   <div class="music" id="musicPanel" hidden>
     <div class="msearch">
       <input id="mQuery" placeholder="歌名、歌手" autocomplete="off">
+      <!-- 听歌识曲：不知道歌名的时候，录一段或者丢个文件进来 -->
+      <button id="mRec" class="mrec-btn" title="听歌识曲" aria-label="听歌识曲">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+          <rect x="9" y="2.6" width="6" height="11.2" rx="3"
+                fill="none" stroke="currentColor" stroke-width="1.9"/>
+          <path d="M5.4 11.2a6.6 6.6 0 0 0 13.2 0M12 17.8V21"
+                fill="none" stroke="currentColor" stroke-width="1.9"
+                stroke-linecap="round"/>
+        </svg>
+      </button>
       <button id="mGo">搜索</button>
+    </div>
+    <!-- 识曲条：点麦克风才出现，不占平时的地方 -->
+    <div class="recbar" id="recBar" hidden>
+      <span class="rcdot" id="recDot"></span>
+      <span class="rctip" id="recTip"></span>
+      <button id="recAct">录一段</button>
+      <button id="recPick">选文件</button>
+      <button id="recX" class="ghost">取消</button>
+      <input type="file" id="recFile" accept="audio/*,video/*" hidden>
     </div>
     <div class="mplats" id="mSrc">
       <button class="plat on" data-s="music">音乐</button>

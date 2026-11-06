@@ -8,6 +8,7 @@
 
 服务只跑一个实例：第二次双击会复用已在运行的服务，只负责开窗口。
 """
+import base64
 import io
 import json
 import os
@@ -16,6 +17,7 @@ import socket
 import socketserver
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.parse
@@ -34,8 +36,11 @@ import core  # noqa: E402
 import login as login_mod  # noqa: E402
 import picker  # noqa: E402
 
-APP_VERSION = "1.17.0"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
+APP_VERSION = "1.18.0"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
 UPDATE_REPO = "soberbw-hash/media-downloader"
+
+# 识曲上传的上限（base64 长度）。20MB 原文件约 27MB base64，够一段音频了。
+RECOGNIZE_MAX_B64 = 28 * 1024 * 1024
 
 CONFIG_PATH = os.path.join(BASE, "config.json")
 DEFAULT_CFG = {
@@ -635,6 +640,40 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": True, "url": "/api/music/audio?" + qs,
                         "title": str(data.get("title") or ""),
                         "artist": str(data.get("artist") or "")})
+
+        elif p == "/api/music/recognize":
+            # 听歌识曲：前端把录的音（或选的文件）base64 过来，
+            # 这儿落成临时文件交给 recognize 去认
+            b64 = str(data.get("data") or "")
+            ext = str(data.get("ext") or "webm").lstrip(".").lower()
+            if not b64:
+                self._json({"ok": False, "error": "没收到音频"})
+                return
+            if len(b64) > RECOGNIZE_MAX_B64:
+                self._json({"ok": False,
+                            "error": "文件太大了（超过 20MB），截一小段或者直接用录音"})
+                return
+            if ext not in ("webm", "ogg", "opus", "mp3", "m4a", "aac",
+                           "wav", "flac", "mp4", "mov", "mkv", "avi", "m4v"):
+                self._json({"ok": False, "error": "这个格式认不了，换个音频或视频文件"})
+                return
+            tmpdir = tempfile.mkdtemp(prefix="sr_up_")
+            src = os.path.join(tmpdir, "in." + ext)
+            try:
+                try:
+                    raw = base64.b64decode(b64)
+                except Exception:
+                    self._json({"ok": False, "error": "音频数据坏了，再试一次"})
+                    return
+                with open(src, "wb") as f:
+                    f.write(raw)
+                import recognize as rec_mod
+                r = rec_mod.recognize(src)
+                self._json(dict(r, ok=True))
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)[:200]})
+            finally:
+                shutil.rmtree(tmpdir, ignore_errors=True)
 
         elif p == "/api/search":
             kw = str(data.get("q") or "").strip()

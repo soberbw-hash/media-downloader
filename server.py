@@ -36,7 +36,7 @@ import core  # noqa: E402
 import login as login_mod  # noqa: E402
 import picker  # noqa: E402
 
-APP_VERSION = "1.18.0"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
+APP_VERSION = "1.19.0"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
 UPDATE_REPO = "soberbw-hash/media-downloader"
 
 # 识曲上传的上限（base64 长度）。20MB 原文件约 27MB base64，够一段音频了。
@@ -57,6 +57,8 @@ DEFAULT_CFG = {
     "down_subs": False,      # 顺便把字幕存成 .srt
     "save_danmaku": False,   # B站弹幕存成同名 .xml（附件都收进同名文件夹）
     "save_desc": False,      # 简介/元信息存成同名 .txt（附件都收进同名文件夹）
+    "custom_sites": [],      # 自己加的资源站搜索入口：{name,url(含{q}),tip}
+    "custom_sources": [],    # 自己接的第三方 JSON 接口：见 sources.py
 }
 
 PORT_MIN = 8765
@@ -466,6 +468,23 @@ class Handler(BaseHTTPRequestHandler):
             self._json(self._check_update())
         elif p == "/api/ping":
             self._json({"ok": True, "mode": MODE})
+        elif p == "/api/search/sources":
+            # 搜索页的来源按钮、资源站直达按钮都由后端下发，加源不用改前端
+            import sources as sources_mod
+            self._json({
+                "ok": True,
+                "sources": sources_mod.sources_for_ui(CFG),
+                "sites": sources_mod.site_links(CFG),
+                "custom_sites": CFG.get("custom_sites") or [],
+                "custom_sources": CFG.get("custom_sources") or [],
+                "builtin_count": len(sources_mod.SITE_LINKS),
+                "version": APP_VERSION,
+            })
+        elif p == "/api/search/more":
+            # 慢源在后台跑完后，前端拿 token 来把补齐的结果取走
+            import aggregate
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            self._json(aggregate.more((qs.get("token") or [""])[0]))
         elif p == "/api/history":
             qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             q = (qs.get("q") or [""])[0]
@@ -677,19 +696,46 @@ class Handler(BaseHTTPRequestHandler):
 
         elif p == "/api/search":
             kw = str(data.get("q") or "").strip()
-            limit = int(data.get("limit") or 20)
-            plat = str(data.get("platform") or "all")
+            try:
+                limit = max(1, min(60, int(data.get("limit") or 24)))
+            except (TypeError, ValueError):
+                limit = 24
             if not kw:
                 self._json({"ok": False, "error": "先输入关键词", "items": []})
                 return
+            want = data.get("sources")
+            # 老前端只传 platform，这边照旧认，别让它一升级就搜不了
+            if not isinstance(want, list) or not want:
+                plat = str(data.get("platform") or "all")
+                want = [plat] if plat in ("bili", "youtube") else None
             try:
-                import search as search_mod
-                items, errs = search_mod.search_video(
-                    kw, limit, plat,
-                    proxy=(CFG.get("proxy") or "").strip() or None)
-                self._json({"ok": True, "items": items, "errors": errs})
+                import aggregate
+                r = aggregate.search(
+                    kw, limit, want, CFG,
+                    proxy=(CFG.get("proxy") or "").strip() or None,
+                    refresh=bool(data.get("refresh")))
+                self._json(r)
             except Exception as e:
-                self._json({"ok": False, "error": str(e)[:200], "items": []})
+                self._json({"ok": False, "error": "搜索没跑起来：" + str(e)[:120],
+                            "items": []})
+
+        elif p == "/api/search/open_site":
+            # 资源站直达：只打开名单里的站点，地址由后端按模板拼好
+            import sources as sources_mod
+            sid = str(data.get("id") or "")
+            q = str(data.get("q") or "").strip()
+            site = next((s for s in sources_mod.site_links(CFG)
+                         if s.get("id") == sid), None)
+            if not site:
+                self._json({"ok": False, "error": "没找到这个站点"})
+                return
+            url = sources_mod.site_url(site["url"], q)
+            host = (urllib.parse.urlsplit(url).hostname or "").lower()
+            if not url.startswith("https://") or host not in sources_mod.allowed_hosts(CFG):
+                self._json({"ok": False, "error": "这个地址不在允许的站点里"})
+                return
+            threading.Thread(target=webbrowser.open, args=(url,), daemon=True).start()
+            self._json({"ok": True, "url": url})
 
         elif p == "/api/movie/search":
             kw = str(data.get("q") or "").strip()
@@ -756,6 +802,32 @@ class Handler(BaseHTTPRequestHandler):
                     try:
                         CFG["concurrency"] = max(1, min(8, int(data["concurrency"])))
                     except (TypeError, ValueError):
+                        pass
+                # 自己加的资源站 / 第三方接口：只留 https、带 {q} 的，别存进奇怪地址
+                for k in ("custom_sites", "custom_sources"):
+                    if k not in data or not isinstance(data[k], list):
+                        continue
+                    clean = []
+                    for s in data[k][:20]:
+                        if not isinstance(s, dict):
+                            continue
+                        name = str(s.get("name") or "").strip()[:20]
+                        url = str(s.get("url") or "").strip()
+                        if not name or not url.startswith("https://") or "{q}" not in url:
+                            continue
+                        item = {"name": name, "url": url,
+                                "tip": str(s.get("tip") or "").strip()[:40]}
+                        if k == "custom_sources":
+                            item["id"] = ("".join(c for c in name if c.isalnum()) or "src")[:20]
+                            item["root"] = str(s.get("root") or "").strip()[:60]
+                            f = s.get("fields")
+                            item["fields"] = f if isinstance(f, dict) else {}
+                        clean.append(item)
+                    CFG[k] = clean
+                    try:
+                        import aggregate
+                        aggregate.clear_cache()
+                    except Exception:
                         pass
                 save_cfg(CFG)
                 MANAGER.set_config(CFG)

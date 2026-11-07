@@ -1396,7 +1396,18 @@ function musicUrlOf(s) {
 const PLAT_NAME = { all: "全网", netease: "网易云", qqmusic: "QQ音乐", kugou: "酷狗", bili: "B站", youtube: "YouTube" };
 const MUSIC_PLATS = ["netease", "qqmusic", "kugou"];   // 能搜歌、也能试听的平台
 let mMode = "music";      // music=搜歌 / video=搜视频素材 / movie=搜电影
-let vPlat = "all";
+let vPlat = "all";        // all 或某个来源 id
+
+/* 聚合搜索：来源清单、资源站入口都由后端下发；
+   慢源在后台跑完后，前端拿 token 分批把结果补进来。 */
+let vSources = [];
+let vSites = [];
+let vCustomSites = [];
+let vCustomSources = [];
+let vToken = "";
+let vPulls = 0;
+let vPullTimer = null;
+let vLastQuery = "";
 
 function applyPlat(p) {
   mPlat = p;
@@ -1425,6 +1436,11 @@ function resetResults() {
   if (box) box.innerHTML = "";
   const hint = $("#mHint");
   if (hint) hint.textContent = "";
+  // 上一轮的来源状态、还没拉完的补齐结果也一起作废
+  const sh = $("#vSrcHint");
+  if (sh) { sh.innerHTML = ""; sh.hidden = true; }
+  clearTimeout(vPullTimer);
+  vToken = "";
 }
 
 document.querySelectorAll("#mPlats .plat").forEach((b) => {
@@ -1442,7 +1458,7 @@ document.querySelectorAll("#mSrc .plat").forEach((b) => {
     mMode = b.dataset.s;
     document.querySelectorAll("#mSrc .plat").forEach((x) => x.classList.toggle("on", x === b));
     $("#mPlats").hidden = mMode !== "music";
-    $("#mVPlats").hidden = mMode !== "video";
+    applySourceUI();
     $("#mQuery").placeholder =
       mMode === "video" ? "视频关键词：电影解说、运镜、猫咪…"
       : mMode === "movie" ? "片名：哪吒、流浪地球、三体…"
@@ -1460,15 +1476,201 @@ document.querySelectorAll("#mSrc .plat").forEach((b) => {
   };
 });
 
-document.querySelectorAll("#mVPlats .plat").forEach((b) => {
-  b.onclick = () => {
-    vPlat = b.dataset.p;
-    document.querySelectorAll("#mVPlats .plat").forEach((x) => x.classList.toggle("on", x === b));
-    resetResults();
-    const q = $("#mQuery").value.trim();
-    if (q) musicSearch(q);
+/* ---------------- 多来源聚合 ---------------- */
+function applySourceUI() {
+  const isVideo = mMode === "video";
+  ["#mVPlats", "#vSites"].forEach((sel) => {
+    const el = $(sel);
+    if (el) el.hidden = !isVideo;
+  });
+  const sh = $("#vSrcHint");
+  if (sh && !isVideo) sh.hidden = true;
+  if (!isVideo) {
+    const bar = $("#siteBar");
+    if (bar) bar.hidden = true;
+  }
+}
+
+function sourceName(id) {
+  const s = vSources.find((x) => x.id === id);
+  return s ? s.name : (PLAT_NAME[id] || id);
+}
+
+function renderSources(list) {
+  vSources = list || [];
+  const box = $("#mVPlats");
+  if (!box) return;
+  if (vPlat !== "all" && !vSources.some((x) => x.id === vPlat)) vPlat = "all";
+  box.innerHTML = '<button class="plat' + (vPlat === "all" ? " on" : "") +
+    '" data-p="all">全部</button>' +
+    vSources.map((s) => '<button class="plat' + (vPlat === s.id ? " on" : "") +
+      '" data-p="' + esc(s.id) + '" title="' +
+      esc((s.note || "") + (s.slow ? "（点它才单独搜）" : "")) + '">' +
+      esc(s.name) + "</button>").join("");
+  box.querySelectorAll(".plat").forEach((b) => {
+    b.onclick = () => {
+      vPlat = b.dataset.p;
+      box.querySelectorAll(".plat").forEach((x) => x.classList.toggle("on", x === b));
+      resetResults();
+      const q = $("#mQuery").value.trim();
+      if (q) musicSearch(q);
+    };
+  });
+}
+
+function renderSites() {
+  const box = $("#vSiteChips");
+  if (!box) return;
+  // 自己接的 JSON 接口也列在这儿，一个地方管增删
+  const extras = vCustomSources.map((s) => ({
+    id: "src:" + s.name, name: s.name + " · 接口",
+    tip: "自己接的第三方接口，点一下直接用它搜", custom: true, isSource: true,
+  }));
+  const all = vSites.concat(extras);
+  box.innerHTML = all.map((s) =>
+    '<button class="site-chip" data-id="' + esc(s.id) + '" data-name="' + esc(s.name) +
+    '" data-src="' + (s.isSource ? "1" : "0") + '" title="' + esc(s.tip || "") + '">' +
+    esc(s.name) +
+    (s.custom ? '<span class="x" data-del="' + esc(s.isSource ? s.name.replace(/ · 接口$/, "") : s.name) + '">×</span>' : "") +
+    "</button>").join("");
+  box.querySelectorAll(".site-chip").forEach((el) => {
+    el.onclick = async (e) => {
+      const del = e.target.dataset ? e.target.dataset.del : undefined;
+      if (del !== undefined) {
+        e.stopPropagation();
+        if (el.dataset.src === "1") {
+          const next = vCustomSources.filter((x) => x.name !== del);
+          const r = await post("/api/config", { custom_sources: next });
+          if (r.ok) vCustomSources = next;
+        } else {
+          const next = vCustomSites.filter((x) => x.name !== del);
+          const r = await post("/api/config", { custom_sites: next });
+          if (r.ok) vCustomSites = next;
+        }
+        toast("已移除");
+        await initAggregate();
+        return;
+      }
+      if (el.dataset.src === "1") {
+        const name = el.dataset.name.replace(/ · 接口$/, "");
+        const target = Array.from($("#mVPlats").querySelectorAll(".plat"))
+          .find((b) => b.textContent === name);
+        if (target) target.click();
+        else toast("这个接口还没加载好，稍等一下");
+        return;
+      }
+      const q = $("#mQuery").value.trim() || vLastQuery;
+      if (!q) { toast("先输入关键词"); $("#mQuery").focus(); return; }
+      const r = await post("/api/search/open_site", { id: el.dataset.id, q });
+      if (!r.ok) toast(r.error || "打不开这个站");
+    };
+  });
+}
+
+function renderSourceHint(r) {
+  const box = $("#vSrcHint");
+  if (!box) return;
+  if (mMode !== "video") { box.hidden = true; return; }
+  const known = new Map((r.sources || []).map((s) => [s.id, s]));
+  const ids = (r.sources || []).map((s) => s.id).concat(r.pending || []);
+  const parts = [];
+  ids.forEach((id) => {
+    const s = known.get(id);
+    if (!s) { parts.push(esc(sourceName(id)) + " 还在找…"); return; }
+    if (s.state === "ok" && s.count) parts.push("<b>" + esc(s.name) + "</b> " + s.count + " 条");
+    else if (s.state === "fail") parts.push('<span class="bad" title="' + esc(s.msg) + '">' + esc(s.name) + " 没连上</span>");
+    else if (s.state === "skip") parts.push('<span class="bad" title="' + esc(s.msg) + '">' + esc(s.name) + " 跳过</span>");
+    else parts.push(esc(s.name) + " 0 条");
+  });
+  box.innerHTML = parts.join("　·　");
+  box.hidden = !parts.length;
+}
+
+function scheduleMore(r) {
+  clearTimeout(vPullTimer);
+  if (r.done || !r.token || !(r.pending || []).length) { vToken = ""; return; }
+  vToken = r.token;
+  vPulls = 0;
+  vPullTimer = setTimeout(pullMore, 2200);
+}
+
+async function pullMore() {
+  if (!vToken || mMode !== "video") return;
+  vPulls++;
+  try {
+    const r = await fetch("/api/search/more?token=" + encodeURIComponent(vToken))
+      .then((x) => x.json());
+    if (!r.ok) { vToken = ""; return; }
+    mItems = r.items || [];
+    renderMusic();
+    renderSourceHint(r);
+    if (!mItems.length) $("#mHint").textContent = "没搜到，换个关键词或换个来源";
+    if (!r.done && vPulls < 8) vPullTimer = setTimeout(pullMore, 2200);
+    else vToken = "";
+  } catch (e) { vToken = ""; }
+}
+
+async function initAggregate() {
+  try {
+    const r = await fetch("/api/search/sources").then((x) => x.json());
+    if (!r.ok) return;
+    vCustomSites = (r.custom_sites || []).slice();
+    vCustomSources = (r.custom_sources || []).slice();
+    renderSources(r.sources);
+    vSites = r.sites || [];
+    renderSites();
+    applySourceUI();
+  } catch (e) { /* 服务没起来就先按原来的静态按钮用 */ }
+}
+
+function initSiteBar() {
+  const bar = $("#siteBar");
+  if (!bar) return;
+  const tip = $("#siteTip");
+  const say = (t) => { if (tip) tip.textContent = t; };
+  $("#vSiteAdd").onclick = () => { bar.hidden = !bar.hidden; say(""); if (!bar.hidden) $("#siteName").focus(); };
+  $("#siteX").onclick = () => { bar.hidden = true; say(""); };
+  $("#siteType").onchange = () => {
+    const adv = $("#siteType").value === "source";
+    $("#siteRoot").hidden = !adv;
+    $("#siteFields").hidden = !adv;
+    say(adv ? "接口要返回 JSON；{q} 会被换成关键词。字段映射填不下就留空，默认认 title / url / cover。" : "");
   };
-});
+  $("#siteSave").onclick = async () => {
+    const name = $("#siteName").value.trim().slice(0, 20);
+    const url = $("#siteUrl").value.trim();
+    if (!name) { say("给网站起个名字"); return; }
+    if (!/^https:\/\//.test(url) || url.indexOf("{q}") < 0) {
+      say("地址要 https 开头，并把关键词的位置写成 {q}"); return;
+    }
+    if ($("#siteType").value === "source") {
+      let fields = {};
+      try { fields = JSON.parse($("#siteFields").value.trim() || "{}"); }
+      catch (e) { say("字段映射要填 JSON，例如 {\"title\":\"name\",\"url\":\"link\"}"); return; }
+      const next = vCustomSources.concat([{
+        name, url, tip: "自己接的接口",
+        root: $("#siteRoot").value.trim(), fields,
+      }]).slice(-20);
+      const r = await post("/api/config", { custom_sources: next });
+      if (!r.ok) { say(r.error || "没保存上"); return; }
+      vCustomSources = next;
+    } else {
+      const next = vCustomSites.concat([{ name, url, tip: "自己加的站点" }]).slice(-20);
+      const r = await post("/api/config", { custom_sites: next });
+      if (!r.ok) { say(r.error || "没保存上"); return; }
+      vCustomSites = next;
+    }
+    $("#siteName").value = "";
+    $("#siteUrl").value = "";
+    bar.hidden = true;
+    say("");
+    await initAggregate();
+    toast("加好了，重新搜一次就能用");
+  };
+}
+
+initAggregate();
+initSiteBar();
 
 function musicRow(s, i) {
   const on = mSel.has(i);
@@ -1479,10 +1681,15 @@ function musicRow(s, i) {
     + (s.cover ? '<img src="' + esc(imgUrl(s.cover)) + '" alt="" loading="lazy"'
       + ' onerror="this.remove()">' : "")
     + "</span>";
-  const sub = esc(s.artist || s.author || "未知歌手") + (s.album ? " · " + esc(s.album) : "");
-  const src = s.platform
-    ? '<span class="psrc" data-p="' + esc(s.platform) + '">' +
-      esc(PLAT_NAME[s.platform] || s.platform) + "</span>"
+  const sub = esc(s.artist || s.author || "未知歌手") +
+    (s.album ? " · " + esc(s.album) : "") +
+    (s.hq ? " · 1080p" : "") +
+    (s.kind === "audio" ? " · 预览音频" : "");
+  // 来源由后端下发，加一个源不用回来改这张映射表
+  const sid = s.source || s.platform || "";
+  const src = sid
+    ? '<span class="psrc" data-p="' + esc(sid) + '">' +
+      esc(s.source_name || PLAT_NAME[sid] || sid) + "</span>"
     : "";
   // 试听按钮：只有这三个音乐平台的歌才有（视频结果不给听）
   const canPlay = MUSIC_PLATS.indexOf(s.platform || "") >= 0 && s.kind !== "video";
@@ -2189,22 +2396,34 @@ async function musicSearch(q) {
   if (mMode === "movie") return movieSearch(q);
   $("#mResults").innerHTML = "";
   $("#mBar").hidden = true;
-  const where = mMode === "video" ? ((PLAT_NAME[vPlat] || "") + " 视频") : (PLAT_NAME[mPlat] || "全网");
+  const where = mMode === "video"
+    ? (vPlat === "all" ? "所有来源" : sourceName(vPlat))
+    : (PLAT_NAME[mPlat] || "全网");
   $("#mHint").textContent = `${where} 搜索「${q}」…`;
   mSel.clear();
+  if (mMode === "video") {
+    vLastQuery = q;
+    clearTimeout(vPullTimer);
+    vToken = "";
+    const sh = $("#vSrcHint");
+    if (sh) { sh.innerHTML = ""; sh.hidden = true; }
+  }
   searching = true;
   $("#mGo").disabled = true;
   try {
     const r = mMode === "video"
-      ? await post("/api/search", { q, limit: 24, platform: vPlat })
+      ? await post("/api/search", {
+          q, limit: 24,
+          sources: vPlat === "all" ? null : [vPlat],
+        })
       : await post("/api/music/search", { platform: mPlat, q, limit: 24 });
     if (!r.ok) { $("#mHint").textContent = r.error || "搜索失败"; return; }
     mItems = r.items || [];
     renderMusic();
-    // 有结果时不再叠一句「找到 N 条」，下面的「共 N 条」已经说了；
-    // 但哪个来源没搜成（比如没开代理连不上 YouTube）要让人知道
+    // 各来源搜到几条、谁没连上，单独一行说清楚
+    if (mMode === "video") { renderSourceHint(r); scheduleMore(r); }
     const errs = (r.errors || []).join("；");
-    $("#mHint").textContent = mItems.length ? errs : (errs || "没搜到，换个关键词或换个平台");
+    $("#mHint").textContent = mItems.length ? errs : (errs || "没搜到，换个关键词或换个来源");
   } catch (e) {
     $("#mHint").textContent = "搜索失败，服务可能已经关了";
   } finally {
@@ -2216,11 +2435,12 @@ async function musicSearch(q) {
 async function addMusic(list, btn) {
   if (!list.length) return;
   // 视频结果：把链接丢回普通下载管线，跟贴链接一个待遇
-  if (list.every((x) => x.kind === "video")) {
+  if (list.every((x) => x.kind === "video" || x.kind === "audio")) {
     const old = btn ? btn.textContent : "";
     if (btn) { btn.disabled = true; btn.textContent = "…"; }
     try {
-      await submitBlocks(list.map((x) => ({ text: x.url })));
+      // 素材站给的是可直接下的 mp4 / mp3 直链，B站那些才是页面链接
+      await submitBlocks(list.map((x) => ({ text: x.download || x.url })));
     } finally {
       if (btn) { btn.disabled = false; btn.textContent = old; }
     }

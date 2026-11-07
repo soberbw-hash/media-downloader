@@ -77,10 +77,30 @@
       <button class="plat" data-p="qqmusic">QQ 音乐</button>
       <button class="plat" data-p="kugou">酷狗</button>
     </div>
+    <!-- 搜索来源由后端下发：加一个来源不用改前端 -->
     <div class="mplats" id="mVPlats" hidden>
       <button class="plat on" data-p="all">全部</button>
-      <button class="plat" data-p="bili">B站</button>
-      <button class="plat" data-p="youtube">YouTube</button>
+    </div>
+    <!-- 每个来源搜到几条 / 谁没连上，一句话说清楚 -->
+    <div class="vsrc" id="vSrcHint" hidden></div>
+    <!-- 更多资源站：一键把同一个关键词丢到各站去搜 -->
+    <div class="sites" id="vSites" hidden>
+      <span class="sites-label">更多资源站</span>
+      <div class="sites-chips" id="vSiteChips"></div>
+      <button class="site-add" id="vSiteAdd" title="添加网站" aria-label="添加网站">＋</button>
+    </div>
+    <div class="sitebar" id="siteBar" hidden>
+      <input id="siteName" placeholder="网站名字" autocomplete="off">
+      <input id="siteUrl" placeholder="搜索地址，把关键词换成 {q}" autocomplete="off">
+      <select id="siteType">
+        <option value="site">只加搜索入口</option>
+        <option value="source">接入 JSON 接口</option>
+      </select>
+      <input id="siteRoot" placeholder="结果数组路径，如 data.list（留空=整个返回）" hidden>
+      <input id="siteFields" placeholder='字段映射，如 {"title":"name","url":"link"}' hidden>
+      <button id="siteSave">添加</button>
+      <button id="siteX" class="ghost">取消</button>
+      <span class="sitebar-tip" id="siteTip"></span>
     </div>
     <div class="mhint" id="mHint"></div>
     <div class="mbar" id="mBar" hidden>

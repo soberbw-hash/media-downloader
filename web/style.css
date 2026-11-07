@@ -1781,6 +1781,105 @@ button:focus-visible,
 .mhint { margin: 9px 2px 0; font-size: 12px; color: var(--hint); }
 .mhint:empty { display: none; }
 
+/* ---------- 多来源聚合：状态行 / 资源站直达 / 自定义来源 ---------- */
+/* 设了 display:flex 的元素，[hidden] 会失效，这里一条条补回来 */
+.sites[hidden], .sitebar[hidden], .vsrc[hidden] { display: none; }
+
+.vsrc {
+  margin: 8px 2px 0;
+  font-size: 11.5px;
+  line-height: 1.65;
+  color: var(--hint);
+}
+.vsrc:empty { display: none; }
+.vsrc b { color: var(--text-2); font-weight: 500; }
+.vsrc .bad { color: #b85c00; }
+
+.sites {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 9px;
+}
+.sites-label { margin-right: 2px; font-size: 11.5px; color: var(--hint); }
+.sites-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.site-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: border-color .14s ease, color .14s ease;
+}
+.site-chip:hover { border-color: var(--ink); color: var(--text); }
+.site-chip .x { color: var(--hint); font-size: 13px; line-height: 1; }
+.site-chip .x:hover { color: #b3130f; }
+.site-add {
+  width: 26px;
+  height: 26px;
+  border: 1px dashed var(--line);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--hint);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+.site-add:hover { border-color: var(--ink); color: var(--text); }
+
+.sitebar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  margin-top: 9px;
+  padding: 9px 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.sitebar input, .sitebar select {
+  height: 30px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+}
+.sitebar input[hidden] { display: none; }
+.sitebar #siteName { width: 110px; }
+.sitebar #siteUrl { flex: 1 1 240px; min-width: 170px; }
+.sitebar #siteRoot, .sitebar #siteFields { flex: 1 1 180px; }
+.sitebar button {
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.sitebar #siteSave { background: var(--ink); border-color: var(--ink); color: #fff; }
+.sitebar button.ghost { border-color: transparent; background: transparent; color: var(--hint); }
+.sitebar-tip { width: 100%; font-size: 11.5px; color: var(--hint); }
+.sitebar-tip:empty { display: none; }
+
+/* 新来源的标签色，跟已有平台区分开 */
+.psrc[data-p="mixkit"], .psrc[data-p="mixkit_sfx"] { background: #eef4fb; color: #2a6099; }
+.psrc[data-p="freesound"] { background: #f3f0fb; color: #6b4bb5; }
+
 .mresults {
   margin-top: 8px;
   display: flex;

@@ -15,6 +15,7 @@
 import json
 import os
 import re
+import socket
 import time
 import urllib.error
 import urllib.parse
@@ -30,7 +31,39 @@ WX_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
          "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 "
          "MicroMessenger/7.0.20 NetType/WIFI Language/zh_CN")
 
-_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+#: 有人本机跑着 wx_channels_download（视频号下载器）的话，它自带解析接口。
+#: 发现了就直接用，用户什么都不用配；没装就跳过，别拖慢正常流程。
+LOCAL_HELPERS = (
+    "http://127.0.0.1:2022/api/channels/parse_sph",
+    "http://127.0.0.1:2022/api/channels/feed/profile",
+)
+
+
+def _opener(proxy=""):
+    """proxy 留空时显式屏蔽环境变量代理，和项目其它模块一致。"""
+    p = (proxy or "").strip()
+    handler = (urllib.request.ProxyHandler({"http": p, "https": p}) if p
+               else urllib.request.ProxyHandler({}))
+    return urllib.request.build_opener(handler)
+
+
+def _candidate_openers(api):
+    """本地接口只直连；外部接口先直连，不通再自动走系统代理。
+
+    公司机器上境外解析站直连必然超时，而系统代理是通的——这一步之前没人做，
+    所以用户以为「解析接口没用」。
+    """
+    yield _opener()
+    host = (urllib.parse.urlsplit(api).hostname or "").lower()
+    if host in ("127.0.0.1", "localhost", "::1"):
+        return
+    try:
+        from core import system_proxy
+        p = system_proxy()
+        if p:
+            yield _opener(p)
+    except Exception:
+        pass
 
 
 def is_direct(url):
@@ -102,51 +135,101 @@ def _text_field(obj, *names, depth=0):
     return ""
 
 
-def _call_api(api, share_url, timeout=25):
-    """按「POST JSON → GET 查参数」的顺序调解析接口，返回解析后的 JSON。"""
-    base = api.strip()
+def _call_api(api, share_url, timeout=25, token="", op=None):
+    """按「POST JSON → GET 查参数」的顺序调解析接口，返回解析后的 JSON。
+
+    token 用来填 Bearer 鉴权（有些公共解析服务要凭证）。
+    """
+    base = (api or "").strip()
     if not base:
         return None
+    op = op or _opener()
+
+    def heads(extra=None):
+        h = {"User-Agent": WX_UA, "Accept": "application/json, text/plain, */*"}
+        if token:
+            h["Authorization"] = "Bearer " + token
+        if extra:
+            h.update(extra)
+        return h
 
     # 支持 {url} 占位符
     if "{url}" in base:
         target = base.replace("{url}", urllib.parse.quote(share_url, safe=""))
         try:
-            with _OPENER.open(urllib.request.Request(target, headers={"User-Agent": UA_PC}),
-                              timeout=timeout) as r:
+            with op.open(urllib.request.Request(target, headers=heads()),
+                         timeout=timeout) as r:
                 return json.loads(r.read().decode("utf-8", "ignore"))
         except Exception:
             return None
 
     body = json.dumps({"url": share_url, "link": share_url}).encode()
-    req = urllib.request.Request(base, data=body, headers={
-        "User-Agent": WX_UA,
-        "Content-Type": "application/json",
-        "Accept": "application/json, text/plain, */*",
-        "Referer": REFERER,
-    })
+    req = urllib.request.Request(base, data=body, headers=heads({
+        "Content-Type": "application/json", "Referer": REFERER}))
     try:
-        with _OPENER.open(req, timeout=timeout) as r:
+        with op.open(req, timeout=timeout) as r:
             return json.loads(r.read().decode("utf-8", "ignore"))
     except Exception:
         pass
 
     q = base + ("&" if "?" in base else "?") + "url=" + urllib.parse.quote(share_url, safe="")
     try:
-        with _OPENER.open(urllib.request.Request(q, headers={"User-Agent": WX_UA,
-                                                             "Accept": "application/json"}),
-                          timeout=timeout) as r:
+        with op.open(urllib.request.Request(q, headers=heads()), timeout=timeout) as r:
             return json.loads(r.read().decode("utf-8", "ignore"))
     except Exception:
         return None
 
 
-def resolve(share_url, api, timeout=25):
-    """把分享链接交给用户配的解析接口，返回 (title, author, media_url)。"""
-    data = _call_api(api, share_url, timeout)
-    if not data:
-        raise RuntimeError("解析接口没有响应，检查设置里的「视频号解析接口」地址对不对"
-                           "（接口约定见设置里「怎么获取？」）")
+def _local_helper(share_url, timeout=3):
+    """本机装了视频号下载器就蹭它的解析接口，零配置。没装立刻放弃。"""
+    # 先探端口：没服务时两次 HTTP 超时会白白拖好几秒，用户以为卡死了
+    try:
+        s = socket.create_connection(("127.0.0.1", 2022), timeout=0.3)
+        s.close()
+    except OSError:
+        return None
+    op = _opener()
+    body = json.dumps({"url": share_url, "share_url": share_url}).encode()
+    for api in LOCAL_HELPERS:
+        try:
+            req = urllib.request.Request(api, data=body, headers={
+                "User-Agent": WX_UA, "Content-Type": "application/json"})
+            with op.open(req, timeout=timeout) as r:
+                data = json.loads(r.read().decode("utf-8", "ignore"))
+            if _find_media(data):
+                return data
+        except Exception:
+            continue
+    return None
+
+
+def resolve(share_url, api="", timeout=25, token=""):
+    """把分享链接交给解析接口，返回 (title, author, media_url)。
+
+    优先用设置里填的接口（自动试直连 / 系统代理）；没填就找本机已运行的
+    视频号下载器。都没有才报错，而且把能走的路一次说清。
+    """
+    base = (api or "").strip()
+    data = None
+    if base:
+        for op in _candidate_openers(base):
+            got = _call_api(base, share_url, timeout, token, op)
+            if got and _find_media(got):
+                data = got
+                break
+        if data is None:
+            raise RuntimeError(
+                "解析接口没回应，或没给视频地址\n"
+                "检查设置里的接口地址和凭证；境外接口会自动走系统代理\n"
+                "也可能是这条视频设了权限，或者接口这会儿限流了")
+    else:
+        data = _local_helper(share_url)
+        if not data:
+            raise RuntimeError(
+                "视频号分享链接里没有视频\n"
+                "微信只把地址发给微信客户端，网页里拿不到，这是微信的限制\n"
+                "自己的作品：设置里点「打开视频号助手」下原片；别人的视频："
+                "在设置里填解析接口，或本机装 wx_channels_download（我会自动接上）")
     media = _find_media(data)
     if not media:
         msg = _text_field(data, "error", "errMsg", "msg", "message", "detail")
@@ -160,24 +243,16 @@ def _headers():
     return {"User-Agent": WX_UA, "Referer": REFERER, "Accept": "*/*"}
 
 
-def download(url, out_dir, progress, quality="best", api=""):
+def download(url, out_dir, progress, quality="best", api="", token=""):
     """直链直接下；分享链接走解析接口。返回文件路径。"""
     title = author = ""
     media = url
 
     if not is_direct(url):
-        sid = share_id(url)
-        if not sid:
+        if not share_id(url):
             raise RuntimeError("这不是视频号链接")
-        if not (api or "").strip():
-            raise RuntimeError(
-                "视频号分享链接里没有视频\n"
-                "微信只把地址发给微信客户端\n"
-                "别人的视频在网页里拿不到，这是微信的限制。自己的作品可以在"
-                "「设置 → 高级设置 → 视频号 → 打开视频号助手」里扫码登录后下载原片；"
-                "有解析接口的话也能填进去。")
         progress(stage="正在解析分享链接…")
-        title, author, media = resolve(url, api)
+        title, author, media = resolve(url, api, token=token)
         progress(title=title, author=author)
 
     if not (media or "").startswith("http"):

@@ -223,8 +223,8 @@ def candidates(info):
 
 
 _MEDIA_RE = re.compile(
-    r"https://[a-z0-9.\-]*suno\.ai/[0-9a-fA-F\-]{36}\."
-    r"(?:mp3|m4a|wav|flac|mp4)(?:\?[^\"'\\\s<>]*)?")
+    r"https://[a-z0-9.\-]+/[^\"'\\\s<>]{0,180}?\."
+    r"(?:mp3|m4a|wav|flac|mp4)(?:\?[^\"'\\\s<>]*)?", re.I)
 
 
 def _looks_media(u):
@@ -234,7 +234,54 @@ def _looks_media(u):
     return any(e in low.split("?")[0] for e in MEDIA_EXT)
 
 
-def page_media(page, uid="", proxy=""):
+def _is_placeholder(u):
+    """占位/试听片段：名字带 sil- / silence / preview / sample 的一律不要。"""
+    name = urllib.parse.urlsplit(u).path.rsplit("/", 1)[-1].lower()
+    return bool(re.match(r"(sil-|silence|placeholder|empty|preview|sample|test)", name))
+
+
+# 一首歌再差也该有几百 KB；低于这个数基本是占位音频或错误页
+MIN_SONG_BYTES = 200 * 1024
+
+
+# ---------- 媒体文件校验 ----------
+# Suno 对没登录的访客只给一段「m4a-opus / encoding 1.0.0」的加密流：
+# HTTP 200、Content-Type 也对、大小三兆多，但开头既不是 ftyp 也不是 ID3，
+# 就是一坨乱码。以前把它当 mp3 存下来 / 丢给 ffmpeg，于是报
+# 「Error opening input: Invalid data found when processing input」，
+# 界面还误判成「内容不存在」。下完先看一眼文件头，坏东西当场丢掉。
+def _valid_media(path):
+    try:
+        with open(path, "rb") as f:
+            head = f.read(64)
+    except OSError:
+        return False
+    if len(head) < 12:
+        return False
+    if head.startswith(b"ID3"):                       # 带标签的 mp3
+        return True
+    if head[0] == 0xFF and (head[1] & 0xE0) == 0xE0:  # MP3 帧同步
+        return True
+    if head[4:8] == b"ftyp":                          # mp4 / m4a / mov
+        return True
+    if head.startswith((b"OggS", b"fLaC", b"RIFF", b"\x1a\x45\xdf\xa3")):
+        return True                                   # ogg / flac / wav / mkv
+    return False
+
+
+def _discard(path):
+    """连 .part 和断点记录一起删，免得下次 Range 接着往垃圾后面拼。"""
+    for p in (path, path + ".part", path + ".part.src"):
+        _quiet_rm(p)
+
+
+def _media_ctype(ctype):
+    low = (ctype or "").lower()
+    return any(x in low for x in ("text/html", "text/plain", "application/json",
+                                  "application/xml", "text/xml"))
+
+
+def page_media(page, uid="", proxy="", blocked=None):
     """从分享页 HTML 里捞媒体地址。
 
     页面的播放器是给匿名访客用的，所以它拿到的音频地址通常不带登录态也能下。
@@ -246,20 +293,50 @@ def page_media(page, uid="", proxy=""):
         r.close()
     except Exception:
         return []
-    html = (html.replace("\\u0026", "&").replace("\\/", "/")
-                .replace("&amp;", "&"))
+    # Next.js 把数据塞在 self.__next_f 里，字符串是 \" 转义过的；
+    # 先摊平才能按 JSON 字段精准取，比满页扫 URL 靠谱。
+    flat = (html.replace('\\"', '"').replace("\\/", "/")
+                .replace("\\u0026", "&").replace("&amp;", "&"))
+    out = []
+    # SSR 的 media_urls 里带 encoding 的就是加密流（m4a-opus / 1.0.0）。
+    # 直接跳过，省得白下 3MB 再判坏文件，白等十几秒。
+    encrypted = set(re.findall(
+        r'\{"url":"(https?[^"]+)"[^}]{0,300}?"encoding":"[^"]+"', flat))
+
+    def add(u):
+        u = (u or "").strip()
+        if not u.startswith("http") or any(x in u for x in NOT_MEDIA):
+            return
+        if u in encrypted:
+            if blocked is not None:
+                blocked.append(u)
+            return
+        # 页面里有个 sil-100.mp3（4.8KB 静音，用来解锁浏览器音频），
+        # 以及一堆图片 / 页面地址。放宽到「任何 http」会把静音当成歌下下来，
+        # 还自动写 ID3 封面，看起来像成功——比报错更坑。
+        if not _looks_media(u) or _is_placeholder(u):
+            return
+        if u not in out:
+            out.append(u)
+
+    # 登录态下 audio_url 是带签名的真地址，优先排
+    for key in ("audio_url", "video_url", "url", "mediaUrl", "play_url"):
+        for m in re.finditer(r'"' + key + r'"\s*:\s*"(https?[^"]+)"', flat):
+            add(m.group(1))
+
     pats = [_MEDIA_RE]
     if uid:
         pats.insert(0, re.compile(
             r"https://[a-z0-9.\-]+/[^\"'\\\s<>]*" + re.escape(uid) +
             r"[^\"'\\\s<>]*", re.I))
-    out = []
     for p in pats:
-        for m in p.finditer(html):
+        for m in p.finditer(flat):
             u = m.group(0)
-            if u not in out and _looks_media(u):
-                out.append(u)
-    out.sort(key=lambda x: 0 if ".mp3" in x else 1)
+            if _looks_media(u):
+                add(u)
+
+    # mp3 最可能是可直接播的真音频；加密的 m4a 放最后，校验会把它丢掉
+    out.sort(key=lambda x: (0 if ".mp3" in x else 1 if ".m4a" not in x else 2))
     return out
 
 
@@ -296,7 +373,12 @@ def _stream(url, out_path, progress, proxy="", label="下载中"):
     from core import resumable_download
 
     def _open(u, h, t):
-        return _get(u, proxy, timeout=t, headers=h)
+        r = _get(u, proxy, timeout=t, headers=h)
+        ctype = r.headers.get("Content-Type") or ""
+        if _media_ctype(ctype):
+            r.close()
+            raise RuntimeError("对方给的是网页不是音频（%s）" % ctype[:30])
+        return r
 
     resumable_download(url, out_path, progress, _open,
                        {"User-Agent": UA, "Referer": "https://suno.com/"},
@@ -316,6 +398,13 @@ def _try_all(urls, base, out_dir, progress, proxy):
         tmp = os.path.join(out_dir, base + ".part" + ext)
         try:
             _stream(u, tmp, progress, proxy, "下载中")
+            if not _valid_media(tmp) or os.path.getsize(tmp) < MIN_SONG_BYTES:
+                # 典型的「游客加密片段」是 200 下回来一坨乱码；
+                # 占位静音 mp3 头是对的但只有几 KB。两种都不能当歌交出去。
+                _discard(tmp)
+                if "加密片段或占位音频" not in tried:
+                    tried.append("加密片段或占位音频")
+                continue
             return tmp, ext, tried
         except urllib.error.HTTPError as e:
             why = "%s %s" % (ext.lstrip("."), e.code)
@@ -346,20 +435,33 @@ def download(url, out_dir, progress, quality="best", proxy=""):
 
     # 接口给的地址全不行，再从分享页里翻一遍
     if not tmp:
-        extra = [u for u in page_media(info["page"], info["id"], proxy)
+        blocked = []
+        extra = [u for u in page_media(info["page"], info["id"], proxy, blocked)
                  if u not in candidates(info)]
+        if blocked and "加密片段或占位音频" not in tried:
+            tried.append("加密片段或占位音频")
         if extra:
             progress(stage="换个来源再试", percent=0, done=0, total=0, speed=0)
             tmp, ext, more = _try_all(extra, base, out_dir, progress, proxy)
             tried += more
 
     if not tmp:
+        logged = bool(_cookie_header())
+        if "加密片段或占位音频" in tried and not logged:
+            raise RuntimeError(
+                "这首 Suno 只对登录用户开放\n"
+                "去「设置 → 账号登录 → Suno」登一次，回来点「重试」\n"
+                "没登录时 Suno 只给一段加密试听片段，下下来是坏文件，所以"
+                "这里直接拦住了。不是链接失效，也不是歌被删了。")
+        if "加密片段或占位音频" in tried:
+            raise RuntimeError(
+                "登录了还是只拿到加密片段\n"
+                "在设置里退出 Suno 再登一次，或去网页确认这首能播\n"
+                "刚生成的歌要等几分钟才有可下载版本。")
         raise RuntimeError(
-            "这首歌的音频拿不到\n"
-            "过一会儿点「重试」试试\n"
-            "Suno 没给这首生成视频版，公开的音频地址也没拿到（试过：%s）。"
-            "刚做好的歌要等几分钟才有视频版；如果一直这样，说明这首只对"
-            "登录用户开放，先在浏览器里打开它确认能播放。"
+            "这首歌的音频暂时拿不到（试过：%s）\n"
+            "过几分钟点「重试」，或在浏览器里确认它能播放\n"
+            "刚做好的歌要等 Suno 生成完；自己的歌建议先在设置里登录 Suno。"
             % ("、".join(tried[:4]) or "没有可用地址"))
 
     # 其他候选留下的半截文件（比如先试 mp3 没成、最后用 mp4 成了）顺手清掉

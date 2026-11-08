@@ -1137,6 +1137,9 @@ _ERR_RULES = [
     (("login", "sign in", "cookies", "未登录", "需要登录", "vip", "会员"),
      "需要登录", "打开设置里的「账号登录」登一次，再重试"),
     (("403", "forbidden"), "被平台拒绝了", "链接可能过期，重新复制一次分享链接"),
+    # ffmpeg 打不开输入：多半是下到了网页 / 加密片段，别再骗用户说「内容不存在」
+    (("invalid data found", "error opening input", "moov atom not found"),
+     "拿到的不是音视频", "可能只下到加密片段或网页，登录对应账号后重试"),
     (("404", "not found", "不存在"), "内容不存在", "作品可能被删了或设成了私密"),
     (("private", "私密", "仅粉丝"), "私密内容", "作者设了权限，登录对应账号才看得到"),
     (("412", "risk", "verify", "风控", "验证码"), "触发了风控", "等几分钟再试，别一次贴太多条"),
@@ -1502,7 +1505,8 @@ class Manager(object):
         elif t.platform == "weixin":
             import sph  # 延迟导入，避免循环依赖
             res = sph.download(t.url, out_dir, progress, quality,
-                               self.cfg.get("sph_api") or "")
+                               self.cfg.get("sph_api") or "",
+                               self.cfg.get("sph_token") or "")
         elif t.platform in ("kuaishou", "xiaohongshu"):
             import cn_sites  # 延迟导入，避免循环依赖
             if t.platform == "kuaishou":

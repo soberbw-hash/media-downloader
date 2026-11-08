@@ -314,6 +314,13 @@
       </div>
     </section>
 
+    <section class="grp">
+      <div class="grp-t">一键收网页 <span class="opt">少复制一次</span></div>
+      <div class="hint" style="margin-bottom:10px">把这个按钮拖到浏览器书签栏。以后在任意网站看到想下的东西，点一下就进下载队列，不用复制链接再切回来。</div>
+      <a class="s-btn" id="pushBookmark" href="#" title="拖到书签栏">＋ 收下这个网页</a>
+      <div class="hint" style="margin-top:10px">已经复制了链接？点右边这个直接收：<button type="button" class="s-btn" id="btnGrabClip">收下剪贴板</button></div>
+    </section>
+
     <details class="adv" id="advBox">
       <summary>高级设置</summary>
       <div class="adv-body">
@@ -331,17 +338,19 @@
         </div>
 
         <div class="field">
-          <label>视频号 <span class="opt">只能下自己的作品</span></label>
-          <div class="hint">微信只把视频地址发给微信客户端，别人的视频网页里拿不到。自己的作品去「视频号助手」扫码登录，点「下载视频」就是原片。</div>
+          <label>视频号</label>
+          <div class="hint">微信只把视频地址发给微信客户端，分享短链里没有视频。软件会先自动找本机的视频号下载器（wx_channels_download），找到就直接接上；没装就走下面两条路。</div>
           <button type="button" class="s-btn" id="btnChannels">打开视频号助手</button>
+          <div class="hint" style="margin-top:6px">自己发的作品：在助手里点「下载视频」就是原片。别人的：填一个解析接口。</div>
           <details class="qbox">
-            <summary>我有解析接口（进阶，一般不用管）</summary>
+            <summary>解析接口（进阶）</summary>
             <div class="qbox-body">
               <input id="cfgSph" placeholder="https://你的解析服务/api/fetch_video_profile">
-              <p>填了它，粘视频号分享链接就能下别人的视频。约定：软件 POST
-              <code>{"url": "分享链接"}</code> 到这个地址，返回的 JSON 里带视频地址就行
-              （字段名 <code>videoUrl</code> / <code>url</code> / <code>src</code> 都认，
-              或者任何带 <code>stodownload</code> 的字符串）。</p>
+              <input id="cfgSphToken" placeholder="访问凭证（没有就留空）" style="margin-top:8px">
+              <p>软件 POST <code>{"url": "分享链接"}</code> 到这个地址，凭证会放在
+              <code>Authorization: Bearer</code> 里。返回的 JSON 里带视频地址就行
+              （<code>videoUrl</code> / <code>url</code> / <code>src</code> 都认，
+              或者任意带 <code>stodownload</code> 的字符串）。境外接口会自动走系统代理。</p>
             </div>
           </details>
         </div>

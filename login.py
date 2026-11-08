@@ -29,6 +29,7 @@ SITES = {
     "instagram": {
         "name": "Instagram", "url": "https://www.instagram.com/accounts/login/",
         "need": ["sessionid"], "domains": ["instagram.com"], "required": True,
+        "overseas": True,
         "tip": "必须登录；还要能打开 Instagram（代理已配好）",
     },
     "douyin": {
@@ -64,6 +65,13 @@ SITES = {
         "need": ["qm_keyst"], "domains": ["qq.com"], "required": True,
         "music": "qqmusic",
         "tip": "必须登录。QQ 音乐的播放地址是登录后按账号下发的，会员能拿无损",
+    },
+    "suno": {
+        "name": "Suno", "url": "https://suno.com/",
+        "need": ["__session", "__clerk_db_jwt"],
+        "domains": ["suno.com", "suno.ai"], "required": False,
+        "overseas": True,
+        "tip": "可选。登录后能下自己账号里的歌；不登录游客只给加密片段，下不了",
     },
 }
 
@@ -273,6 +281,14 @@ def start(pid, proxy=None):
         running = STATE["state"] in ("opening", "waiting")
     if running:
         return False, "已经有一个登录窗口开着了"
+
+    # 境外站点的登录窗口直连打不开，设置里又没填代理时自己认系统代理
+    if not (proxy or "").strip() and SITES[pid].get("overseas"):
+        try:
+            from core import system_proxy
+            proxy = system_proxy() or None
+        except Exception:
+            proxy = None
 
     _STOP.clear()
     _THREAD = threading.Thread(target=_worker, args=(pid, proxy), daemon=True)

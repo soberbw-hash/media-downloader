@@ -2645,3 +2645,4 @@ body.playing .wrap { padding-bottom: 78px; }
 }
 
 .s-btn:hover { border-color: #cfcac4; color: var(--text); }
+a.s-btn { display: inline-flex; align-items: center; text-decoration: none; }

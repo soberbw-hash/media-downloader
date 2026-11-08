@@ -12,6 +12,7 @@ import base64
 import io
 import json
 import os
+import secrets
 import shutil
 import socket
 import socketserver
@@ -36,7 +37,7 @@ import core  # noqa: E402
 import login as login_mod  # noqa: E402
 import picker  # noqa: E402
 
-APP_VERSION = "1.19.0"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
+APP_VERSION = "1.20.0"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
 UPDATE_REPO = "soberbw-hash/media-downloader"
 
 # 识曲上传的上限（base64 长度）。20MB 原文件约 27MB base64，够一段音频了。
@@ -51,6 +52,8 @@ DEFAULT_CFG = {
     "cookies_file": "",
     "concurrency": 3,
     "sph_api": "",
+    "sph_token": "",    # 视频号解析接口的 Bearer 凭证（没有就留空）
+    "push_key": "",     # 「一键收网页」书签的钥匙，存住免得重启后书签失效
     "name_tpl": "{date}_{platform}_{author}_{title}",   # 默认按日期_平台_作者_标题命名，空 = 沿用解析器自己的命名
     "save_cover": False,     # 下载完顺手存一张封面
     "music_dir": "",         # 音乐单独放一个目录，空 = 跟视频同目录
@@ -137,6 +140,12 @@ def normalize_dir(path):
 
 
 CFG = load_cfg()
+# 「一键收网页」书签带的钥匙：本地服务有副作用，别让随便一个网页都能推任务
+# 进来。钥匙要存下来，否则软件一重启用户就得重新拖书签。
+if not (CFG.get("push_key") or "").strip():
+    CFG["push_key"] = secrets.token_hex(8)
+    save_cfg(CFG)
+PUSH_KEY = CFG["push_key"]
 MANAGER = core.Manager(CFG)
 
 
@@ -434,6 +443,8 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/icons.js":
             self._file(os.path.join(BASE, "web", "icons.js"),
                        "application/javascript; charset=utf-8")
+        elif p == "/push":
+            self._push_page()
         elif p == "/api/state":
             note_activity()
             from urllib.parse import parse_qs
@@ -444,6 +455,7 @@ class Handler(BaseHTTPRequestHandler):
                 "mode": MODE,
                 "tasks": MANAGER.snapshot(),
                 "config": CFG,
+                "push_key": PUSH_KEY,
                 "platforms": [{"id": x["id"], "name": x["name"], "level": x["level"]}
                               for x in core.PLATFORMS],
             })
@@ -495,6 +507,70 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"sites": login_mod.sites(), "status": login_mod.status()})
         else:
             self.send_error(404)
+
+    def _push_page(self):
+        """书签小工具点一下打开的小页面：把当前网页链接直接塞进下载队列。"""
+        import html as html_mod
+
+        qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        key = (qs.get("k") or [""])[0]
+        url = (qs.get("url") or [""])[0].strip()
+        ok, msg, hint_title = False, "", ""
+        if key != PUSH_KEY:
+            msg = "书签过期了，去设置里重新拖一次「一键收网页」"
+        elif not (url.startswith("http://") or url.startswith("https://")) or len(url) > 2048:
+            msg = "没收到有效链接"
+        else:
+            try:
+                r = core.add_blocks(MANAGER, [{"text": url}])
+                ok = bool(r.get("added"))
+                if not ok:
+                    reasons = [str(x.get("reason") or "")
+                               for x in (r.get("skipped") or [])
+                               if isinstance(x, dict)]
+                    msg = "；".join(dict.fromkeys(x for x in reasons if x)) \
+                        or "没认出这是哪家的链接"
+                    if "以前下过" in msg:
+                        hint_title = "这个以前下过啦"
+                        msg = "文件还在下载目录里，不用重复下。想重下就去「历史」里删掉记录。"
+            except Exception as e:
+                msg = str(e)[:120]
+
+        if ok:
+            title, text = "已加入下载队列", "回下载器看进度就行，这个标签页可以关了"
+            script = "setTimeout(function(){window.close()},1800)"
+        else:
+            title = hint_title or "没能加进队列"
+            text = html_mod.escape(msg or "再试一次")
+            script = ""
+        safe_url = html_mod.escape(url[:120])
+        doc = (
+            "<!doctype html><html lang=\"zh-CN\"><meta charset=\"utf-8\">"
+            "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+            "<title>" + title + "</title>"
+            "<style>body{margin:0;min-height:100vh;display:flex;align-items:center;"
+            "justify-content:center;background:#fafafa;color:#1c1c1c;font:15px/1.7"
+            " -apple-system,'Segoe UI','Microsoft YaHei',sans-serif}"
+            ".c{max-width:420px;padding:34px 30px;background:#fff;border:1px solid #eee;"
+            "border-radius:14px;box-shadow:0 6px 30px rgba(0,0,0,.05);text-align:center}"
+            "h1{font-size:19px;margin:0 0 8px}p{color:#777;margin:0 0 18px;font-size:13px}"
+            ".u{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
+            "color:#aaa;font-size:12px;margin-bottom:18px}"
+            "a{display:inline-block;padding:9px 20px;background:#1c1c1c;color:#fff;"
+            "border-radius:8px;text-decoration:none;font-size:13px}</style>"
+            "<div class=\"c\"><h1>" + title + "</h1><p>" + text + "</p>"
+            "<span class=\"u\">" + safe_url + "</span>"
+            "<a href=\"/\">回到下载器</a></div><script>" + script + "</script></html>")
+        body = doc.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionAbortedError):
+            pass
 
     def _check_update(self):
         """和 GitHub 上的 version.txt 比版本。网络不通就如实说，别假装是最新。"""
@@ -787,7 +863,8 @@ class Handler(BaseHTTPRequestHandler):
                     CFG["out_dir_set"] = True   # 用户明确设过目录
                 if data.get("quality") in ("best", "1080", "720", "audio"):
                     CFG["quality"] = data["quality"]
-                for k in ("proxy", "cookies_file", "sph_api", "name_tpl", "music_dir"):
+                for k in ("proxy", "cookies_file", "sph_api", "sph_token",
+                          "name_tpl", "music_dir"):
                     if k in data:
                         CFG[k] = str(data[k]).strip()
                 if "save_cover" in data:

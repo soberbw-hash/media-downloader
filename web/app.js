@@ -36,6 +36,7 @@ const BARE_RE = new RegExp(
 );
 
 let cfg = {};
+let pushKey = "";          // 「一键收网页」书签带的钥匙，跟着服务走
 let autoPaste = localStorage.getItem("autoPaste") !== "0";
 let supportRendered = false;
 
@@ -615,6 +616,10 @@ async function poll() {
     applyMode(d.mode);
     render(tasks);
     cfg = d.config || {};
+    if (d.push_key && d.push_key !== pushKey) {
+      pushKey = d.push_key;
+      renderPushBookmark();
+    }
     renderSupport(d.platforms || []);
     // 有活在跑就勤快点，全闲着没必要每 0.8 秒问一次
     const busy = tasks.some((t) => t.status === "running" || t.status === "queued");
@@ -811,6 +816,46 @@ $("#autoPaste").addEventListener("change", (e) => {
   localStorage.setItem("autoPaste", autoPaste ? "1" : "0");
   renderDetected(urlsIn(input.value));
   toast(autoPaste ? "粘贴后自动开始下载" : "粘贴后点「开始下载」");
+});
+
+/* ---------- 一键收：书签 + 剪贴板 ---------- */
+/* 在别的网站点一下书签就把当前页推过来，连复制都不用 */
+function renderPushBookmark() {
+  const el = $("#pushBookmark");
+  if (!el || !pushKey) return;
+  const base = location.origin + "/push?k=" + encodeURIComponent(pushKey) + "&url=";
+  el.href = "javascript:(function(){window.open('" + base +
+    "'+encodeURIComponent(location.href),'_blank');})()";
+}
+
+let lastClip = "";
+async function grabClipboard(manual) {
+  if (!manual && !autoPaste) return;          // 尊重「粘贴即下载」开关
+  if (!navigator.clipboard || !navigator.clipboard.readText) {
+    if (manual) toast("浏览器不让读剪贴板，直接 Ctrl+V 粘贴就行");
+    return;
+  }
+  try {
+    const text = (await navigator.clipboard.readText()) || "";
+    if (!text) { if (manual) toast("剪贴板里没东西"); return; }
+    const urls = urlsIn(text);
+    if (!urls.length) { if (manual) toast("剪贴板里没有能下的链接"); return; }
+    if (!manual && text === lastClip) return;  // 同一条只自动收一次
+    lastClip = text;
+    submitBlocks([{ text }], urls);
+    toast("剪贴板里的链接已加入下载");
+  } catch (e) {
+    // 浏览器没给剪贴板权限就安安静静当没这功能，原来的 Ctrl+V 照常用
+    if (manual) toast("读不到剪贴板，直接 Ctrl+V 粘贴就行");
+  }
+}
+
+$("#btnGrabClip").onclick = () => grabClipboard(true);
+window.addEventListener("focus", () => {
+  if (!document.hidden) setTimeout(() => grabClipboard(false), 150);
+});
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) grabClipboard(false);
 });
 
 /* ---------- 账号登录 ---------- */
@@ -1089,6 +1134,7 @@ function openDrawer() {
   $("#cfgProxy").value = cfg.proxy || "";
   $("#cfgCookies").value = cfg.cookies_file || "";
   $("#cfgSph").value = cfg.sph_api || "";
+  $("#cfgSphToken").value = cfg.sph_token || "";
   $("#cfgConc").value = String(cfg.concurrency || 3);
   $("#cfgNameTpl").value = cfg.name_tpl || "";
   syncNameUI();
@@ -1289,6 +1335,7 @@ $("#saveCfg").onclick = async () => {
     proxy: $("#cfgProxy").value.trim(),
     cookies_file: $("#cfgCookies").value.trim(),
     sph_api: $("#cfgSph").value.trim(),
+    sph_token: $("#cfgSphToken").value.trim(),
     concurrency: parseInt($("#cfgConc").value, 10) || 3,
     name_tpl: ($("#cfgNamePre").value === "" ? "" : $("#cfgNameTpl").value.trim()),
     music_dir: $("#cfgMusicDir").value.trim(),

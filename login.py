@@ -1,13 +1,18 @@
 # -*- coding: utf-8 -*-
 """账号登录（扫码 / 账号密码）→ 导出 cookies
 
-用系统里已安装的 Edge / Chrome 打开一个真实浏览器窗口，用户在窗口里登录，
+用「系统默认浏览器」打开一个真实浏览器窗口，用户在窗口里登录，
 脚本轮询 cookie，一旦出现登录态就导出成 Netscape 格式的 cookies 文件，
 后续下载直接复用。这样不用装浏览器内核，也不用教用户去 DevTools 里复制。
+
+默认浏览器是运行时读系统设置拿到的，不写死 Edge/Chrome：谁用就认谁机器上
+设的那个。另有 open_in_default_browser()，走系统关联直接开用户日常那个窗口。
 """
 import os
 import re
 import sys
+import shlex
+import subprocess
 import threading
 import time
 import json
@@ -117,8 +122,10 @@ def sites():
             "required": bool(site.get("required")),
             "logged_in": bool(f),
             "saved_at": int(os.path.getmtime(f)) if f else 0,
-            # 音乐平台多给一份：能不能手动贴 cookie、这个号是谁、是不是会员
-            "importable": bool(mpid),
+            # 所有站点都允许贴 cookie：用户在自己日常浏览器里已经登录的话，
+            # 复制过来就行，不必在独立窗口里再登一次
+            "importable": True,
+            "need": site.get("need") or [],
             "account": acc,
         })
     out.sort(key=lambda x: not x["required"])  # 稳定的，必须登录的排前面
@@ -142,14 +149,26 @@ def import_cookie(pid, raw):
             return False, str(e)
         except Exception as e:
             return False, "导入失败：%s" % str(e)[:120]
-    # 其它平台：认得 key=value 就行
+    # 其它平台：认得「名字=值; 名字=值」，也认 DevTools 里 Copy all 的 tab 表格
     pairs = []
-    for chunk in re.split(r"[;\n]+", (raw or "").strip()):
-        chunk = chunk.strip()
-        if "=" in chunk and not chunk.startswith("#"):
-            pairs.append(chunk)
+    lines = (raw or "").strip().splitlines()
+    if any("\t" in ln and "=" not in ln for ln in lines[:3]):
+        for ln in lines:
+            cols = ln.split("\t")
+            if len(cols) >= 2 and cols[0].strip() and not cols[0].startswith("#"):
+                pairs.append("%s=%s" % (cols[0].strip(), cols[1].strip()))
+    else:
+        for chunk in re.split(r"[;\n]+", (raw or "").strip()):
+            chunk = chunk.strip()
+            if "=" in chunk and not chunk.startswith("#"):
+                pairs.append(chunk)
     if not pairs:
-        return False, "没认出 cookie 格式"
+        return False, "没认出 cookie 格式，粘「名字=值; 名字=值」这样的整串就行"
+    got = {p.split("=", 1)[0].strip() for p in pairs}
+    need = site.get("need") or []
+    if need and not any(n in got for n in need):
+        return False, "没看到 %s 的关键登录 cookie（%s），确认是从登录后的页面复制的" % (
+            site["name"], " / ".join(need[:2]))
     os.makedirs(COOKIE_DIR, exist_ok=True)
     lines = ["# Netscape HTTP Cookie File", "# 手动导入", ""]
     for p in pairs:
@@ -251,26 +270,221 @@ def _netscape(cookies, domains):
     return "\n".join(lines) + "\n"
 
 
-def _channel():
-    """优先用系统 Edge，没有再试 Chrome；都不在就退化成 playwright 自带内核"""
-    if sys.platform == "darwin":
-        home = os.path.expanduser("~")
+# ---------- 系统默认浏览器：运行时读，谁用就认谁的 ----------
+
+# Chromium 系可执行文件特征。命中就把它直接交给 playwright 当内核，
+# 这样连 Brave / Vivaldi / 360 / QQ 浏览器这类「非官方但设成默认」的也认。
+_CHROMIUM_EXE = ("chrome.exe", "msedge.exe", "brave.exe", "vivaldi.exe",
+                 "opera.exe", "chromium.exe", "360chrome.exe", "qqbrowser.exe",
+                 "chrome", "microsoft edge", "brave browser", "vivaldi",
+                 "chromium", "google chrome")
+_KNOWN_NAME = {
+    "chrome.exe": "Chrome", "chrome": "Chrome", "google chrome": "Chrome",
+    "msedge.exe": "Edge", "microsoft edge": "Edge",
+    "brave.exe": "Brave", "vivaldi.exe": "Vivaldi", "opera.exe": "Opera",
+    "chromium.exe": "Chromium", "firefox.exe": "Firefox", "firefox": "Firefox",
+    "safari": "Safari", "360chrome.exe": "360浏览器", "qqbrowser.exe": "QQ浏览器",
+}
+_DEFAULT_CACHE = {"ts": 0.0, "value": None}
+
+
+def _exe_from_cmd(cmd):
+    """把 `"C:\\...\\chrome.exe" --single-argument %1` 里的 exe 摘出来。"""
+    if not cmd:
+        return ""
+    try:
+        parts = shlex.split(cmd, posix=(sys.platform != "win32"))
+    except Exception:
+        parts = cmd.split()
+    for s in parts:
+        low = s.lower()
+        if low.endswith((".exe", ".app/contents/macos/microsoft edge")) or \
+                low.endswith(("/chrome", "/chromium", "/firefox", "/brave", "/vivaldi")):
+            return s.strip('"')
+    return (parts[0].strip('"') if parts else "")
+
+
+def _win_default():
+    """Windows：UserChoice 的 ProgId → HKCR 打开命令。策略锁定时退回 StartMenuInternet。"""
+    import winreg
+    prog = ""
+    for scheme in ("http", "https"):
+        try:
+            with winreg.OpenKey(
+                    winreg.HKEY_CURRENT_USER,
+                    r"Software\Microsoft\Windows\Shell\Associations\UrlAssociations"
+                    r"\%s\UserChoice" % scheme) as k:
+                prog = str(winreg.QueryValueEx(k, "ProgId")[0] or "")
+            if prog:
+                break
+        except Exception:
+            continue
+    if prog:
+        for root in (winreg.HKEY_CLASSES_ROOT, winreg.HKEY_CURRENT_USER):
+            try:
+                with winreg.OpenKey(root, prog + r"\shell\open\command") as k:
+                    exe = _exe_from_cmd(str(winreg.QueryValueEx(k, "")[0] or ""))
+                    if exe and os.path.isfile(exe):
+                        return exe
+            except Exception:
+                continue
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                            r"Software\Clients\StartMenuInternet") as k:
+            d = str(winreg.QueryValueEx(k, "")[0] or "")
+        if d:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                                r"SOFTWARE\Clients\StartMenuInternet\%s\shell\open\command" % d) as k:
+                exe = _exe_from_cmd(str(winreg.QueryValueEx(k, "")[0] or ""))
+                if exe and os.path.isfile(exe):
+                    return exe
+    except Exception:
+        pass
+    return ""
+
+
+def _mac_default():
+    """macOS：读 LaunchServices 的 http handler bundle id。"""
+    import plistlib
+    p = os.path.expanduser(
+        "~/Library/Preferences/com.apple.LaunchServices/"
+        "com.apple.launchservices.secure.plist")
+    try:
+        d = plistlib.load(open(p, "rb"))
+        for h in d.get("LSHandlers", []):
+            if h.get("LSHandlerURLScheme") == "http":
+                bid = str(h.get("LSHandlerRoleAll") or "").lower()
+                if "chrome" in bid:
+                    return "Chrome"
+                if "edge" in bid:
+                    return "Edge"
+                if "firefox" in bid:
+                    return "Firefox"
+                if "safari" in bid:
+                    return "Safari"
+    except Exception:
+        pass
+    return ""
+
+
+def _linux_default():
+    try:
+        out = subprocess.check_output(
+            ["xdg-settings", "get", "default-web-browser"],
+            timeout=4, stderr=subprocess.DEVNULL).decode("utf-8", "replace").strip()
+        return out
+    except Exception:
+        return ""
+
+
+def default_browser():
+    """返回 {name, exe, chromium}。exe 为空表示没探到，走兜底。
+    缓存 30 秒，登录面板轮询时不要反复读注册表。
+    """
+    now = time.time()
+    if _DEFAULT_CACHE["value"] and now - _DEFAULT_CACHE["ts"] < 30:
+        return dict(_DEFAULT_CACHE["value"])
+    raw = ""
+    try:
+        if sys.platform == "win32":
+            raw = _win_default()
+        elif sys.platform == "darwin":
+            raw = _mac_default()
+        else:
+            raw = _linux_default()
+    except Exception:
+        raw = ""
+    exe = raw if raw and os.path.isfile(raw) else ""
+    base = os.path.basename(exe or raw).lower()
+    if not exe and sys.platform == "darwin":
+        # bundle id 形式：映射到常见安装路径
+        mac_paths = {
+            "chrome": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            "edge": "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+            "firefox": "/Applications/Firefox.app/Contents/MacOS/firefox",
+        }
+        for key, path in mac_paths.items():
+            if key in (raw or "").lower() and os.path.isfile(path):
+                exe = path
+                base = os.path.basename(path).lower()
+                break
+    name = _KNOWN_NAME.get(base, "")
+    if not name:
+        for key, label in _KNOWN_NAME.items():
+            if key in base:
+                name = label
+                break
+    if not name and (raw or exe):
+        name = os.path.splitext(os.path.basename(exe or raw))[0] or "默认浏览器"
+    chromium = bool(exe) and any(k in (base + " " + exe.lower()) for k in _CHROMIUM_EXE)
+    val = {"name": name or "默认浏览器", "exe": exe, "chromium": chromium,
+           "raw": raw}
+    _DEFAULT_CACHE.update(ts=now, value=val)
+    return dict(val)
+
+
+def open_in_default_browser(url):
+    """真的走系统关联，打开用户日常那个已登录的浏览器窗口。"""
+    if not (url or "").startswith(("http://", "https://")):
+        return False, "地址不合法"
+    if os.environ.get("VDL_NO_OPEN") == "1":   # 自测时别真弹窗口打扰人
+        return True, ""
+    try:
+        if sys.platform == "win32":
+            os.startfile(url)          # ShellExecute，必走默认浏览器
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", url])
+        else:
+            import webbrowser
+            webbrowser.open(url)
+        return True, ""
+    except Exception as e:
+        return False, "打不开默认浏览器：%s" % str(e)[:100]
+
+
+def launch_options():
+    """给 playwright launch_persistent_context 的参数片段。
+    默认浏览器是 Chromium 系就直接用它自己的 exe（不写死 Edge/Chrome）；
+    是 Firefox/Safari 等就退回系统里已安装的 Chromium 系，再不行用自带内核。
+    """
+    d = default_browser()
+    d["login_exe"] = ""
+    d["login_name"] = ""
+    if d["exe"] and d["chromium"]:
+        d["login_exe"] = d["exe"]
+        d["login_name"] = d["name"]
+        return {"executable_path": d["exe"]}, d
+    if sys.platform == "win32":
         cands = [
-            ("msedge", "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"),
-            ("chrome", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
-            ("chrome", os.path.join(home, "Applications/Google Chrome.app/Contents/MacOS/Google Chrome")),
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
         ]
+    elif sys.platform == "darwin":
+        cands = ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                 "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"]
     else:
-        cands = [
-            ("msedge", r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"),
-            ("msedge", r"C:\Program Files\Microsoft\Edge\Application\msedge.exe"),
-            ("chrome", r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
-            ("chrome", r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"),
-        ]
-    for ch, path in cands:
-        if os.path.exists(path):
-            return ch
-    return None
+        cands = ["/usr/bin/google-chrome", "/usr/bin/chromium",
+                 "/usr/bin/microsoft-edge"]
+    for path in cands:
+        if os.path.isfile(path):
+            d["login_exe"] = path
+            d["login_name"] = _KNOWN_NAME.get(os.path.basename(path).lower(), "Chromium")
+            return {"executable_path": path}, d
+    d["login_name"] = "内置浏览器"
+    return {}, d
+
+
+def open_site(pid):
+    """点「日常浏览器」：用系统默认浏览器打开该站点的登录页。"""
+    site = SITES.get(pid)
+    if not site:
+        return False, "不支持的平台"
+    ok, err = open_in_default_browser(site["url"])
+    if ok:
+        return True, "已在%s里打开 %s" % (default_browser()["name"], site["name"])
+    return False, err
 
 
 def start(pid, proxy=None):
@@ -303,7 +517,10 @@ def cancel():
 
 
 def _launch(p, kw):
-    """启动浏览器；上次异常退出可能留下锁文件，清掉再试一次"""
+    """启动浏览器；上次异常退出可能留下锁文件，清掉再试一次。
+    默认浏览器若是小众 Chromium 分支、吃不下 playwright 的启动参数，
+    最后一档退回 playwright 自带内核，别让人卡在「打不开浏览器」。
+    """
     try:
         return p.chromium.launch_persistent_context(**kw)
     except Exception:
@@ -312,12 +529,21 @@ def _launch(p, kw):
                 os.remove(os.path.join(PROFILE_DIR, name))
             except OSError:
                 pass
-        return p.chromium.launch_persistent_context(**kw)
+        try:
+            return p.chromium.launch_persistent_context(**kw)
+        except Exception:
+            if "executable_path" not in kw:
+                raise
+            plain = dict(kw)
+            plain.pop("executable_path", None)
+            return p.chromium.launch_persistent_context(**plain)
 
 
 def _worker(pid, proxy):
     site = SITES[pid]
-    _set("opening", pid, "正在打开浏览器窗口…")
+    opts, info = launch_options()
+    bname = info.get("name") or "默认浏览器"
+    _set("opening", pid, "正在打开 %s 登录窗口…" % bname)
 
     try:
         from playwright.sync_api import sync_playwright
@@ -336,9 +562,7 @@ def _worker(pid, proxy):
                 "headless": os.environ.get("VDL_LOGIN_HEADLESS") == "1",
                 "args": ["--window-size=1100,820", "--disable-blink-features=AutomationControlled"],
             }
-            ch = _channel()
-            if ch:
-                kw["channel"] = ch
+            kw.update(opts)
             if proxy:
                 kw["proxy"] = {"server": proxy}
             ctx = _launch(p, kw)
@@ -369,7 +593,7 @@ def _worker(pid, proxy):
             except Exception:
                 pass
 
-            _set("waiting", pid, "请在浏览器窗口里完成登录")
+            _set("waiting", pid, "在 %s 窗口里登录一次，之后就不用再登了" % bname)
 
             deadline = time.time() + 300
             last_probe = time.time()
@@ -453,7 +677,15 @@ def _worker(pid, proxy):
     except Exception as e:
         import traceback
         traceback.print_exc()
-        _set("error", pid, "打开浏览器失败：%s" % str(e)[:160])
+        msg = str(e)
+        low = msg.lower()
+        if "executable doesn't exist" in low or "playwright install" in low \
+                or "browser not found" in low:
+            human = ("这台电脑没找到能用的浏览器。点该行右边的 ↗ 用日常浏览器打开，"
+                     "登录后把 cookie 粘进「粘贴」也行")
+        else:
+            human = "打开 %s 失败：%s" % (bname, msg[:120])
+        _set("error", pid, human)
     finally:
         try:
             if ctx:

@@ -860,16 +860,26 @@ document.addEventListener("visibilitychange", () => {
 
 /* ---------- 账号登录 ---------- */
 let loginSig = "";
+let defaultBrowser = null;
 
 async function loadLogins(force) {
   try {
     const r = await fetch("/api/login/state");
     const d = await r.json();
-    const sig = JSON.stringify([d.sites, d.status]);
+    defaultBrowser = d.default_browser || null;
+    const sig = JSON.stringify([d.sites, d.status, defaultBrowser]);
     if (sig === loginSig && !force) return;
     loginSig = sig;
     renderLogins(d.sites || [], d.status || {});
   } catch (e) {}
+}
+
+function browserName() {
+  return (defaultBrowser && defaultBrowser.login_name) || "默认浏览器";
+}
+
+function dailyName() {
+  return (defaultBrowser && defaultBrowser.name) || "默认浏览器";
 }
 
 function renderLogins(sites, status) {
@@ -909,6 +919,14 @@ function renderLogins(sites, status) {
   }
   const num = $("#acctNum");
   if (num) num.innerHTML = `${on}<span>/${sites.length}</span>`;
+  const def = $("#acctDef");
+  if (def) {
+    const same = browserName() === dailyName();
+    def.innerHTML = same
+      ? `<i></i>当前默认浏览器 <b>${esc(dailyName())}</b> · 登录窗口会用它`
+      : `<i></i>默认浏览器 <b>${esc(dailyName())}</b> · ↗ 用日常窗口；`
+        + `登录窗口用 <b>${esc(browserName())}</b>（自动保存登录态需要 Chromium 系）`;
+  }
 
   renderLoginBar(status, busy);
 }
@@ -933,11 +951,13 @@ function loginRow(s, status, busy) {
     ? `<button type="button" data-act="paste" title="从浏览器里复制 cookie 贴进来">粘贴</button>`
     : "";
   const out = s.logged_in || acc.ok ? `<button type="button" data-act="out">退出</button>` : "";
+  const daily = `<button type="button" class="ico" data-act="daily" aria-label="用日常浏览器打开"`
+    + ` title="用${esc(dailyName())}打开（你平时已登录的那个窗口）">↗</button>`;
   row.innerHTML = iconHTML(s.id)
     + `<span class="nm">${esc(s.name)}</span>`
     + `<span class="${stCls}">${stText}</span>`
     + `<span class="acts">${paste}<button type="button" data-act="login">`
-    + `${on ? "重登" : "登录"}</button>${out}</span>`
+    + `${on ? "重登" : "登录"}</button>${out}${daily}</span>`
     + sub;
   row.title = acc.ok && acc.error ? acc.error : (s.tip || "");
 
@@ -948,6 +968,11 @@ function loginRow(s, status, busy) {
   if (pb) {
     pb.disabled = busy;
     pb.onclick = () => openCookieModal(s);
+  }
+  const db = row.querySelector('[data-act="daily"]');
+  if (db) {
+    db.disabled = busy;
+    db.onclick = () => openDailySite(s.id, s.name);
   }
   const ob = row.querySelector('[data-act="out"]');
   if (ob) {
@@ -982,10 +1007,15 @@ function renderLoginBar(status, busy) {
 }
 
 async function startLogin(pid) {
-  toast("正在打开登录窗口…");
+  toast(`正在打开 ${browserName()} 登录窗口…`);
   const r = await post("/api/login/start", { platform: pid });
   if (!r.ok) toast(r.error || "打不开登录窗口");
   loadLogins(true);
+}
+
+async function openDailySite(pid, name) {
+  const r = await post("/api/login/open_default", { platform: pid });
+  toast(r.ok ? `已在你日常的${dailyName()}里打开 ${name}` : (r.error || "打不开浏览器"));
 }
 
 /* 手动贴 cookie：给不想开登录窗口、或者登录窗口抽风的人留的一条路 */
@@ -998,13 +1028,20 @@ const CK_TIP = {
   music_qqmusic:
     "在浏览器里登录 y.qq.com，按 F12 → Application → Cookies → y.qq.com，"
     + "把 <code>qm_keyst</code> 和 <code>uin</code> 一起复制；用插件导出的整串直接粘也行。",
+  suno:
+    "在你日常浏览器里登录 suno.com，按 F12 → Application → Cookies → suno.com，"
+    + "找到 <code>__session</code>（或 <code>__clerk_db_jwt</code>）复制；"
+    + "用插件导出的整串直接粘也行。贴完就能下只对登录用户开放的歌。",
 };
 
 function openCookieModal(s) {
   ckSite = s;
   $("#ckTitle").textContent = "粘贴 " + s.name + " Cookie";
+  const key = (s.need && s.need.length) ? s.need[0] : "登录 cookie";
   $("#ckTip").innerHTML = CK_TIP[s.id]
-    || "把浏览器里的 cookie 复制过来，整串「名字=值; 名字=值」即可。";
+    || `在${esc(dailyName())}里打开已登录的页面，按 F12 → Application → Cookies，`
+       + `把 <code>${esc(key)}</code> 复制过来；用插件导出的整串`
+       + `「名字=值; 名字=值」直接粘也行。`;
   $("#ckInput").value = "";
   $("#ckErr").textContent = "";
   $("#ckModal").hidden = false;

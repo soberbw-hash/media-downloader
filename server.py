@@ -37,7 +37,7 @@ import core  # noqa: E402
 import login as login_mod  # noqa: E402
 import picker  # noqa: E402
 
-APP_VERSION = "1.20.0"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
+APP_VERSION = "1.21.0"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
 UPDATE_REPO = "soberbw-hash/media-downloader"
 
 # 识曲上传的上限（base64 长度）。20MB 原文件约 27MB base64，够一段音频了。
@@ -504,7 +504,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/api/export":
             self._export_csv()
         elif p == "/api/login/state":
-            self._json({"sites": login_mod.sites(), "status": login_mod.status()})
+            _, binfo = login_mod.launch_options()
+            self._json({"sites": login_mod.sites(), "status": login_mod.status(),
+                        "default_browser": binfo})
         else:
             self.send_error(404)
 
@@ -620,6 +622,10 @@ class Handler(BaseHTTPRequestHandler):
             pid = str(data.get("platform") or "")
             ok, err = login_mod.start(pid, (CFG.get("proxy") or "").strip() or None)
             self._json({"ok": ok, "error": err, "status": login_mod.status()})
+
+        elif p == "/api/login/open_default":
+            ok, msg = login_mod.open_site(str(data.get("platform") or ""))
+            self._json({"ok": ok, "msg": msg, "error": "" if ok else msg})
 
         elif p == "/api/login/cancel":
             login_mod.cancel()

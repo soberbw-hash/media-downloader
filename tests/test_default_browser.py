@@ -145,10 +145,16 @@ def test_ui():
         assert "默认浏览器" in txt, "面板没告诉用户用的是哪个浏览器"
         assert "Chrome" in txt or "Edge" in txt or "Firefox" in txt, \
             "面板没显示具体浏览器名: %s" % txt
-        n = pg.locator('#logins [data-act="daily"]').count()
-        assert n >= 8, "每行都该有「日常浏览器」按钮，实际 %d" % n
-        log("  日常浏览器按钮:", n, "个")
-        pg.locator('#logins [data-act="daily"]').first.click()
+        assert "不再弹独立窗口" in txt, "没说清不再弹独立 / 无痕窗口"
+        lead = pg.inner_text(".acct-lead")
+        assert "无痕" in lead and "已登录" in lead, "说明文字还是旧的: %s" % lead
+        n = pg.locator('#logins [data-act="login"]').count()
+        assert n >= 8, "每行都该有「打开」按钮，实际 %d" % n
+        assert pg.locator('#logins [data-act="login"]').first.inner_text() == "打开"
+        assert pg.locator('#logins [data-act="daily"]').count() == 0, "重复的 ↗ 没去掉"
+        assert pg.locator("#extCard").count() == 1, "缺一键同步扩展引导"
+        log("  打开按钮:", n, "个，扩展引导在")
+        pg.locator('#logins [data-act="login"]').first.click()
         pg.wait_for_timeout(400)
         assert not errs, "界面脚本报错: %s" % errs[:2]
         log("  ✓ 界面 OK")

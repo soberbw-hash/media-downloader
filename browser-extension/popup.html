@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; }
+  body { width: 292px; margin: 0; padding: 18px 18px 15px;
+         font: 13px/1.6 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+         color: #292524; background: #faf9f7; }
+  .hd { display: flex; align-items: baseline; gap: 8px; }
+  .hd b { font-size: 14px; font-weight: 600; letter-spacing: .2px; }
+  .hd span { font-size: 11px; color: #a8a29e; }
+  .tip { margin: 10px 0 14px; font-size: 12px; color: #78716c; }
+  button { width: 100%; padding: 9px 12px; border: 1px solid #292524; border-radius: 8px;
+           background: #292524; color: #fff; font-size: 13px; cursor: pointer;
+           font-family: inherit; }
+  button:hover { background: #44403c; }
+  button:disabled { opacity: .5; cursor: default; }
+  #out { min-height: 20px; margin-top: 11px; font-size: 12px; color: #78716c;
+         word-break: break-all; }
+  #out.ok { color: #15803d; }
+  #out.bad { color: #b91c1c; }
+  .auto { display: flex; align-items: center; gap: 7px; margin-top: 13px;
+          padding-top: 12px; border-top: 1px solid #e7e5e4; font-size: 12px;
+          color: #57534e; cursor: pointer; }
+  .auto input { margin: 0; accent-color: #292524; }
+  .note { margin: 10px 0 0; font-size: 11px; line-height: 1.55; color: #a8a29e; }
+</style>
+</head>
+<body>
+  <div class="hd"><b>音视频下载器</b><span>登录态同步</span></div>
+  <p class="tip">把你在这个浏览器里已登录的账号，一键送进本机的下载器。</p>
+  <button id="sync" type="button">立即同步</button>
+  <div id="out"></div>
+  <label class="auto"><input type="checkbox" id="auto"> 每 15 分钟自动同步</label>
+  <p class="note">只读取下载器支持的站点 cookie，只发到本机 127.0.0.1；不上传、不保存别处。随时可关。</p>
+  <script src="popup.js"></script>
+</body>
+</html>

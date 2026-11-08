@@ -415,11 +415,30 @@
 
     <div class="acct-def" id="acctDef"></div>
 
+    <div class="ext-card" id="extCard">
+      <div class="ext-h">
+        <span class="ext-ic" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="15" height="15">
+            <path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"
+                  fill="none" stroke="currentColor" stroke-width="1.7"
+                  stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </span>
+        <b>一键同步登录态</b>
+        <span class="ext-badge" id="extBadge">可选</span>
+      </div>
+      <p class="ext-p">装一次小扩展，以后点一下就把你 <b id="extBrowser">日常浏览器</b> 里已登录的账号同步进来，不用再登一遍。</p>
+      <div class="ext-acts">
+        <button type="button" id="extFolder">打开扩展文件夹</button>
+        <button type="button" id="extPage">打开扩展安装页</button>
+      </div>
+      <p class="ext-steps">扩展页右上角开「开发者模式」→「加载已解压的扩展程序」→ 选中刚打开的 <code>browser-extension</code> 文件夹 → 点图标里的「立即同步」。</p>
+      <p class="ext-note">只读取下载器支持的站点，只发到本机 127.0.0.1，不上传。<span id="extLast"></span></p>
+    </div>
+
     <p class="acct-lead">
-      点「登录」会用<b>系统默认浏览器</b>开个独立小窗口，登一次就长期记住；
-      每行最右边的 <b>↗</b> 则直接开你平时那个已登录的窗口。
-      不想再登一次，就在那边复制 cookie 点「粘贴」。浏览器不让软件直接读登录态，
-      所以留了这两条路。
+      点「打开」用的是<b>你平时那个已登录的浏览器</b>，不会再弹独立 / 无痕窗口。
+      登录态用上面的扩展一键同步；不想装扩展，就在那行点「粘贴」手动贴一次。
     </p>
 
     <div id="logins" class="logins"></div>

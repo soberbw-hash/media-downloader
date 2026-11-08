@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "音视频下载器 · 登录态同步",
+  "short_name": "下载器同步",
+  "version": "1.0.0",
+  "description": "把你在这个浏览器里已登录的账号，一键同步到本机的音视频下载器。数据只发到 127.0.0.1，不上传任何服务器。",
+  "permissions": ["cookies", "storage", "alarms"],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*",
+    "*://*.xiaohongshu.com/*", "*://xiaohongshu.com/*",
+    "*://*.instagram.com/*", "*://instagram.com/*",
+    "*://*.douyin.com/*", "*://douyin.com/*",
+    "*://*.kuaishou.com/*", "*://kuaishou.com/*",
+    "*://*.bilibili.com/*", "*://bilibili.com/*",
+    "*://*.weibo.com/*", "*://weibo.com/*",
+    "*://*.weibo.cn/*", "*://weibo.cn/*",
+    "*://*.music.163.com/*", "*://music.163.com/*",
+    "*://*.qq.com/*", "*://qq.com/*",
+    "*://*.suno.com/*", "*://suno.com/*",
+    "*://*.suno.ai/*", "*://suno.ai/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "action": {
+    "default_title": "把登录态同步到音视频下载器",
+    "default_popup": "popup.html"
+  }
+}

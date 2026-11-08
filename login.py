@@ -1,12 +1,20 @@
 # -*- coding: utf-8 -*-
-"""账号登录（扫码 / 账号密码）→ 导出 cookies
+"""账号登录 —— 只用「用户自己日常的浏览器」，不再弹独立 / 无痕窗口。
 
-用「系统默认浏览器」打开一个真实浏览器窗口，用户在窗口里登录，
-脚本轮询 cookie，一旦出现登录态就导出成 Netscape 格式的 cookies 文件，
-后续下载直接复用。这样不用装浏览器内核，也不用教用户去 DevTools 里复制。
+以前点「登录」会由 Playwright 拉起一个全新的空白 profile（cookies/_profile）。
+虽然用的是 Chrome 的程序，窗口里却没有任何登录态，看起来就是个无痕窗，
+用户还得在里面重新登一次。这一版彻底拿掉它：
 
-默认浏览器是运行时读系统设置拿到的，不写死 Edge/Chrome：谁用就认谁机器上
-设的那个。另有 open_in_default_browser()，走系统关联直接开用户日常那个窗口。
+  点「打开」   -> os.startfile / open / xdg-open，走系统关联，在用户日常
+                 那个已经登录好的浏览器里新开一个标签页。默认浏览器是
+                 运行时读系统设置拿到的，谁用就认谁机器上设的那个。
+  同步登录态  -> 随包附带 browser-extension/，装一次，点扩展图标就用
+                 chrome.cookies 把已登录站点的 cookie 送进本机服务。
+  兜底        -> 手动粘贴 cookie，所有站点都支持。
+
+不去撬正在运行的 Chrome 的 cookie 库：Windows 上 Cookies 库被独占锁，
+Chrome 127+ 还有 App-Bound 加密，硬读既不稳也不体面（实测读不出来）。
+扩展是用户主动授权、能读到 HttpOnly、且跨机器通用的干净通道。
 """
 import os
 import re
@@ -15,12 +23,11 @@ import shlex
 import subprocess
 import threading
 import time
-import json
-import urllib.request
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 COOKIE_DIR = os.path.join(BASE, "cookies")
-PROFILE_DIR = os.path.join(COOKIE_DIR, "_profile")
+PROFILE_DIR = os.path.join(COOKIE_DIR, "_profile")   # 旧版遗留，保留仅为兼容
+EXT_DIR = os.path.join(BASE, "browser-extension")
 
 # need: 出现任意一个就说明登录成功
 SITES = {
@@ -82,8 +89,7 @@ SITES = {
 
 STATE = {"state": "idle", "platform": "", "msg": "", "since": 0}
 _LOCK = threading.Lock()
-_STOP = threading.Event()
-_THREAD = None
+_EXT_SYNC = {"at": 0, "count": 0}
 
 
 def _set(state, platform="", msg=""):
@@ -123,13 +129,19 @@ def sites():
             "logged_in": bool(f),
             "saved_at": int(os.path.getmtime(f)) if f else 0,
             # 所有站点都允许贴 cookie：用户在自己日常浏览器里已经登录的话，
-            # 复制过来就行，不必在独立窗口里再登一次
+            # 复制过来就行，不必再登一次
             "importable": True,
             "need": site.get("need") or [],
             "account": acc,
         })
     out.sort(key=lambda x: not x["required"])  # 稳定的，必须登录的排前面
     return out
+
+
+def _match_domain(dom, domains):
+    """后缀匹配，host == d 或 host.endswith('.' + d)。精确 key 会漏子域。"""
+    dom = (dom or "").lower().lstrip(".")
+    return any(dom == d or dom.endswith("." + d) for d in domains)
 
 
 def import_cookie(pid, raw):
@@ -169,17 +181,101 @@ def import_cookie(pid, raw):
     if need and not any(n in got for n in need):
         return False, "没看到 %s 的关键登录 cookie（%s），确认是从登录后的页面复制的" % (
             site["name"], " / ".join(need[:2]))
+    _write_netscape(pid, [{"name": p.split("=", 1)[0].strip(),
+                           "value": p.split("=", 1)[1].strip(),
+                           "domain": site["domains"][0], "path": "/",
+                           "secure": True, "expires": 0} for p in pairs],
+                    "手动导入")
+    return True, "已导入 %s 的 cookie" % site["name"]
+
+
+def _write_netscape(pid, picked, note):
     os.makedirs(COOKIE_DIR, exist_ok=True)
-    lines = ["# Netscape HTTP Cookie File", "# 手动导入", ""]
-    for p in pairs:
-        k, v = p.split("=", 1)
-        k, v = k.strip(), v.strip()
-        dom = "." + site["domains"][0]
-        lines.append("\t".join([dom, "TRUE", "/", "TRUE",
-                                str(int(time.time()) + 86400 * 365), k, v]))
+    lines = ["# Netscape HTTP Cookie File", "# %s，请勿手改" % note, ""]
+    now = int(time.time())
+    for c in picked:
+        dom = (c.get("domain") or "").lstrip(".")
+        lines.append("\t".join([
+            "." + dom,
+            "TRUE",
+            c.get("path") or "/",
+            "TRUE" if c.get("secure") else "FALSE",
+            str(int(c.get("expires") or 0) or (now + 86400 * 365)),
+            c.get("name") or "",
+            c.get("value") or "",
+        ]))
     with open(os.path.join(COOKIE_DIR, "%s.txt" % pid), "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
-    return True, "已导入 %s 的 cookie" % site["name"]
+
+
+def import_cookies_bulk(pid, cookies):
+    """浏览器扩展送来的结构化 cookie（含 HttpOnly）。返回 (ok, 消息)。
+
+    只挑这个站点域名下的、只写进本机 cookies 目录，不碰别的站点数据。
+    """
+    site = SITES.get(pid)
+    if not site:
+        return False, "不支持的平台"
+    if not isinstance(cookies, list):
+        return False, "cookie 格式不对"
+    picked = []
+    for c in cookies:
+        if not isinstance(c, dict):
+            continue
+        name = str(c.get("name") or "").strip()
+        val = str(c.get("value") or "")
+        dom = str(c.get("domain") or "")
+        if not name or not val or not _match_domain(dom, site["domains"]):
+            continue
+        try:
+            exp = int(float(c.get("expirationDate") or c.get("expires") or 0))
+        except (TypeError, ValueError):
+            exp = 0
+        picked.append({
+            "name": name, "value": val,
+            "domain": dom.lower().lstrip("."),
+            "path": str(c.get("path") or "/"),
+            "secure": bool(c.get("secure")),
+            "expires": exp,
+        })
+    if not picked:
+        return False, "浏览器里还没有 %s 的 cookie，先去网站登一次" % site["name"]
+    got = {c["name"] for c in picked}
+    need = site.get("need") or []
+    if need and not any(n in got for n in need):
+        return False, "%s 还没登录（缺 %s），先去网站登一次" % (
+            site["name"], " / ".join(need[:2]))
+    mpid = site.get("music")
+    if mpid:
+        raw = "; ".join("%s=%s" % (c["name"], c["value"]) for c in picked)
+        try:
+            import music as music_mod
+            music_mod.save_cookie(mpid, raw)
+            music_mod.account(mpid, fresh=True)
+            return True, "已同步 %s 登录态（%d 项）" % (site["name"], len(picked))
+        except ValueError as e:
+            return False, str(e)
+        except Exception as e:
+            return False, "同步失败：%s" % str(e)[:120]
+    _write_netscape(pid, picked, "由浏览器扩展从你日常的浏览器同步")
+    return True, "已同步 %s 登录态（%d 项）" % (site["name"], len(picked))
+
+
+def mark_synced(count):
+    """记在内存里就行，重启服务不用留痕，也不写进分发包。"""
+    if count > 0:
+        _EXT_SYNC.update(at=int(time.time()), count=count)
+
+
+def extension_info():
+    return {
+        "dir": EXT_DIR,
+        "exists": os.path.isdir(EXT_DIR) and os.path.isfile(
+            os.path.join(EXT_DIR, "manifest.json")),
+        "synced": _EXT_SYNC["at"] > 0,
+        "synced_at": _EXT_SYNC["at"],
+        "synced_count": _EXT_SYNC["count"],
+    }
 
 
 def logout(pid):
@@ -198,76 +294,6 @@ def logout(pid):
     if STATE.get("platform") == pid:
         _set("idle", pid, "")
     return True, "已退出 %s" % site["name"]
-
-
-_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-       "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
-
-
-def _cookie_header(cookies, domain):
-    return "; ".join("%s=%s" % (c.get("name"), c.get("value"))
-                     for c in cookies
-                     if (c.get("domain") or "").lstrip(".").endswith(domain))
-
-
-def _verify_xhs(cookies):
-    """保留给单测用：直接打接口（线上会被 406 挡，真实判断走浏览器内的响应监听）"""
-    ck = _cookie_header(cookies, "xiaohongshu.com")
-    if not ck:
-        return False
-    try:
-        req = urllib.request.Request(
-            "https://edith.xiaohongshu.com/api/sns/web/v2/user/me",
-            headers={"User-Agent": _UA, "Cookie": ck,
-                     "Referer": "https://www.xiaohongshu.com/"})
-        d = json.load(urllib.request.urlopen(req, timeout=15))
-        data = d.get("data") or {}
-        return data.get("guest") is False and bool(data.get("user_id"))
-    except Exception:
-        return False
-
-
-_VERIFY = {"xhs": _verify_xhs}
-
-
-def _music_ok(mpid, cs, domains):
-    """拿浏览器里刚拿到的 cookie 去问一次账号接口。
-    返回 False 说明这还不是登录态（网易云登录成功瞬间 cookie 会分批写），继续等；
-    网络类失败返回 True，别因为接口抽风把用户卡在窗口里。"""
-    try:
-        import music as music_mod
-    except Exception:
-        return True
-    ck = "; ".join("%s=%s" % (c.get("name"), c.get("value")) for c in cs
-                   if any((c.get("domain") or "").lstrip(".").endswith(d) for d in domains))
-    r = music_mod.account(mpid, ck=ck)
-    if r.get("ok"):
-        return True
-    return "失效" not in (r.get("error") or "")
-
-
-def _netscape(cookies, domains):
-    lines = ["# Netscape HTTP Cookie File",
-             "# 由「音视频下载器」登录功能自动生成，请勿手改", ""]
-    for c in cookies:
-        dom = (c.get("domain") or "").lower()
-        if not dom:
-            continue
-        if not any(dom.lstrip(".").endswith(d) for d in domains):
-            continue
-        exp = int(c.get("expires") or 0)
-        if exp <= 0:
-            exp = int(time.time()) + 86400 * 365
-        lines.append("\t".join([
-            dom,
-            "TRUE" if dom.startswith(".") else "FALSE",
-            c.get("path") or "/",
-            "TRUE" if c.get("secure") else "FALSE",
-            str(exp),
-            c.get("name") or "",
-            c.get("value") or "",
-        ]))
-    return "\n".join(lines) + "\n"
 
 
 # ---------- 系统默认浏览器：运行时读，谁用就认谁的 ----------
@@ -425,7 +451,8 @@ def default_browser():
 
 def open_in_default_browser(url):
     """真的走系统关联，打开用户日常那个已登录的浏览器窗口。"""
-    if not (url or "").startswith(("http://", "https://")):
+    if not (url or "").startswith(("http://", "https://",
+                                   "chrome://", "edge://")):
         return False, "地址不合法"
     if os.environ.get("VDL_NO_OPEN") == "1":   # 自测时别真弹窗口打扰人
         return True, ""
@@ -443,16 +470,16 @@ def open_in_default_browser(url):
 
 
 def launch_options():
-    """给 playwright launch_persistent_context 的参数片段。
-    默认浏览器是 Chromium 系就直接用它自己的 exe（不写死 Edge/Chrome）；
-    是 Firefox/Safari 等就退回系统里已安装的 Chromium 系，再不行用自带内核。
+    """兼容保留：早期版本给 playwright 用的启动参数。
+
+    现在登录不再拉起任何独立窗口，这个函数只用于告诉界面「默认浏览器是谁」，
+    以及旧测试里的浏览器识别校验。别再拿它去 launch_persistent_context。
     """
     d = default_browser()
     d["login_exe"] = ""
-    d["login_name"] = ""
+    d["login_name"] = d["name"]
     if d["exe"] and d["chromium"]:
         d["login_exe"] = d["exe"]
-        d["login_name"] = d["name"]
         return {"executable_path": d["exe"]}, d
     if sys.platform == "win32":
         cands = [
@@ -470,225 +497,62 @@ def launch_options():
     for path in cands:
         if os.path.isfile(path):
             d["login_exe"] = path
-            d["login_name"] = _KNOWN_NAME.get(os.path.basename(path).lower(), "Chromium")
             return {"executable_path": path}, d
-    d["login_name"] = "内置浏览器"
     return {}, d
 
 
 def open_site(pid):
-    """点「日常浏览器」：用系统默认浏览器打开该站点的登录页。"""
+    """点「打开」：用系统默认浏览器打开该站点的登录页（你平时已登录的那个窗口）。"""
     site = SITES.get(pid)
     if not site:
         return False, "不支持的平台"
     ok, err = open_in_default_browser(site["url"])
     if ok:
-        return True, "已在%s里打开 %s" % (default_browser()["name"], site["name"])
+        return True, "已在%s里打开 %s，就是你平时那个已登录的窗口" % (
+            default_browser()["name"], site["name"])
     return False, err
 
 
+def open_ext_dir():
+    """打开随包的扩展文件夹，方便用户拖进扩展安装页。"""
+    if not os.path.isdir(EXT_DIR):
+        return False, "没找到扩展文件夹（browser-extension）"
+    if os.environ.get("VDL_NO_OPEN") == "1":
+        return True, "已打开扩展文件夹"
+    try:
+        if sys.platform == "win32":
+            os.startfile(EXT_DIR)
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", EXT_DIR])
+        else:
+            subprocess.Popen(["xdg-open", EXT_DIR])
+        return True, "已打开扩展文件夹"
+    except Exception as e:
+        return False, "打不开文件夹：%s" % str(e)[:100]
+
+
+def open_ext_page():
+    """打开浏览器自己的扩展安装页。Chrome 系和 Edge 系地址不同。"""
+    name = (default_browser().get("name") or "").lower()
+    url = "edge://extensions/" if "edge" in name else "chrome://extensions/"
+    ok, err = open_in_default_browser(url)
+    return ok, ("已打开扩展安装页" if ok else err)
+
+
 def start(pid, proxy=None):
-    global _THREAD
+    """「登录」主入口：直接用系统默认浏览器打开，不再弹任何自动化窗口。
+
+    登录态由浏览器扩展一键同步，或手动粘贴 cookie。返回 (ok, 人话消息)。
+    proxy 参数留着是为了兼容旧调用，现在用不上。
+    """
     if pid not in SITES:
         return False, "不支持的登录平台"
-    with _LOCK:
-        running = STATE["state"] in ("opening", "waiting")
-    if running:
-        return False, "已经有一个登录窗口开着了"
-
-    # 境外站点的登录窗口直连打不开，设置里又没填代理时自己认系统代理
-    if not (proxy or "").strip() and SITES[pid].get("overseas"):
-        try:
-            from core import system_proxy
-            proxy = system_proxy() or None
-        except Exception:
-            proxy = None
-
-    _STOP.clear()
-    _THREAD = threading.Thread(target=_worker, args=(pid, proxy), daemon=True)
-    _THREAD.start()
-    return True, ""
+    ok, msg = open_site(pid)
+    _set("opened" if ok else "error", pid, msg)
+    return ok, msg
 
 
 def cancel():
-    _STOP.set()
-    _set("idle", "", "已取消登录")
+    """旧版「取消登录」入口，现在没有后台窗口了，留个空实现免得前端报错。"""
+    _set("idle", "", "")
     return True
-
-
-def _launch(p, kw):
-    """启动浏览器；上次异常退出可能留下锁文件，清掉再试一次。
-    默认浏览器若是小众 Chromium 分支、吃不下 playwright 的启动参数，
-    最后一档退回 playwright 自带内核，别让人卡在「打不开浏览器」。
-    """
-    try:
-        return p.chromium.launch_persistent_context(**kw)
-    except Exception:
-        for name in ("SingletonLock", "SingletonSocket", "SingletonCookie"):
-            try:
-                os.remove(os.path.join(PROFILE_DIR, name))
-            except OSError:
-                pass
-        try:
-            return p.chromium.launch_persistent_context(**kw)
-        except Exception:
-            if "executable_path" not in kw:
-                raise
-            plain = dict(kw)
-            plain.pop("executable_path", None)
-            return p.chromium.launch_persistent_context(**plain)
-
-
-def _worker(pid, proxy):
-    site = SITES[pid]
-    opts, info = launch_options()
-    bname = info.get("name") or "默认浏览器"
-    _set("opening", pid, "正在打开 %s 登录窗口…" % bname)
-
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        _set("error", pid, "缺少 playwright，请先运行 pip install playwright")
-        return
-
-    os.makedirs(COOKIE_DIR, exist_ok=True)
-    ctx = None
-    ok = False
-    try:
-        with sync_playwright() as p:
-            kw = {
-                "user_data_dir": PROFILE_DIR,
-                # 自测时可以用环境变量改成无头，正常使用是可见窗口
-                "headless": os.environ.get("VDL_LOGIN_HEADLESS") == "1",
-                "args": ["--window-size=1100,820", "--disable-blink-features=AutomationControlled"],
-            }
-            kw.update(opts)
-            if proxy:
-                kw["proxy"] = {"server": proxy}
-            ctx = _launch(p, kw)
-
-            page = ctx.pages[0] if ctx.pages else ctx.new_page()
-
-            # 小红书这类站点，光看 cookie 判断不出来（游客也有 web_session），
-            # 只能听页面自己发出的 /user/me 响应，看 guest 字段
-            probe = {"guest": None, "ready": False}
-
-            def on_response(r):
-                try:
-                    if "/api/sns/web/v2/user/me" in r.url:
-                        d = r.json()
-                        probe["guest"] = bool((d.get("data") or {}).get("guest", True))
-                        probe["ready"] = True
-                except Exception:
-                    pass
-
-            try:
-                page.on("response", on_response)
-                ctx.on("response", on_response)
-            except Exception:
-                pass
-
-            try:
-                page.goto(site["url"], timeout=60000)
-            except Exception:
-                pass
-
-            _set("waiting", pid, "在 %s 窗口里登录一次，之后就不用再登了" % bname)
-
-            deadline = time.time() + 300
-            last_probe = time.time()
-            last_music = 0.0
-            reloads = 0
-            while time.time() < deadline and not _STOP.is_set():
-                try:
-                    cs = ctx.cookies()
-                except Exception:
-                    _set("closed", pid, "浏览器窗口被关掉了")
-                    return
-                names = {c.get("name") for c in cs}
-                if any(n in names for n in site["need"]):
-                    # 音乐平台：光有 cookie 不够，得确认这个号真的登上了，
-                    # 否则会把一份游客 cookie 存下来，之后下载一直说「没登录」。
-                    # 8 秒才查一次，别把账号接口打成限流。
-                    mpid = site.get("music")
-                    if mpid and time.time() - last_music > 8:
-                        last_music = time.time()
-                        if not _music_ok(mpid, cs, site["domains"]):
-                            try:
-                                page.wait_for_timeout(1500)
-                            except Exception:
-                                time.sleep(1.5)
-                            continue
-                    checker = _VERIFY.get(site.get("verify") or "")
-                    if site.get("verify") == "xhs":
-                        if not (probe["ready"] and probe["guest"] is False):
-                            # cookie 有了但页面还是游客态：开个后台标签页去问一次，
-                            # 不去 reload 当前页，免得把用户正在扫的登录框刷掉
-                            if time.time() - last_probe > 12 and reloads < 20:
-                                reloads += 1
-                                last_probe = time.time()
-                                try:
-                                    tmp = ctx.new_page()
-                                    tmp.goto("https://www.xiaohongshu.com/explore",
-                                             timeout=30000)
-                                    tmp.wait_for_timeout(2500)
-                                    tmp.close()
-                                except Exception:
-                                    pass
-                            try:
-                                page.wait_for_timeout(900)
-                            except Exception:
-                                time.sleep(0.9)
-                            continue
-                    elif checker and not checker(cs):
-                        try:
-                            page.wait_for_timeout(1500)
-                        except Exception:
-                            time.sleep(1.5)
-                        continue
-
-                    time.sleep(0.8)
-                    try:
-                        cs = ctx.cookies()
-                    except Exception:
-                        pass
-                    with open(os.path.join(COOKIE_DIR, "%s.txt" % pid), "w",
-                              encoding="utf-8") as f:
-                        f.write(_netscape(cs, site["domains"]))
-                    if site.get("music"):
-                        try:
-                            import music as music_mod
-                            music_mod.account(site["music"], fresh=True)
-                        except Exception:
-                            pass
-                    ok = True
-                    break
-                try:
-                    page.wait_for_timeout(800)
-                except Exception:
-                    time.sleep(0.8)
-
-            if ok:
-                _set("done", pid, "已登录 %s，cookies 已保存" % site["name"])
-            elif _STOP.is_set():
-                _set("idle", pid, "已取消登录")
-            else:
-                _set("timeout", pid, "等了 5 分钟没检测到登录，窗口已关闭")
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        msg = str(e)
-        low = msg.lower()
-        if "executable doesn't exist" in low or "playwright install" in low \
-                or "browser not found" in low:
-            human = ("这台电脑没找到能用的浏览器。点该行右边的 ↗ 用日常浏览器打开，"
-                     "登录后把 cookie 粘进「粘贴」也行")
-        else:
-            human = "打开 %s 失败：%s" % (bname, msg[:120])
-        _set("error", pid, human)
-    finally:
-        try:
-            if ctx:
-                ctx.close()
-        except Exception:
-            pass

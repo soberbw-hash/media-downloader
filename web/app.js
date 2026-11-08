@@ -861,25 +861,27 @@ document.addEventListener("visibilitychange", () => {
 /* ---------- 账号登录 ---------- */
 let loginSig = "";
 let defaultBrowser = null;
+let extInfo = null;
 
 async function loadLogins(force) {
   try {
     const r = await fetch("/api/login/state");
     const d = await r.json();
     defaultBrowser = d.default_browser || null;
-    const sig = JSON.stringify([d.sites, d.status, defaultBrowser]);
+    extInfo = d.extension || null;
+    const sig = JSON.stringify([d.sites, d.status, defaultBrowser, extInfo]);
     if (sig === loginSig && !force) return;
     loginSig = sig;
     renderLogins(d.sites || [], d.status || {});
   } catch (e) {}
 }
 
-function browserName() {
-  return (defaultBrowser && defaultBrowser.login_name) || "默认浏览器";
-}
-
 function dailyName() {
   return (defaultBrowser && defaultBrowser.name) || "默认浏览器";
+}
+
+function browserName() {
+  return (defaultBrowser && defaultBrowser.login_name) || dailyName();
 }
 
 function renderLogins(sites, status) {
@@ -921,14 +923,31 @@ function renderLogins(sites, status) {
   if (num) num.innerHTML = `${on}<span>/${sites.length}</span>`;
   const def = $("#acctDef");
   if (def) {
-    const same = browserName() === dailyName();
-    def.innerHTML = same
-      ? `<i></i>当前默认浏览器 <b>${esc(dailyName())}</b> · 登录窗口会用它`
-      : `<i></i>默认浏览器 <b>${esc(dailyName())}</b> · ↗ 用日常窗口；`
-        + `登录窗口用 <b>${esc(browserName())}</b>（自动保存登录态需要 Chromium 系）`;
+    def.innerHTML = `<i></i>当前默认浏览器 <b>${esc(dailyName())}</b> · `
+      + `点「打开」就用它，不再弹独立窗口`;
   }
 
+  renderExt();
   renderLoginBar(status, busy);
+}
+
+/* 一键同步扩展：这里只做引导，真正的同步由扩展在你自己的浏览器里发起 */
+function renderExt() {
+  const card = $("#extCard");
+  if (!card) return;
+  const bn = $("#extBrowser");
+  if (bn) bn.textContent = dailyName();
+  const badge = $("#extBadge");
+  const last = $("#extLast");
+  const on = !!(extInfo && extInfo.synced);
+  if (badge) {
+    badge.textContent = on ? "已连接" : "可选";
+    badge.className = on ? "ext-badge on" : "ext-badge";
+  }
+  if (last) {
+    last.textContent = on ? ` 本次运行已同步 ${extInfo.synced_count} 个平台。` : "";
+  }
+  card.classList.toggle("missing", !!(extInfo && !extInfo.exists));
 }
 
 function loginRow(s, status, busy) {
@@ -951,13 +970,12 @@ function loginRow(s, status, busy) {
     ? `<button type="button" data-act="paste" title="从浏览器里复制 cookie 贴进来">粘贴</button>`
     : "";
   const out = s.logged_in || acc.ok ? `<button type="button" data-act="out">退出</button>` : "";
-  const daily = `<button type="button" class="ico" data-act="daily" aria-label="用日常浏览器打开"`
-    + ` title="用${esc(dailyName())}打开（你平时已登录的那个窗口）">↗</button>`;
   row.innerHTML = iconHTML(s.id)
     + `<span class="nm">${esc(s.name)}</span>`
     + `<span class="${stCls}">${stText}</span>`
-    + `<span class="acts">${paste}<button type="button" data-act="login">`
-    + `${on ? "重登" : "登录"}</button>${out}${daily}</span>`
+    + `<span class="acts">${paste}<button type="button" data-act="login"`
+    + ` title="用${esc(dailyName())}打开（你平时已登录的那个窗口）">打开</button>`
+    + `${out}</span>`
     + sub;
   row.title = acc.ok && acc.error ? acc.error : (s.tip || "");
 
@@ -968,11 +986,6 @@ function loginRow(s, status, busy) {
   if (pb) {
     pb.disabled = busy;
     pb.onclick = () => openCookieModal(s);
-  }
-  const db = row.querySelector('[data-act="daily"]');
-  if (db) {
-    db.disabled = busy;
-    db.onclick = () => openDailySite(s.id, s.name);
   }
   const ob = row.querySelector('[data-act="out"]');
   if (ob) {
@@ -1007,15 +1020,10 @@ function renderLoginBar(status, busy) {
 }
 
 async function startLogin(pid) {
-  toast(`正在打开 ${browserName()} 登录窗口…`);
   const r = await post("/api/login/start", { platform: pid });
-  if (!r.ok) toast(r.error || "打不开登录窗口");
+  toast(r.ok ? (r.msg || `已在你日常的${dailyName()}里打开`)
+             : (r.error || "打不开浏览器"));
   loadLogins(true);
-}
-
-async function openDailySite(pid, name) {
-  const r = await post("/api/login/open_default", { platform: pid });
-  toast(r.ok ? `已在你日常的${dailyName()}里打开 ${name}` : (r.error || "打不开浏览器"));
 }
 
 /* 手动贴 cookie：给不想开登录窗口、或者登录窗口抽风的人留的一条路 */
@@ -1039,9 +1047,9 @@ function openCookieModal(s) {
   $("#ckTitle").textContent = "粘贴 " + s.name + " Cookie";
   const key = (s.need && s.need.length) ? s.need[0] : "登录 cookie";
   $("#ckTip").innerHTML = CK_TIP[s.id]
-    || `在${esc(dailyName())}里打开已登录的页面，按 F12 → Application → Cookies，`
+    || `在你日常的${esc(dailyName())}里打开已登录的页面，按 F12 → Application → Cookies，`
        + `把 <code>${esc(key)}</code> 复制过来；用插件导出的整串`
-       + `「名字=值; 名字=值」直接粘也行。`;
+       + `「名字=值; 名字=值」直接粘也行。装了同步扩展就不用做这一步。`;
   $("#ckInput").value = "";
   $("#ckErr").textContent = "";
   $("#ckModal").hidden = false;
@@ -1092,6 +1100,16 @@ if (typeof document !== "undefined") {
       if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) saveCookie();
     });
   }
+  const ef = $("#extFolder");
+  if (ef) ef.onclick = async () => {
+    const r = await post("/api/login/open_ext_dir", {});
+    toast(r.ok ? "已打开扩展文件夹，选中它加载进扩展页" : (r.error || "打不开文件夹"));
+  };
+  const ep = $("#extPage");
+  if (ep) ep.onclick = async () => {
+    const r = await post("/api/login/open_ext_page", {});
+    toast(r.ok ? "已打开扩展安装页，右上角记得开「开发者模式」" : (r.error || "打不开扩展页"));
+  };
 }
 
 /* ---------- 下载目录 ---------- */

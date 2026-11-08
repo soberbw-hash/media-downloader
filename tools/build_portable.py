@@ -33,7 +33,7 @@ CODE_FILES = [
     "picker.py", "picker_win.py", "version.txt", "README.md", "LICENSE",
     "requirements.txt", "start.bat", "诊断.bat", "启动.command",
 ]
-CODE_DIRS = ["web"]
+CODE_DIRS = ["web", "browser-extension"]
 DATA_FILES = ["config.json", "history.json"]
 DATA_DIRS = ["cookies"]
 

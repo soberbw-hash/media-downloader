@@ -37,7 +37,7 @@ import core  # noqa: E402
 import login as login_mod  # noqa: E402
 import picker  # noqa: E402
 
-APP_VERSION = "1.21.0"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
+APP_VERSION = "1.22.0"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
 UPDATE_REPO = "soberbw-hash/media-downloader"
 
 # 识曲上传的上限（base64 长度）。20MB 原文件约 27MB base64，够一段音频了。
@@ -206,14 +206,30 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     # ---------- 工具 ----------
-    def _json(self, obj, code=200):
+    def _json(self, obj, code=200, cors=False):
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        if cors:
+            # 只对浏览器扩展的同步端点放行，其它接口保持不对外
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, X-VDL-Ext")
         self.end_headers()
         self.wfile.write(body)
+
+    def do_OPTIONS(self):
+        """扩展跨域 POST 的预检。除同步端点外一律不放行。"""
+        p = urllib.parse.urlparse(self.path).path
+        self.send_response(204)
+        if p == "/api/login/extension":
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, X-VDL-Ext")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def _file(self, path, ctype):
         try:
@@ -505,8 +521,15 @@ class Handler(BaseHTTPRequestHandler):
             self._export_csv()
         elif p == "/api/login/state":
             _, binfo = login_mod.launch_options()
+            try:
+                port = self.server.server_address[1]
+            except Exception:
+                port = 0
             self._json({"sites": login_mod.sites(), "status": login_mod.status(),
-                        "default_browser": binfo})
+                        "default_browser": binfo,
+                        "extension": login_mod.extension_info(),
+                        "cookie_dir": login_mod.COOKIE_DIR,
+                        "port": port})
         else:
             self.send_error(404)
 
@@ -619,12 +642,46 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": True, "count": MANAGER.cancel_all()})
 
         elif p == "/api/login/start":
+            # 现在就是「用系统默认浏览器打开站点」，不再拉起任何独立 / 无痕窗口
             pid = str(data.get("platform") or "")
-            ok, err = login_mod.start(pid, (CFG.get("proxy") or "").strip() or None)
-            self._json({"ok": ok, "error": err, "status": login_mod.status()})
+            ok, msg = login_mod.start(pid)
+            self._json({"ok": ok, "msg": msg,
+                        "error": "" if ok else msg,
+                        "status": login_mod.status()})
 
         elif p == "/api/login/open_default":
             ok, msg = login_mod.open_site(str(data.get("platform") or ""))
+            self._json({"ok": ok, "msg": msg, "error": "" if ok else msg})
+
+        elif p == "/api/login/extension":
+            # 浏览器扩展把「用户日常浏览器里已登录」的 cookie 送进来。
+            # 只认已知平台、只写本机 cookies 目录，不上传任何地方。
+            items = data.get("items")
+            if not isinstance(items, list):
+                items = [{"platform": data.get("platform"),
+                          "cookies": data.get("cookies")}]
+            results = []
+            for it in items[:40]:
+                if not isinstance(it, dict):
+                    continue
+                pid = str(it.get("platform") or "")
+                ok, msg = login_mod.import_cookies_bulk(
+                    pid, it.get("cookies") or [])
+                results.append({"platform": pid, "ok": ok, "msg": msg})
+            good = [r for r in results if r["ok"]]
+            if good:
+                login_mod.mark_synced(len(good))
+            msg = ("已从浏览器同步 %d 个平台" % len(good)) if good else (
+                results[0]["msg"] if results else "没收到 cookie")
+            self._json({"ok": bool(good), "msg": msg, "results": results},
+                       cors=True)
+
+        elif p == "/api/login/open_ext_dir":
+            ok, msg = login_mod.open_ext_dir()
+            self._json({"ok": ok, "msg": msg, "error": "" if ok else msg})
+
+        elif p == "/api/login/open_ext_page":
+            ok, msg = login_mod.open_ext_page()
             self._json({"ok": ok, "msg": msg, "error": "" if ok else msg})
 
         elif p == "/api/login/cancel":

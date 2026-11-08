@@ -1090,6 +1090,37 @@ body.playing .toast { bottom: 84px; }
 }
 .acct-lead b { color: var(--text); font-weight: 600; }
 
+/* 一键同步登录态 */
+.ext-card {
+  margin: 14px 0 16px; padding: 13px 14px 12px;
+  border: 1px solid #e7e5e4; border-radius: 10px; background: #fff;
+}
+.ext-h { display: flex; align-items: center; gap: 7px; }
+.ext-h b { font-size: 12.5px; font-weight: 600; color: var(--text); }
+.ext-ic { display: flex; color: #78716c; }
+.ext-badge {
+  margin-left: auto; padding: 1px 7px; border-radius: 20px;
+  background: #f5f4f2; color: #a8a29e; font-size: 10px; letter-spacing: .2px;
+}
+.ext-badge.on { background: #e8f5ec; color: #15803d; }
+.ext-p { margin: 8px 0 10px; font-size: 11.5px; line-height: 1.65; color: #78716c; }
+.ext-p b { color: var(--text); font-weight: 600; }
+.ext-acts { display: flex; gap: 6px; }
+.ext-acts button {
+  flex: 1 1 0; min-width: 0; padding: 6px 4px; font-size: 11px;
+  border: 1px solid #e7e5e4; border-radius: 7px; background: #faf9f7;
+  color: #57534e; cursor: pointer; font-family: inherit;
+}
+.ext-acts button:hover { border-color: #d6d3d1; background: #fff; color: var(--text); }
+.ext-steps { margin: 10px 0 0; font-size: 11px; line-height: 1.65; color: #a8a29e; }
+.ext-steps code {
+  padding: 0 3px; border-radius: 3px; background: #f5f4f2;
+  color: #78716c; font-size: 10.5px;
+}
+.ext-note { margin: 8px 0 0; font-size: 10.5px; line-height: 1.6; color: #a8a29e; }
+.ext-note span { color: #15803d; }
+.ext-card.missing { opacity: .6; }
+
 .lg-grp + .lg-grp { margin-top: 22px; }
 
 .lg-t {

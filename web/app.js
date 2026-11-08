@@ -924,7 +924,7 @@ function renderLogins(sites, status) {
   const def = $("#acctDef");
   if (def) {
     def.innerHTML = `<i></i>当前默认浏览器 <b>${esc(dailyName())}</b> · `
-      + `点「打开」就用它，不再弹独立窗口`;
+      + `不再弹独立窗口`;
   }
 
   renderExt();

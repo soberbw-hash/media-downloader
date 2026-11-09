@@ -87,22 +87,19 @@ jobs:
           下好的文件默认在「下载 / 音视频下载器」。DMG 里附了中文说明。
           EOF
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$TAG" dmgs/*.dmg --repo "$GITHUB_REPOSITORY" --clobber
             gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file notes.md
           else
-            gh release create "$TAG" dmgs/*.dmg --repo "$GITHUB_REPOSITORY" \
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
               --title "音视频下载器 $TAG · Mac 版（按芯片选包）" --notes-file notes.md
           fi
-          # 重跑时别让旧命名的包留在页面上：只保留本次打出来的两个 DMG
-          for f in dmgs/*.dmg; do basename "$f"; done > keep.txt
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" \
-            --jq '.assets[] | "\(.id)\t\(.name)"' > assets.tsv
-          while IFS=$'\t' read -r id name; do
-            case "$name" in
-              *.dmg)
-                if ! grep -Fxq "$name" keep.txt; then
-                  echo "删掉旧包: $name"
-                  gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$id" >/dev/null
-                fi ;;
-            esac
-          done < assets.tsv
+          # 先把这个发布页上的旧资产全清掉，再上传本次的两个包。
+          # 顺序保证新包不会被清掉；也不做文件名比对（中文名在 shell/jq 里容易被拆坏）。
+          RID=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq '.id')
+          for aid in $(gh api "repos/$GITHUB_REPOSITORY/releases/$RID/assets" --jq '.[].id'); do
+            echo "清掉旧资产 id=$aid"
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$aid" >/dev/null
+          done
+          # 中文文件名直接交给 gh；用 -- 防文件名被当成参数
+          gh release upload "$TAG" dmgs/*.dmg --repo "$GITHUB_REPOSITORY" --clobber
+          echo "本次资产："
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name'

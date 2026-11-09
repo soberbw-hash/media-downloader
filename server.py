@@ -106,6 +106,12 @@ def load_cfg():
                 cfg = json.load(f)
             for k, v in DEFAULT_CFG.items():
                 cfg.setdefault(k, v)
+            # 发给别人的干净副本里写的是相对路径（"下载的文件"）：
+            # 按包根目录解析，解压到哪台机器、哪个盘都能直接用。
+            d = (cfg.get("out_dir") or "").strip()
+            if d and not os.path.isabs(d):
+                cfg["out_dir"] = os.path.abspath(
+                    os.path.join(paths_mod.APP_DIR, "..", d))
             return cfg
         except Exception:
             pass

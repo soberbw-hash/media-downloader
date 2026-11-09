@@ -55,7 +55,16 @@
 
 ## 快速开始
 
-**Windows**
+**不想装任何东西（推荐）**：去 [Releases](https://github.com/soberbw-hash/media-downloader/releases)，**一个页面、两个包，按自己系统下**：
+
+| 系统 | 下载 | 怎么用 |
+|---|---|---|
+| Windows | `VideoDL-版本号-Windows.zip` | 解压到任意文件夹，双击「音视频下载器.exe」 |
+| Mac（Apple M1 / M2 / M3 / M4） | `VideoDL-版本号-Apple-M-Mac.dmg` | 双击 → 把 App 拖进「应用程序」→ 首次右键 → 打开 |
+
+Windows 包自带 Python、ffmpeg 和下载内核，什么都不用装；公司电脑拦 exe 就双击「音视频下载器-公司」。Mac 包没签名，Gatekeeper 会先拦一下，右键打开一次就好。Intel 芯片的 Mac 没有安装包，走下面的源码方式。
+
+**跑源码（Windows）**
 
 1. 装 [Python 3.11+](https://www.python.org/downloads/)（安装时勾选 Add to PATH）
 2. 装依赖：`pip install -r requirements.txt`
@@ -73,13 +82,9 @@ python server.py --web     # 普通浏览器标签
 python server.py --server  # 只起服务，不动浏览器
 ```
 
-**macOS（推荐：直接下 DMG，什么都不用装）**
+**macOS（源码方式）**
 
-去 [Releases](https://github.com/soberbw-hash/media-downloader/releases) 下 `VideoDL-版本号-Apple-M-Mac.dmg`，**只有一个包，不用挑**。
-
-这一版只支持 Apple 芯片的 Mac（M1 / M2 / M3 / M4）：点屏幕左上角  → 「关于本机」，看「芯片」那一行写的是不是「Apple M…」。Intel 芯片的 Mac 暂时没有安装包，别下；想用可以双击 `启动.command` 跑源码，功能一样。
-
-双击 DMG → 把 App 拖进「应用程序」→ **第一次在图标上点右键 → 打开**。Python、下载内核、ffmpeg 都打进包里了，不用装 Homebrew，也不用装 Python。没有 Apple 开发者签名，Gatekeeper 会先拦一下，右键打开一次就好；DMG 里的「先看我.txt」有完整说明。
+上面的 DMG 只支持 Apple 芯片（M1 / M2 / M3 / M4）：点屏幕左上角  → 「关于本机」，看「芯片」那一行写的是不是「Apple M…」。Intel 芯片的 Mac 走源码。DMG 里附了「先看我.txt」，Python、下载内核、ffmpeg 都打进包里，不用装 Homebrew。
 
 想直接跑源码：双击 **`启动.command`**，它会自动在用户目录建虚拟环境装依赖（第一次约 1 分钟），不往程序目录写东西。
 

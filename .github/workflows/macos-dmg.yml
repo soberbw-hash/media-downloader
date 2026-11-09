@@ -1,4 +1,4 @@
-name: 打包 macOS DMG
+name: 发布 Mac DMG（保留同页 Windows 包）
 
 on:
   workflow_dispatch:
@@ -53,28 +53,33 @@ jobs:
         run: |
           set -e
           ls -lh dmgs/
+          VER="${TAG#v}"
+          # 同一个发布页上还挂着 Windows 的 zip（由 tools/make_clean_copy.py 本机生成后上传）。
+          # 这里只重打 Mac 包，说明写全两个平台，别把 Windows 包删了。
           cat > notes.md <<'EOF'
-          ## 音视频下载器 · Mac 版（Apple 芯片专用）
+          ## 音视频下载器 VERTAG
 
-          **只有一个包，不用挑。** 这一版只给 Apple 芯片的 Mac
-          （M1 / M2 / M3 / M4）。不知道自己芯片：点屏幕左上角  → 「关于本机」，
-          看「芯片」那一行写的是不是「Apple M…」。
+          **一个页面，两个包，按自己电脑的系统下就行：**
 
-          Intel 芯片的 Mac 暂时没有安装包，下了也打不开。想用的话去本仓库
-          下源码，双击 `启动.command` 就能跑，功能一样。
+          | 系统 | 下载 |
+          |---|---|
+          | Windows | `VideoDL-VERTAG-Windows.zip` |
+          | Mac（Apple M1 / M2 / M3 / M4） | `VideoDL-VERTAG-Apple-M-Mac.dmg` |
 
-          双击 DMG，把 App 拖进「应用程序」。第一次打开请**右键 → 打开**，
-          或先在终端跑一次：
+          **Windows**：解压到任意文件夹，双击「音视频下载器.exe」。Python、ffmpeg、下载内核都在包里，什么都不用装；下载的文件默认在解压出来的「下载的文件」里。公司电脑若拦 exe，就双击「音视频下载器-公司」。
+
+          **Mac**：双击 DMG，把 App 拖进「应用程序」。第一次打开请**右键 → 打开**，或先在终端跑一次：
 
           ```
           xattr -dr com.apple.quarantine "/Applications/音视频下载器.app"
           ```
 
-          没有 Apple 开发者签名，所以 macOS 会先拦一下，只需处理一次。
-          Python、ffmpeg、下载内核都打进包里了，不用另外装任何东西。
-          下好的文件默认在「下载 / 音视频下载器」。DMG 里附了中文说明。
+          没有 Apple 开发者签名，macOS 会先拦一下，处理一次就好。不知道芯片型号：点屏幕左上角  → 「关于本机」，看「芯片」那一行是不是「Apple M…」。Intel 芯片的 Mac 暂时没有安装包，可下本仓库源码双击 `启动.command` 运行，功能一样。
+
+          少数平台要登录：右上角「账号」→ 点「一键装小助手」，照着三步装一次；之后每个平台点「打开」、在浏览器里登录，回来就是「已登录」。
           EOF
-          TITLE="音视频下载器 $TAG · Mac 版（Apple 芯片专用）"
+          sed -i "s/VERTAG/$VER/g" notes.md
+          TITLE="音视频下载器 $TAG · Windows + Mac"
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file notes.md
             RID=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq '.id')
@@ -84,18 +89,19 @@ jobs:
             gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
               --title "$TITLE" --notes-file notes.md
           fi
-          # 先把这个发布页上的旧包（含之前 Intel 版、残缺中文名）全清掉再上传，
-          # 保证页面上永远只有一个包，不用再教人分辨。
+          # 只清旧 DMG，Windows zip 原样留着。用 jq 按后缀筛，别在 shell 里比对文件名
+          # （中文名曾被 IFS/grep 拆坏，把刚上传的包也删了，job 还是绿的）。
           RID=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq '.id')
-          for aid in $(gh api "repos/$GITHUB_REPOSITORY/releases/$RID/assets" --jq '.[].id'); do
-            echo "清掉旧资产 id=$aid"
+          for aid in $(gh api "repos/$GITHUB_REPOSITORY/releases/$RID/assets" \
+                         --jq '.assets[] | select(.name | endswith(".dmg")) | .id'); do
+            echo "清掉旧 DMG id=$aid"
             gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$aid" >/dev/null
           done
           gh release upload "$TAG" dmgs/*.dmg --repo "$GITHUB_REPOSITORY" --clobber
           echo "本次资产："
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name'
-          # 只准有一个包，且名字要能看出是 Apple 芯片专用
+          # 不变式：DMG 恰好一个、名字能看出是 Apple 芯片专用
           test "$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets \
-                   --jq '.assets | length')" = "1"
+                   --jq '[.assets[] | select(.name | endswith(".dmg"))] | length')" = "1"
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets \
             --jq '.assets[].name' | grep -q 'Apple-M-Mac'

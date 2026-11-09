@@ -84,7 +84,8 @@ def clean(dst):
         print("已清空下载历史")
     except OSError as e:
         print("!! 历史没清成：", e)
-    # 3) 下载目录指向副本自己的「下载的文件」
+    # 3) 下载目录写相对路径：server.py 会按包根目录解析。
+    #    写死绝对路径的话，对方解压到别的盘就会把文件下到莫名其妙的地方。
     cfg = os.path.join(app, "config.json")
     data = {}
     if os.path.isfile(cfg):
@@ -93,16 +94,16 @@ def clean(dst):
                 data = json.load(f)
         except Exception:
             data = {}
-    data["out_dir"] = os.path.join(dst, "下载的文件")
+    data["out_dir"] = "下载的文件"
     data["out_dir_set"] = True
     data["music_dir"] = ""
     data["cookies_file"] = ""
-    os.makedirs(data["out_dir"], exist_ok=True)
+    os.makedirs(os.path.join(dst, "下载的文件"), exist_ok=True)
     tmp = cfg + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
     os.replace(tmp, cfg)
-    print("下载目录已指向：", data["out_dir"])
+    print("下载目录已指向包内的：", data["out_dir"])
 
 
 def make_zip(dst, zip_path):

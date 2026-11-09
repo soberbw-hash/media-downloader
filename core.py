@@ -1010,16 +1010,140 @@ def ytdlp_probe(url, proxy=None, cookies_file=None):
     }
 
 
+# ---------- Mac 播放兼容 ----------
+# QuickTime 只吃 H.264 8bit 4:2:0 + AAC 的 mp4/mov。yt-dlp 的 best 现在常常挑到
+# AV1 / VP9 / HEVC 10bit / 4:2:2，硬塞进 mp4 容器后 QuickTime 就弹
+# 「此文件包含与 QuickTime Player 不兼容的部分媒体」。
+# Mac 版下完自动探一次：不兼容才转成能双击播的 mp4，已经能播的一个字节都不动。
+_QT_VIDEO_EXTS = (".mp4", ".m4v", ".mov", ".mkv", ".webm", ".flv", ".avi", ".ts")
+_QT_MP4_EXTS = (".mp4", ".m4v", ".mov")
+_QT_AUDIO_OK = ("", "aac", "mp3", "alac")
+
+
+def format_for(quality, mac=False):
+    """选流表达式。Mac 优先 H.264 + AAC；站点没有就一路兜底，别为了兼容让人下不了。"""
+    if quality == "audio":
+        return "bestaudio/best"
+    h = {"1080": "[height<=1080]", "720": "[height<=720]"}.get(quality, "")
+    if not mac:
+        if not h:
+            return "bestvideo*+bestaudio/best"
+        return "bestvideo%s+bestaudio/best%s/best" % (h, h)
+    v = "bestvideo[vcodec^=avc1]%s" % h
+    # 最后两级必须退回原始的 bestvideo*+bestaudio：有些站点只有 AV1 / VP9 分离流，
+    # 没有 avc1、也没有合并好的 mp4，光靠 best 会选出空列表，直接下不了。
+    # 那种情况照旧下下来，再交给 ensure_mac_playable 转码。
+    return ("%s+bestaudio[acodec^=mp4a]/%s+bestaudio/best[ext=mp4]%s/"
+            "bestvideo*%s+bestaudio/best" % (v, v, h, h))
+
+
+def _probe_streams(path):
+    """不依赖 ffprobe（Mac 随包的静态 ffmpeg 没带它），从 `ffmpeg -i` 的 stderr 读流信息。"""
+    ff = paths.ffmpeg_path()
+    if not ff or not os.path.isfile(path):
+        return None
+    try:
+        r = subprocess.run([ff, "-hide_banner", "-i", path],
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+    except Exception:
+        return None
+    txt = (r.stderr or b"").decode("utf-8", "replace") + \
+          (r.stdout or b"").decode("utf-8", "replace")
+    v = re.search(r"Stream #\d+:\d+[^\n]*?Video:\s*([A-Za-z0-9_]+)([^\n]*)", txt)
+    if not v:
+        return None
+    a = re.search(r"Stream #\d+:\d+[^\n]*?Audio:\s*([A-Za-z0-9_]+)", txt)
+    return {"vcodec": v.group(1).lower(), "vrest": v.group(2).lower(),
+            "acodec": a.group(1).lower() if a else ""}
+
+
+def quicktime_compatible(path, info=None):
+    """这个文件双击能不能被 QuickTime 正常播。探不出来就当能播，别乱动用户的文件。"""
+    ext = os.path.splitext(path)[1].lower()
+    if ext not in _QT_VIDEO_EXTS:
+        return True                    # 音频 / 图集不归这儿管
+    info = info if info is not None else _probe_streams(path)
+    if not info:
+        return True
+    if ext not in _QT_MP4_EXTS:
+        return False
+    if not info["vcodec"].startswith(("h264", "avc1")):
+        return False
+    # yuv420p10le / yuv422p（相机原片）都不算，\b 正好把 10bit 排掉
+    if not re.search(r"\byuv(?:j)?420p\b", info["vrest"]):
+        return False
+    return info["acodec"] in _QT_AUDIO_OK
+
+
+def _h264_encoder_args(ff):
+    """随包静态 ffmpeg 不一定编了 libx264，按可用编码器挑一套参数。"""
+    try:
+        r = subprocess.run([ff, "-hide_banner", "-encoders"],
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20)
+        s = (r.stdout or b"").decode("utf-8", "replace")
+    except Exception:
+        s = ""
+    if "libx264" in s:
+        return ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20"]
+    if "h264_videotoolbox" in s:
+        return ["-c:v", "h264_videotoolbox", "-b:v", "8M"]
+    return ["-c:v", "mpeg4", "-q:v", "3"]
+
+
+def ensure_mac_playable(path, progress=None):
+    """把 QuickTime 播不了的视频转成能双击播的 H.264/AAC mp4。
+
+    返回 (最终路径, 备注)。任何一步失败都保留原文件 —— 下好的东西不能因为
+    一次「兼容性优化」弄丢，也不能把成功的任务变成失败。
+    """
+    if not path or not os.path.isfile(path):
+        return path, ""
+    ext = os.path.splitext(path)[1].lower()
+    if ext not in _QT_VIDEO_EXTS:
+        return path, ""
+    ff = paths.ffmpeg_path()
+    if not ff:
+        return path, "QuickTime 可能播不了，用 IINA 打开"
+    info = _probe_streams(path)
+    if not info or quicktime_compatible(path, info):
+        return path, ""
+    stem = os.path.splitext(path)[0]
+    tmp = stem + ".compat.mp4"
+    target = stem + ".mp4"
+    cmd = [ff, "-y", "-hide_banner", "-loglevel", "error", "-i", path,
+           "-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn"] + \
+          _h264_encoder_args(ff) + \
+          ["-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
+           "-movflags", "+faststart", tmp]
+    try:
+        if progress:
+            progress(stage="正在转成 Mac 能播的格式…")
+        r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=900)
+        if r.returncode != 0 or not os.path.isfile(tmp) or os.path.getsize(tmp) < 4096:
+            raise RuntimeError("转码没成功")
+        os.replace(tmp, target)
+        if target != path:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        return target, ""
+    except Exception:
+        try:
+            if os.path.isfile(tmp):
+                os.remove(tmp)
+        except OSError:
+            pass
+        return path, "QuickTime 可能播不了，用 IINA 打开"
+
+
 def ytdlp_download(url, out_dir, progress, quality="best", proxy=None, cookies_file=None,
                    subs=False, title_hint=""):
     if yt_dlp is None:
         raise RuntimeError("yt-dlp 未安装")
-    fmt = {
-        "best": "bestvideo*+bestaudio/best",
-        "1080": "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
-        "720": "bestvideo[height<=720]+bestaudio/best[height<=720]/best",
-        "audio": "bestaudio/best",
-    }.get(quality, "bestvideo*+bestaudio/best")
+    # Mac 上优先 H.264 + AAC：QuickTime 认这个，AV1/VP9/10bit 会弹「不兼容的部分媒体」。
+    # Windows 保持原来的 best，编导那边的播放器不挑格式，画质优先。
+    fmt = format_for(quality, mac=(sys.platform == "darwin"))
 
     state = {"path": "", "last": 0.0}
 
@@ -1550,6 +1674,12 @@ class Manager(object):
         else:
             path, imgs = res, []
 
+        # Mac 专属：QuickTime 播不了的格式，下完顺手转成能双击播的 mp4。
+        # 放这儿而不是某个下载器里，直链 / HLS / 抖音 / B站 走哪条路都覆盖到。
+        compat_note = ""
+        if sys.platform == "darwin" and not imgs:
+            path, compat_note = ensure_mac_playable(path, progress)
+
         with self.lock:
             t.filepath = path
             if imgs:
@@ -1559,6 +1689,8 @@ class Manager(object):
             t.images = imgs or []
             t.status = "done"
             t.stage = "已完成" if not imgs else "已完成 · %d 张" % len(imgs)
+            if compat_note:
+                t.stage += " · " + compat_note
             t.percent = 100.0
             t.speed = 0
             if imgs:

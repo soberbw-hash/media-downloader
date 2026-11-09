@@ -112,7 +112,8 @@ def main():
             pg.wait_for_timeout(700)
             assert pg.locator("#extHow").evaluate("e => e.open"), \
                 "点完没自动展开三步说明"
-            assert "文件夹已选中，拖进网页就行" in pg.inner_text("#toast"), \
+            assert "地址已复制" in pg.inner_text("#toast") \
+                and "回车" in pg.inner_text("#toast"), \
                 "一键装小助手没给反馈"
             log("  ✓ 一键装小助手：接口通、自动展开三步")
 

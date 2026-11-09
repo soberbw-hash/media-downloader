@@ -55,6 +55,11 @@ def main():
             pg.evaluate("() => document.querySelector('#openAcct').click()")
             pg.wait_for_timeout(500)
 
+            assert pg.locator("#extPage").count() == 0, "点不开的「只开安装页」还在"
+            assert pg.locator("#extFolder").count() == 0, "点不开的「只开文件夹」还在"
+            assert pg.locator("#extHow button").count() == 0, "图文里不该再有按钮"
+            log("  OK 点不开的次要按钮已清干净")
+
             sm = pg.locator("#extHow summary")
             assert sm.is_visible(), "「怎么装」小按钮没显示"
             assert not pg.locator("#extHow").evaluate("e => e.open"), "默认没折叠"
@@ -89,7 +94,8 @@ def main():
             pg.locator("#btnExtSetup").click()
             pg.wait_for_timeout(700)
             assert pg.locator("#extHow").evaluate("e => e.open"), "点一键后没展开"
-            assert "文件夹已选中，拖进网页就行" in pg.inner_text("#toast"), \
+            assert "地址已复制" in pg.inner_text("#toast") \
+                and "回车" in pg.inner_text("#toast"), \
                 "一键按钮反馈文案不对"
             log("  OK 一键装小助手：接口通、自动展开、反馈是动作")
             b.close()

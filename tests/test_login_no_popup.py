@@ -200,8 +200,8 @@ def test_ui():
         assert pg.locator(".acct-lead").count() == 0, "解释段又回来了"
         assert pg.locator("#acctDef").count() == 0, "默认浏览器说明又回来了"
         assert pg.locator("#extCard").count() == 1, "缺扩展引导卡"
-        assert pg.locator("#extFolder").count() == 1, "缺「打开扩展文件夹」"
-        assert pg.locator("#extPage").count() == 1, "缺「打开扩展安装页」"
+        assert pg.locator("#extFolder").count() == 0, "点不开的「只开文件夹」还在"
+        assert pg.locator("#extPage").count() == 0, "点不开的「只开安装页」还在"
         btns = pg.locator('#logins [data-act="login"]')
         assert btns.count() >= 8, "每行的「打开」按钮少了"
         assert btns.first.inner_text() == "打开", "按钮还叫「登录」"

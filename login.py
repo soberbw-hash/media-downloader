@@ -474,9 +474,13 @@ def default_browser():
 
 
 def open_in_default_browser(url):
-    """真的走系统关联，打开用户日常那个已登录的浏览器窗口。"""
-    if not (url or "").startswith(("http://", "https://",
-                                   "chrome://", "edge://")):
+    """真的走系统关联，打开用户日常那个已登录的浏览器窗口。
+
+    只接 http(s)：chrome:// / edge:// 是浏览器内部页，不是系统注册的协议，
+    Windows 上 os.startfile 只会弹「获取打开此 'chrome' 链接的应用」，让用户
+    去 Microsoft Store 找兼容程序。内部页一律走 open_ext_page()。
+    """
+    if not (url or "").startswith(("http://", "https://")):
         return False, "地址不合法"
     if os.environ.get("VDL_NO_OPEN") == "1":   # 自测时别真弹窗口打扰人
         return True, ""
@@ -493,6 +497,91 @@ def open_in_default_browser(url):
         return False, "打不开默认浏览器：%s" % str(e)[:100]
 
 
+def chromium_exe():
+    """找一台能装扩展的 Chromium 浏览器：默认浏览器优先，其次常见安装位置。
+
+    扩展是 MV3，只有 Chromium 系装得上。默认浏览器若是 Firefox / Safari，
+    也别把内部页丢给它，直接找本机装着的 Chrome / Edge。
+    """
+    d = default_browser()
+    if d.get("exe") and d.get("chromium"):
+        return d["exe"]
+    if sys.platform == "win32":
+        cands = [
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+            os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+        ]
+    elif sys.platform == "darwin":
+        cands = [
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+        ]
+    else:
+        cands = ["/usr/bin/google-chrome", "/usr/bin/chromium",
+                 "/usr/bin/microsoft-edge"]
+    for path in cands:
+        if os.path.isfile(path):
+            return path
+    return ""
+
+
+def paste_key():
+    return "Cmd+V" if sys.platform == "darwin" else "Ctrl+V"
+
+
+def copy_to_clipboard(text):
+    """把一段纯文本放进系统剪贴板；自测环境不动用户的剪贴板。"""
+    data = (text or "").encode("utf-8")
+    if os.environ.get("VDL_NO_OPEN") == "1":
+        return True
+    try:
+        if sys.platform == "win32":
+            r = subprocess.run(["clip.exe"], input=data, timeout=5,
+                               stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL,
+                               creationflags=0x08000000)  # 不闪黑框
+            return r.returncode == 0
+        if sys.platform == "darwin":
+            r = subprocess.run(["pbcopy"], input=data, timeout=5,
+                               stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL)
+            return r.returncode == 0
+        for cmd in (["wl-copy"], ["xclip", "-selection", "clipboard"]):
+            try:
+                r = subprocess.run(cmd, input=data, timeout=5,
+                                   stdout=subprocess.DEVNULL,
+                                   stderr=subprocess.DEVNULL)
+                if r.returncode == 0:
+                    return True
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return False
+
+
+def open_new_tab():
+    """在用户日常那个浏览器里开一个空白标签页，给粘贴地址留个落点。"""
+    exe = chromium_exe()
+    if not exe:
+        return False, "没找到 Chrome 或 Edge，装一个再来"
+    if os.environ.get("VDL_NO_OPEN") == "1":
+        return True, ""
+    try:
+        if sys.platform == "darwin" and "/Contents/" in exe:
+            app = exe.split("/Contents/")[0]
+            if os.path.isdir(app):
+                subprocess.Popen(["open", "-a", app, "about:blank"])
+                return True, ""
+        subprocess.Popen([exe, "about:blank"])
+        return True, ""
+    except Exception as e:
+        return False, "打不开浏览器：%s" % str(e)[:100]
+
+
 def launch_options():
     """兼容保留：早期版本给 playwright 用的启动参数。
 
@@ -502,26 +591,10 @@ def launch_options():
     d = default_browser()
     d["login_exe"] = ""
     d["login_name"] = d["name"]
-    if d["exe"] and d["chromium"]:
-        d["login_exe"] = d["exe"]
-        return {"executable_path": d["exe"]}, d
-    if sys.platform == "win32":
-        cands = [
-            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
-        ]
-    elif sys.platform == "darwin":
-        cands = ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-                 "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"]
-    else:
-        cands = ["/usr/bin/google-chrome", "/usr/bin/chromium",
-                 "/usr/bin/microsoft-edge"]
-    for path in cands:
-        if os.path.isfile(path):
-            d["login_exe"] = path
-            return {"executable_path": path}, d
+    exe = chromium_exe()
+    if exe:
+        d["login_exe"] = exe
+        return {"executable_path": exe}, d
     return {}, d
 
 
@@ -562,24 +635,38 @@ def open_ext_dir():
 
 
 def open_ext_page():
-    """打开浏览器自己的扩展安装页。Chrome 系和 Edge 系地址不同。"""
-    name = (default_browser().get("name") or "").lower()
-    url = "edge://extensions/" if "edge" in name else "chrome://extensions/"
-    ok, err = open_in_default_browser(url)
-    return ok, ("已打开扩展安装页" if ok else err)
+    """准备扩展安装页：复制地址 + 开一个空白标签页。
+
+    Chrome 的 chrome:// 是特权内部页，三条路实测都不通：
+      · os.startfile("chrome://extensions/") → 弹「去应用商店找应用」
+      · chrome.exe chrome://extensions/（有头/无头/--new-window/--app=）
+        → 一律只开新标签页，地址被丢掉
+      · 网页里 window.open → 无权限
+    所以唯一稳的做法是把地址放进剪贴板，给用户开好空白标签页，
+    按一次粘贴 + 回车就到扩展页。
+    """
+    exe = chromium_exe()
+    if not exe:
+        return False, "没找到 Chrome 或 Edge，装一个再来"
+    base = os.path.basename(exe).lower()
+    url = "edge://extensions/" if "edge" in base else "chrome://extensions/"
+    copied = copy_to_clipboard(url)
+    ok_tab, _ = open_new_tab()
+    if not copied:
+        return True, "在浏览器地址栏输入 %s 回车" % url
+    if not ok_tab:
+        return True, "地址已复制，在浏览器按 %s 回车" % paste_key()
+    return True, "地址已复制，按 %s 回车" % paste_key()
 
 
 def setup_ext():
-    """「一键装小助手」：选中文件夹 + 打开扩展页，用户把文件夹拖进去就完事。
-
-    以前要在界面上点两个按钮、还得自己弄懂先后顺序；这一步合并掉。
-    """
+    """「一键装小助手」：选中文件夹 + 备好扩展页地址，剩下拖一下就完事。"""
     ok_dir, msg_dir = open_ext_dir()
     ok_page, msg_page = open_ext_page()
     if ok_dir and ok_page:
-        return True, "文件夹已选中、安装页已打开，把文件夹拖进网页就行"
+        return True, msg_page
     if ok_dir or ok_page:
-        return True, "打开了一个，另一个没开成：%s" % (msg_page if ok_dir else msg_dir)
+        return True, "只做成了一半：%s" % (msg_page if ok_dir else msg_dir)
     return False, "没打开：%s / %s" % (msg_dir, msg_page)
 
 

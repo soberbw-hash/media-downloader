@@ -1024,7 +1024,7 @@ async function setupExt() {
   const r = await post("/api/login/setup_ext", {});
   if (btn) btn.disabled = false;
   if (!r.ok) { toast(r.error || "没打开，稍后再试一次"); return; }
-  toast("文件夹已选中，拖进网页就行");
+  toast(r.msg || "地址已复制，按 Ctrl+V 回车");
   const how = $("#extHow");
   if (how) how.open = true;
   setTimeout(() => loadLogins(true), 3000);
@@ -1161,16 +1161,6 @@ if (typeof document !== "undefined") {
   });
   const _es = $("#btnExtSetup");
   if (_es) _es.onclick = setupExt;
-  const ef = $("#extFolder");
-  if (ef) ef.onclick = async () => {
-    const r = await post("/api/login/open_ext_dir", {});
-    toast(r.ok ? "已选中扩展文件夹，拖进网页就行" : (r.error || "打不开文件夹"));
-  };
-  const ep = $("#extPage");
-  if (ep) ep.onclick = async () => {
-    const r = await post("/api/login/open_ext_page", {});
-    toast(r.ok ? "已打开扩展安装页，右上角记得开「开发者模式」" : (r.error || "打不开扩展页"));
-  };
 }
 
 /* ---------- 下载目录 ---------- */

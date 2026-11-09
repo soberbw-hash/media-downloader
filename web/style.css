@@ -1110,8 +1110,6 @@ body.playing .toast { bottom: 84px; }
 }
 .ext-acts button.primary:hover { border-color: #000; background: #000; color: #fff; }
 .ext-acts button.primary:disabled { opacity: .55; cursor: default; }
-.ext-acts.small { margin-top: 10px; }
-.ext-acts.small button { font-size: 10.5px; }
 .ext-card .qbox { margin-top: 10px; }
 .qbox[hidden] { display: none; }
 

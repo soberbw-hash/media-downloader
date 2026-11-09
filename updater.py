@@ -241,7 +241,10 @@ class RemoteZip(object):
             try:
                 name = raw.decode("utf-8")
             except UnicodeDecodeError:
-                name = raw.decode("cp437", "replace")
+                try:
+                    name = raw.decode("gbk")
+                except UnicodeDecodeError:
+                    name = raw.decode("cp437", "replace")
             out.append({"name": name, "csize": csize, "usize": usize,
                         "method": method, "off": off})
             pos += 46 + nlen + elen + clen

@@ -106,18 +106,52 @@ def clean(dst):
     print("下载目录已指向包内的：", data["out_dir"])
 
 
-def make_zip(dst, zip_path):
-    """整包压成 zip，方便直接发出去。"""
-    root = os.path.dirname(os.path.abspath(dst))
-    name = os.path.basename(os.path.abspath(dst))
+def make_zip(dst, zip_path, arc_root="音视频下载器"):
+    """整包压成 zip。
+
+    文件名按 GBK 存（好压/360/资源管理器这些中文解压工具直接认，不会乱码），
+    同时在 0x7075 扩展字段里带上 UTF-8 名，Python 的 zipfile 能读回正确的名字。
+    arc_root 是 zip 里的顶层目录名，跟本地文件夹名解耦。
+    """
+    import struct
+    import zipfile
+    import zlib
+
+    class GbkZipInfo(zipfile.ZipInfo):
+        """文件名写 GBK 字节、不置 UTF-8 标志位的 ZipInfo。"""
+
+        def _encodeFilenameFlags(self):
+            try:
+                return self.filename.encode("ascii"), self.flag_bits & ~0x800
+            except UnicodeEncodeError:
+                return self.filename.encode("gbk"), self.flag_bits & ~0x800
+
+    base = os.path.abspath(dst)
     if os.path.exists(zip_path):
         os.remove(zip_path)
     print("正在压缩（包不小，几分钟）…")
-    out = shutil.make_archive(os.path.splitext(zip_path)[0], "zip",
-                              root_dir=root, base_dir=name)
-    mb = os.path.getsize(out) / 1048576.0
-    print("zip 完成：%.1f MB -> %s" % (mb, out))
-    return out
+
+    count = 0
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
+        for dirpath, dirnames, filenames in os.walk(base):
+            dirnames.sort()
+            filenames.sort()
+            for fn in filenames:
+                full = os.path.join(dirpath, fn)
+                rel = os.path.relpath(full, base).replace(os.sep, "/")
+                arcname = arc_root + "/" + rel
+                zi = GbkZipInfo(arcname)
+                zi.compress_type = zipfile.ZIP_DEFLATED
+                # 0x7075 Info-ZIP Unicode Path：主名是 GBK 字节，这里补 UTF-8 正名
+                u8 = arcname.encode("utf-8")
+                zi.extra = (struct.pack("<HH", 0x7075, 5 + len(u8)) + bytes([1])
+                            + struct.pack("<I", zlib.crc32(arcname.encode("gbk"))) + u8)
+                with open(full, "rb") as f:
+                    z.writestr(zi, f.read())
+                count += 1
+    mb = os.path.getsize(zip_path) / 1048576.0
+    print("zip 完成：%d 个文件，%.1f MB -> %s" % (count, mb, zip_path))
+    return zip_path
 
 
 def main():
@@ -162,7 +196,7 @@ def main():
     print("副本完成：%.1f MB -> %s" % (total / 1048576.0, dst))
 
     if not a.no_zip:
-        make_zip(dst, dst + ".zip")
+        make_zip(dst, dst + ".zip", arc_root="音视频下载器")
     print("\n把 %s（或那个 zip）发给对方，解压后双击「音视频下载器.exe」或" % os.path.basename(dst))
     print("「音视频下载器-公司.lnk」就能用，什么都不用装。")
     return 0

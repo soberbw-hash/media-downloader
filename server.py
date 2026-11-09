@@ -430,6 +430,15 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._file(os.path.join(BASE, "web", "img", name), ctype)
 
+    def _web_font(self, p):
+        """只放行 web/fonts/ 下的 woff2：鸿蒙字体随包走，不走系统字体。"""
+        name = p[len("/fonts/"):]
+        if (not name.endswith(".woff2") or name.startswith(".")
+                or "/" in name or "\\" in name or ".." in name):
+            self.send_error(404)
+            return
+        self._file(os.path.join(BASE, "web", "fonts", name), "font/woff2")
+
     def _body(self):
         n = int(self.headers.get("Content-Length") or 0)
         if not n:
@@ -646,6 +655,8 @@ class Handler(BaseHTTPRequestHandler):
                        "application/javascript; charset=utf-8")
         elif p.startswith("/img/"):
             self._web_img(p)
+        elif p.startswith("/fonts/"):
+            self._web_font(p)
         elif p == "/push":
             self._push_page()
         elif p == "/api/state":

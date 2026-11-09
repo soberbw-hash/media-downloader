@@ -3,9 +3,17 @@
 <head>
 <meta charset="utf-8">
 <style>
+  @font-face {
+    font-family: "HarmonyOS Sans";
+    src: url("fonts/HarmonyOS_Sans_SC_Regular.woff2") format("woff2");
+    font-weight: 400 700;
+    font-style: normal;
+    font-display: block;
+  }
   * { box-sizing: border-box; }
   body { width: 292px; margin: 0; padding: 18px 18px 15px;
-         font: 13px/1.6 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+         font: 13px/1.6 "HarmonyOS Sans", "HarmonyOS Sans SC", -apple-system,
+               "Segoe UI", "Microsoft YaHei", sans-serif;
          color: #292524; background: #faf9f7; }
   .hd { display: flex; align-items: baseline; gap: 8px; }
   .hd b { font-size: 14px; font-weight: 600; letter-spacing: .2px; }

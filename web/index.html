@@ -310,6 +310,16 @@
       <div class="adv-body">
 
         <div class="field">
+          <label class="tg" for="cfgAutoUpd">
+            <span class="tg-txt"><b>自动更新</b></span>
+            <span class="switch">
+              <input type="checkbox" id="cfgAutoUpd">
+              <span class="track"><i></i></span>
+            </span>
+          </label>
+        </div>
+
+        <div class="field">
           <label for="cfgProxy">代理</label>
           <input id="cfgProxy" placeholder="留空 = 自动用系统代理">
           <div class="hint">境外平台自动走系统代理，国内平台始终直连</div>
@@ -358,6 +368,8 @@
         </div>
         <button class="pick-btn" id="checkUpd">检查更新</button>
       </div>
+      <div class="upd-bar" id="updBar" hidden><i></i></div>
+      <i class="upd-tip" id="updTip" hidden>GitHub 下载慢？先开 VPN / 代理</i>
     </section>
 
     <section class="grp">

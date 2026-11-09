@@ -22,7 +22,7 @@ binaries = [(FFMPEG, "bin")] if FFMPEG and os.path.isfile(FFMPEG) else []
 local_mods = [
     "server", "core", "paths", "login", "picker", "picker_win",
     "music", "suno", "hls", "recognize", "search", "movies",
-    "sources", "aggregate", "sph", "cn_sites",
+    "sources", "aggregate", "sph", "cn_sites", "updater",
 ]
 # yt-dlp 的站点解析器是运行时按名字动态导入的，必须整个收进来，
 # 否则打出来的包只能下少数几个站，还不会报错。

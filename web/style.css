@@ -749,6 +749,30 @@ body.tab-music .tasks-block {
 .upd-info i { font-style: normal; font-size: 11px; color: var(--hint); }
 .upd-info a { color: var(--text); text-decoration: underline; text-underline-offset: 2px; }
 
+.upd-bar {
+  height: 3px;
+  margin-top: 10px;
+  border-radius: 3px;
+  background: var(--line);
+  overflow: hidden;
+}
+.upd-bar i {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--run);
+  transition: width .35s ease;
+}
+.upd-bar[hidden], .upd-tip[hidden] { display: none; }
+.upd-tip {
+  display: block;
+  margin-top: 9px;
+  font-style: normal;
+  font-size: 11px;
+  color: var(--muted);
+}
+
 .tg-list {
   margin-top: 16px;
   border-top: 1px solid var(--line-soft);

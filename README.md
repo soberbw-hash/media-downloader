@@ -57,6 +57,9 @@
 
 **不想装任何东西（推荐）**：去 [Releases](https://github.com/soberbw-hash/media-downloader/releases)，**一个页面、两个包，按自己系统下**：
 
+> **从 GitHub 下安装包前先开 VPN / 代理**，不然国内直连常常很慢甚至下不动。
+> 装好之后不用再管更新：软件会自己查新版、后台下好，等手头任务结束就自动替换并重启。
+
 | 系统 | 下载 | 怎么用 |
 |---|---|---|
 | Windows | `VideoDL-版本号-Windows.zip` | 解压到任意文件夹，双击「音视频下载器.exe」 |

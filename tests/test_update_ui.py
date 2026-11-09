@@ -1,0 +1,124 @@
+# -*- coding: utf-8 -*-
+"""真浏览器看自动更新的界面：进度、VPN 提示、手动兜底、自动更新开关。
+
+跑法：python tests/test_update_ui.py
+自己起隔离服务，用完自动关；VDL_NO_AUTO_UPDATE=1 不会真的替换重启。
+"""
+import os
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.request
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+EXE = r"C:/Program Files/Google/Chrome/Application/chrome.exe"
+OP = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+SHOT = os.path.join(tempfile.gettempdir(), "vdl_update_ui.png")
+
+
+def log(*a):
+    print(*a, flush=True)
+
+
+def main():
+    tmp = tempfile.mkdtemp(prefix="vdl_upd_ui_")
+    env = os.environ.copy()
+    env.update({"VDL_FORCE_NEW": "1", "VDL_NO_OPEN": "1",
+                "VDL_NO_AUTO_UPDATE": "1", "VDL_DATA_DIR": tmp})
+    logf = open(os.path.join(tmp, "srv.log"), "wb")
+    srv = subprocess.Popen([sys.executable, "server.py", "none"], cwd=ROOT,
+                           env=env, stdout=logf, stderr=subprocess.STDOUT)
+    try:
+        port = 0
+        for _ in range(50):
+            for p in range(8765, 8786):
+                try:
+                    h = OP.open("http://127.0.0.1:%d/" % p, timeout=0.6).read().decode(
+                        "utf-8", "replace")
+                except Exception:
+                    continue
+                if 'id="updBar"' in h:
+                    port = p
+                    break
+            if port:
+                break
+            time.sleep(0.2)
+        assert port, "没起带新代码的服务"
+        log("隔离服务端口:", port)
+
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as pw:
+            b = pw.chromium.launch(executable_path=EXE, headless=True)
+            pg = b.new_page(viewport={"width": 1180, "height": 1050})
+            errs = []
+            pg.on("pageerror", lambda e: errs.append(str(e)))
+            pg.goto("http://127.0.0.1:%d/" % port, wait_until="networkidle", timeout=30000)
+            pg.evaluate("() => document.querySelector('#openSet').click()")
+            pg.wait_for_timeout(600)
+            # 停掉轮询，别让真实 idle 状态把注入的状态刷掉
+            pg.evaluate("""() => {
+                let id = setInterval(() => {}, 999999);
+                for (let i = 0; i <= id; i++) clearInterval(i);
+            }""")
+
+            downloading = {
+                "state": "downloading", "percent": 42.0, "current": "1.24.3",
+                "latest": "9.9.9", "proxy_hint": True,
+                "manual_url": "https://github.com/soberbw-hash/media-downloader/releases/latest",
+                "detail": "", "error": "",
+            }
+            pg.evaluate("(u) => renderUpdateStatus(u)", downloading)
+            pg.wait_for_timeout(250)
+            txt = pg.inner_text("#updMsg")
+            assert "正在下载新版 42%" in txt, "下载进度文案不对: " + txt
+            assert pg.locator("#updBar").is_visible(), "进度条没显示"
+            width = pg.locator("#updBar i").evaluate("e => e.style.width")
+            assert width == "42%", "进度条宽度不对: " + width
+            assert pg.locator("#updTip").is_visible(), "没代理时没提示开 VPN"
+            assert "VPN" in pg.inner_text("#updTip"), "VPN 提示文案不对"
+            assert pg.inner_text("#checkUpd") == "正在更新", "按钮没切到进行中"
+            log("  ok 下载中：进度 / VPN 提示 / 按钮都对")
+            pg.locator("#drawer").screenshot(path=SHOT)
+            log("  截图:", SHOT)
+
+            pg.evaluate("""(u) => renderUpdateStatus(u)""", {
+                "state": "idle", "percent": 0, "current": "1.24.3",
+                "detail": "已是最新 v1.24.3", "error": "",
+            })
+            pg.wait_for_timeout(150)
+            assert not pg.locator("#updBar").is_visible(), "空闲时进度条没收起来"
+            assert not pg.locator("#updTip").is_visible(), "空闲时 VPN 提示还常驻"
+            assert pg.inner_text("#checkUpd") == "检查更新", "按钮没还原"
+            log("  ok 空闲时进度条和提示都不占位置")
+
+            pg.evaluate("""(u) => renderUpdateStatus(u)""", {
+                "state": "error", "percent": 0, "current": "1.24.3",
+                "detail": "更新没成", "proxy_hint": False,
+                "manual_url": "https://github.com/soberbw-hash/media-downloader/releases/latest",
+                "error": "网络不通",
+            })
+            pg.wait_for_timeout(150)
+            assert "下载安装包" in pg.inner_text("#updMsg"), "失败时没给手动下载出路"
+            assert pg.locator("#updTip").is_visible(), "手动下载时没提示开 VPN"
+            log("  ok 失败时给手动下载 + VPN 提示")
+
+            auto = pg.locator("#cfgAutoUpd")
+            assert auto.count() == 1 and auto.is_checked(), "自动更新开关默认没开"
+            assert pg.evaluate("""() => !!document.querySelector('#advBox #cfgAutoUpd')"""), \
+                "自动更新开关没收进高级设置"
+            log("  ok 自动更新开关默认开，收在高级设置里")
+            assert not errs, "界面脚本报错: %s" % errs[:2]
+            b.close()
+        log("全部通过")
+    finally:
+        srv.terminate()
+        try:
+            srv.wait(timeout=5)
+        except Exception:
+            srv.kill()
+        logf.close()
+
+
+if __name__ == "__main__":
+    main()

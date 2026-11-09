@@ -660,6 +660,7 @@ async function poll() {
     applyMode(d.mode);
     render(tasks);
     cfg = d.config || {};
+    renderUpdateStatus(d.update);
     if (d.push_key && d.push_key !== pushKey) {
       pushKey = d.push_key;
       renderPushBookmark();
@@ -1193,6 +1194,7 @@ function openDrawer() {
   $("#cfgNameTpl").value = cfg.name_tpl || "";
   syncNameUI();
   $("#cfgCover").checked = !!cfg.save_cover;
+  if ($("#cfgAutoUpd")) $("#cfgAutoUpd").checked = cfg.auto_update !== false;
   $("#cfgSubs").checked = !!cfg.down_subs;
   $("#cfgDanmaku").checked = !!cfg.save_danmaku;   // 默认关
   $("#cfgDesc").checked = !!cfg.save_desc;         // 默认关
@@ -1343,6 +1345,49 @@ if ($("#cfgNamePre")) {
 }
 
 /* ---------- 版本与更新 ---------- */
+/* 发现新版不用用户管：后台下好 → 等手头任务结束 → 自动替换重启。
+   只有「没系统代理」或「更新失败要手动下包」时才把 VPN 提示露出来。 */
+let updToastShown = false;
+
+function renderUpdateStatus(u) {
+  if (!u) return;
+  const msg = $("#updMsg"), bar = $("#updBar"), tip = $("#updTip"), btn = $("#checkUpd");
+  const state = u.state || "idle";
+  if (u.current && $("#curVer")) $("#curVer").textContent = "v" + u.current;
+  if (msg) {
+    if (state === "idle") msg.textContent = u.detail || "启动时自动检查新版";
+    else if (state === "checking") msg.textContent = "正在检查…";
+    else if (state === "downloading") msg.textContent = "正在下载新版 " + Math.round(u.percent || 0) + "%";
+    else if (state === "waiting")
+      msg.innerHTML = "新版已下好 · <a href=\"#\" id=\"updNow\">立刻更新</a>";
+    else if (state === "applying") msg.textContent = "正在更新，马上回来…";
+    else if (state === "done") msg.textContent = u.detail || "已更新好";
+    else msg.innerHTML = (u.detail || "更新没成") +
+      " · <a href=\"" + esc(u.manual_url || "") + "\" target=\"_blank\" rel=\"noreferrer\">下载安装包</a>";
+  }
+  if (bar) {
+    const active = ["downloading", "waiting", "applying"].indexOf(state) >= 0;
+    bar.hidden = !active;
+    const fill = bar.querySelector("i");
+    if (fill) fill.style.width = (state === "downloading" ? (u.percent || 0) : 100) + "%";
+  }
+  // 手动去 GitHub 下整包时一律提醒；自动下载只在没走代理时提醒，别常驻占位置
+  const needTip = (state === "downloading" && u.proxy_hint) ||
+    state === "error" || state === "manual";
+  if (tip) tip.hidden = !needTip;
+  if (btn) btn.textContent = ["downloading", "waiting", "applying"].indexOf(state) >= 0
+    ? "正在更新" : "检查更新";
+  const now = $("#updNow");
+  if (now) now.onclick = async (e) => {
+    e.preventDefault();
+    await post("/api/update/apply", {});
+  };
+  if (state === "applying" && !updToastShown) {
+    updToastShown = true;
+    toast("新版装好了，正在重启…", 3000);
+  }
+}
+
 async function checkUpdate(manual) {
   const msg = $("#updMsg");
   if (manual && msg) msg.textContent = "正在检查…";
@@ -1354,17 +1399,28 @@ async function checkUpdate(manual) {
     }
     if (!r.ok) {
       if (msg) msg.textContent = manual ? (r.error || "检查失败，稍后再试") : "启动时自动检查新版";
+      if (manual) toast(r.error || "检查失败，稍后再试", 3200);
       return;
     }
-    if (msg) msg.textContent = "当前版本 v" + r.current + (r.has_update ? "" : "，已是最新");
-    if (r.has_update) {
-      if (msg) {
-        msg.innerHTML = "发现新版 v" + esc(r.latest) +
-          " · <a href=\"" + esc(r.url) + "\" target=\"_blank\" rel=\"noreferrer\">去下载</a>";
-      }
-      toast("发现新版本 v" + r.latest + "，打开设置可更新", 3600);
-    } else if (manual) {
-      toast("已是最新版 v" + r.current);
+    if (!r.has_update) {
+      if (msg) msg.textContent = "当前版本 v" + r.current + "，已是最新";
+      const bar = $("#updBar"), tip = $("#updTip");
+      if (bar) bar.hidden = true;
+      if (tip) tip.hidden = true;
+      if (manual) toast("已是最新版 v" + r.current);
+      return;
+    }
+    if (r.auto) {
+      if (msg) msg.textContent = "发现新版 v" + r.latest + "，正在更新…";
+      await post("/api/update/start", {});
+      const s = await fetch("/api/update/status").then((x) => x.json());
+      renderUpdateStatus(s.update);
+    } else {
+      if (msg) msg.innerHTML = "发现新版 v" + esc(r.latest) +
+        " · <a href=\"" + esc(r.url) + "\" target=\"_blank\" rel=\"noreferrer\">下载安装包</a>";
+      const tip = $("#updTip");
+      if (tip) tip.hidden = false;
+      toast("发现新版本 v" + r.latest, 3200);
     }
   } catch (e) {
     if (msg) msg.textContent = manual ? "检查失败，网络不通" : "启动时自动检查新版";
@@ -1408,6 +1464,7 @@ function collectCfg() {
     concurrency: parseInt($("#cfgConc").value, 10) || 3,
     name_tpl: ($("#cfgNamePre").value === "" ? "" : $("#cfgNameTpl").value.trim()),
     save_cover: $("#cfgCover").checked,
+    auto_update: $("#cfgAutoUpd") ? $("#cfgAutoUpd").checked : true,
     down_subs: $("#cfgSubs").checked,
     save_danmaku: $("#cfgDanmaku").checked,
     save_desc: $("#cfgDesc").checked,
@@ -1435,6 +1492,7 @@ function nameTplNow() {
 [["#cfgQuality", () => ({ quality: $("#cfgQuality").value })],
  ["#cfgConc", () => ({ concurrency: parseInt($("#cfgConc").value, 10) || 3 })],
  ["#cfgCover", () => ({ save_cover: $("#cfgCover").checked })],
+ ["#cfgAutoUpd", () => ({ auto_update: $("#cfgAutoUpd").checked })],
  ["#cfgSubs", () => ({ down_subs: $("#cfgSubs").checked })],
  ["#cfgDanmaku", () => ({ save_danmaku: $("#cfgDanmaku").checked })],
  ["#cfgDesc", () => ({ save_desc: $("#cfgDesc").checked })],

@@ -37,6 +37,7 @@ import paths as paths_mod  # noqa: E402
 import core  # noqa: E402
 import login as login_mod  # noqa: E402
 import picker  # noqa: E402
+import updater as updater_mod  # noqa: E402
 
 APP_VERSION = "1.24.3"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
 UPDATE_REPO = "soberbw-hash/media-downloader"
@@ -62,6 +63,7 @@ DEFAULT_CFG = {
     "save_desc": False,      # 简介/元信息存成同名 .txt（附件都收进同名文件夹）
     "custom_sites": [],      # 自己加的资源站搜索入口：{name,url(含{q}),tip}
     "custom_sources": [],    # 自己接的第三方 JSON 接口：见 sources.py
+    "auto_update": True,     # 有新版后台下好、空闲时自动替换并重启
 }
 
 PORT_MIN = 8765
@@ -157,6 +159,166 @@ if not (CFG.get("push_key") or "").strip():
     save_cfg(CFG)
 PUSH_KEY = CFG["push_key"]
 MANAGER = core.Manager(CFG)
+
+
+# ---------------- 自动更新 ----------------
+# state: idle / checking / downloading / waiting / applying / done / error / manual
+_UPD = {
+    "state": "idle", "percent": 0.0, "detail": "", "error": "",
+    "has_update": False, "latest": "", "current": APP_VERSION,
+    "proxy_hint": False,
+    "manual_url": "https://github.com/%s/releases/latest" % UPDATE_REPO,
+    "auto": bool(CFG.get("auto_update", True)), "updated_at": 0,
+}
+_UPD_LOCK = threading.Lock()
+_UPD_BUSY = False
+_UPD_PREPARED = None     # 下好但还没应用的那一包，给「立刻更新」用
+
+
+def update_status():
+    with _UPD_LOCK:
+        return dict(_UPD)
+
+
+def _set_upd(**kw):
+    with _UPD_LOCK:
+        _UPD.update(kw)
+        _UPD["updated_at"] = time.time()
+
+
+def _busy_tasks():
+    """还有任务在跑就先别重启，免得把人家下到一半的东西打断。"""
+    try:
+        idle = ("done", "error", "canceled", "cancelled", "")
+        return any((t.get("status") or "") not in idle for t in MANAGER.snapshot())
+    except Exception:
+        return False
+
+
+def _apply_update(prepared):
+    """写替换计划 → 起独立助手 → 主程序退出，助手接着换文件并拉起新版。"""
+    global _UPD_PREPARED
+    no_restart = os.environ.get("VDL_NO_AUTO_UPDATE") == "1"
+    try:
+        plan_dir = os.path.join(prepared["workdir"], "plan")
+        os.makedirs(plan_dir, exist_ok=True)
+        try:
+            port = _SRV.server_address[1]
+        except Exception:
+            port = 0
+        # VDL_UPDATE_TARGET 只给回归测试用：把替换目标指到临时目录，别碰真源码
+        target = os.environ.get("VDL_UPDATE_TARGET") or BASE
+        plan = updater_mod.make_plan(
+            plan_dir, prepared["version"], target, prepared["staged"],
+            prepared["files"], updater_mod.default_launch(MODE),
+            port=port, archive=prepared.get("archive") or "",
+            mode=prepared["mode"], no_restart=no_restart, no_wait=no_restart)
+        _UPD_PREPARED = prepared
+        if no_restart:
+            # 回归测试：助手就地跑一遍，不等退出、不真重启
+            ok, msg = updater_mod.run_helper(plan)
+            _set_upd(state="done" if ok else "error",
+                     detail="已更新好，重启软件生效" if ok else "替换失败，已回滚",
+                     error="" if ok else msg)
+            return ok
+        ok, msg = updater_mod.spawn_helper(plan)
+        if not ok:
+            _set_upd(state="error", detail="更新没成，可手动下载", error=msg)
+            return False
+        _set_upd(state="applying", percent=100, detail="正在更新，马上回来…")
+        # 不能走 arm_quit：前端每轮询一次 /api/state 就 note_activity()，会把退出取消掉
+        t = threading.Timer(1.5, _do_quit)
+        t.daemon = True
+        t.start()
+        return True
+    except Exception as e:
+        _set_upd(state="error", detail="更新没成，可手动下载", error=str(e)[:140])
+        updater_mod.log("应用失败: %r" % (e,))
+        return False
+
+
+def _update_worker(wait_idle=True):
+    """检查 → 后台下载 → 等手头任务跑完 → 自动替换 + 重启。"""
+    global _UPD_BUSY
+    with _UPD_LOCK:
+        if _UPD_BUSY:
+            return
+        _UPD_BUSY = True
+    try:
+        _set_upd(state="checking", detail="正在检查…", error="", percent=0)
+        info = updater_mod.check(APP_VERSION, timeout=10)
+        if not info["ok"]:
+            _set_upd(state="idle", detail="启动时自动检查新版", error=info["error"])
+            return
+        if not info["has_update"]:
+            _set_upd(state="idle", detail="已是最新 v" + APP_VERSION,
+                     has_update=False, latest=info["latest"], error="")
+            return
+        if not info["asset"]:
+            _set_upd(state="manual", has_update=True, latest=info["latest"],
+                     detail="发现新版 v%s，点右边下载" % info["latest"],
+                     manual_url=info["url"], proxy_hint=info["proxy_hint"],
+                     error=info["error"])
+            return
+        _set_upd(state="downloading", percent=0, detail="正在下载新版…",
+                 has_update=True, latest=info["latest"],
+                 proxy_hint=info["proxy_hint"], manual_url=info["url"], error="")
+        tag = "".join(c if c.isalnum() or c in "._-" else "_" for c in info["latest"])
+        workdir = os.path.join(tempfile.gettempdir(), "vdl_update_" + tag)
+        os.makedirs(workdir, exist_ok=True)
+
+        def prog(**kw):
+            total = max(1, kw.get("total") or 1)
+            p = min(99.0, (kw.get("done") or 0) * 100.0 / total)
+            _set_upd(percent=round(p, 1), detail="正在下载新版…")
+
+        mode, archive, staged, files = "hot", "", "", []
+        if IS_MAC or os.environ.get("VDL_FORCE_FULL_UPDATE") == "1":
+            archive = updater_mod.fetch_full(info, workdir, prog)
+            mode = "full"
+        else:
+            try:
+                staged, _n = updater_mod.fetch_hot(info, workdir, prog)
+            except updater_mod.UnsupportedZip as e:
+                updater_mod.log("热更读包失败，退回整包：%r" % (e,))
+                archive = updater_mod.fetch_full(info, workdir, prog)
+            if archive:
+                mode = "full"
+                if not IS_MAC:
+                    staged, files = updater_mod.hot_from_archive(archive, workdir)
+                    mode = "hot"          # Windows 整包也只换代码，不动 runtime 和数据
+        if mode == "hot" and staged and not files:
+            for root, _dirs, fs in os.walk(staged):
+                for f in fs:
+                    files.append(os.path.relpath(os.path.join(root, f), staged)
+                                 .replace(os.sep, "/"))
+            files.sort()
+        _set_upd(state="waiting", percent=100,
+                 detail="新版已下好，等当前任务结束就自动更新")
+        prepared = dict(version=info["latest"], staged=staged, files=files,
+                        archive=archive, mode=mode, workdir=workdir)
+        end = time.time() + 600
+        while wait_idle and time.time() < end and _busy_tasks():
+            time.sleep(3)
+        _apply_update(prepared)
+    except Exception as e:
+        _set_upd(state="error", detail="更新没成，点「检查更新」重试",
+                 error=str(e)[:150])
+        updater_mod.log("更新失败: %r" % (e,))
+    finally:
+        with _UPD_LOCK:
+            _UPD_BUSY = False
+
+
+def start_update(wait_idle=True):
+    """幂等：已经在下 / 已经在装就直接回状态，不重复起线程。"""
+    with _UPD_LOCK:
+        busy = _UPD_BUSY
+        _UPD["auto"] = bool(CFG.get("auto_update", True))
+    if not busy:
+        t = threading.Thread(target=_update_worker, args=(wait_idle,), daemon=True)
+        t.start()
+    return update_status()
 
 
 # ---------------- 退出（关掉独立窗口 = 退出软件） ----------------
@@ -487,6 +649,8 @@ class Handler(BaseHTTPRequestHandler):
                 "ffmpeg": paths_mod.ffmpeg_path(),
                 "platforms": [{"id": x["id"], "name": x["name"], "level": x["level"]}
                               for x in core.PLATFORMS],
+                # 前端已有每秒一次的轮询，更新状态搭这趟车，不另开定时器
+                "update": update_status(),
             })
         elif p == "/api/img":
             qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
@@ -507,6 +671,8 @@ class Handler(BaseHTTPRequestHandler):
             self._music_audio()
         elif p == "/api/check_update":
             self._json(self._check_update())
+        elif p == "/api/update/status":
+            self._json({"ok": True, "update": update_status()})
         elif p == "/api/ping":
             self._json({"ok": True, "mode": MODE})
         elif p == "/api/search/sources":
@@ -611,28 +777,24 @@ class Handler(BaseHTTPRequestHandler):
             pass
 
     def _check_update(self):
-        """和 GitHub 上的 version.txt 比版本。网络不通就如实说，别假装是最新。"""
-        import re as _re
-
-        def _norm(v):
-            return tuple(int(x) for x in _re.findall(r"\d+", v or "0"))
-
-        url = "https://api.github.com/repos/%s/contents/version.txt" % UPDATE_REPO
-        try:
-            req = urllib.request.Request(url, headers={
-                "User-Agent": "VideoDL/" + APP_VERSION,
-                "Accept": "application/vnd.github.raw",
-            })
-            # 走系统代理（公司网访问 GitHub 需要），8 秒超时
-            with urllib.request.urlopen(req, timeout=8) as r:
-                latest = r.read().decode("utf-8", "replace").strip()
-        except Exception as e:
-            return {"ok": False, "current": APP_VERSION,
-                    "error": "连不上更新服务器（" + str(e)[:60] + "）"}
-        has = _norm(latest) > _norm(APP_VERSION)
-        return {"ok": True, "current": APP_VERSION, "latest": latest,
-                "has_update": has,
-                "url": "https://github.com/%s/releases/latest" % UPDATE_REPO}
+        """比版本 + 找对应系统的安装包。网络不通就如实说，别假装是最新。"""
+        r = updater_mod.check(APP_VERSION, timeout=8)
+        auto = (bool(CFG.get("auto_update", True)) and r["can_auto"]
+                and bool(r["asset"]))
+        out = {"ok": r["ok"], "current": APP_VERSION, "latest": r["latest"],
+               "has_update": r["has_update"], "url": r["url"],
+               "error": r["error"], "proxy_hint": r["proxy_hint"],
+               "can_auto": r["can_auto"], "auto": auto}
+        if r["ok"]:
+            _set_upd(current=APP_VERSION, latest=r["latest"],
+                     has_update=r["has_update"], proxy_hint=r["proxy_hint"],
+                     manual_url=r["url"], auto=auto, error=r["error"])
+            # 后台正在下载/安装时，别让一次检查把状态刷回「已是最新」
+            with _UPD_LOCK:
+                active = _UPD["state"] in ("downloading", "waiting", "applying")
+            if not active and not r["has_update"]:
+                _set_upd(state="idle", detail="已是最新 v" + APP_VERSION, error="")
+        return out
 
     # ---------- POST ----------
     def do_POST(self):
@@ -948,6 +1110,10 @@ class Handler(BaseHTTPRequestHandler):
                           "name_tpl"):
                     if k in data:
                         CFG[k] = str(data[k]).strip()
+                if "auto_update" in data:
+                    CFG["auto_update"] = bool(data["auto_update"])
+                    with _UPD_LOCK:
+                        _UPD["auto"] = CFG["auto_update"]
                 if "save_cover" in data:
                     CFG["save_cover"] = bool(data["save_cover"])
                 if "down_subs" in data:
@@ -1087,6 +1253,17 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 self._json({"ok": False, "error": str(e)})
 
+        elif p == "/api/update/start":
+            # 检查到新版就自动走完全程；前端手动点「检查更新」也打这儿
+            self._json({"ok": True,
+                        "update": start_update(bool(data.get("wait_idle", True)))})
+        elif p == "/api/update/apply":
+            # 下好了但还在等任务跑完时，用户想立刻装就走这个
+            if not _UPD_PREPARED:
+                self._json({"ok": False, "error": "还没有下好的新版"})
+            else:
+                self._json({"ok": _apply_update(_UPD_PREPARED),
+                            "update": update_status()})
         elif p == "/api/quit":
             # 关窗：等一会儿再退，给刷新留出撤销的时间
             self._json({"ok": True})
@@ -1402,6 +1579,16 @@ def main():
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()
         print("音视频下载器已启动：", url)
         print("关闭这个窗口即停止服务。")
+
+    # 启动几秒后自己查一次。就算前端是旧缓存、用户什么都没点，也会自动更新。
+    # 回归测试用 VDL_FORCE_NEW 起隔离实例，别让它碰线上 Release。
+    if (CFG.get("auto_update", True)
+            and os.environ.get("VDL_NO_AUTO_UPDATE") != "1"
+            and os.environ.get("VDL_FORCE_NEW") != "1"):
+        def _auto():
+            t = threading.Thread(target=_update_worker, daemon=True)
+            t.start()
+        threading.Timer(4.0, _auto).start()
 
     try:
         srv.serve_forever()

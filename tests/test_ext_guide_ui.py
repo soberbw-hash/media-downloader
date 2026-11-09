@@ -60,13 +60,17 @@ def main():
 
             assert pg.locator("#extPage").count() == 0, "点不开的「只开安装页」还在"
             assert pg.locator("#extFolder").count() == 0, "点不开的「只开文件夹」还在"
-            assert pg.locator("#extHow button").count() == 0, "图文里不该再有按钮"
+            assert pg.locator("#extHow .gstep button").count() == 0, "图文步骤里不该再有按钮"
             log("  OK 点不开的次要按钮已清干净")
 
-            # 不再折叠：一进来三步就摊在那儿，不用先点一下
-            assert pg.locator("#extHow details").count() == 0, "又套回折叠了"
-            assert pg.locator("#extHow").is_visible(), "「怎么装」没显示"
-            assert pg.locator("#extHow .gstep").first.is_visible(), "三步默认没露出来"
+            # 「怎么装」默认收起，点一下才展开三步（折叠箭头是唯一那个 button）
+            assert pg.locator("#extHow details").count() == 0, "又套回 <details> 了"
+            assert pg.locator("#extHow").is_visible(), "「怎么装」标题没显示"
+            assert pg.evaluate("() => document.querySelector('#egBody').hidden"), \
+                "三步默认没收起"
+            pg.evaluate("() => document.querySelector('#egToggle').click()")
+            pg.wait_for_timeout(300)
+            assert pg.locator("#extHow .gstep").first.is_visible(), "点开后三步没露出来"
 
             steps = pg.locator("#extHow .gstep")
             pics = pg.locator("#extHow img.gpic")
@@ -79,7 +83,7 @@ def main():
                 shown = pics.nth(i).evaluate("e => e.getBoundingClientRect().width")
                 assert shown <= nw + 2, \
                     "第 %d 张图被拉伸了（%dpx 拉到 %dpx），会糊" % (i + 1, nw, shown)
-            log("  OK 三步图文默认展开，截图都加载了且没被拉伸")
+            log("  OK 怎么装默认收起，点开后三步齐全，截图都加载了且没被拉伸")
 
             # 点图看大图能弹出、Esc 能关
             pics.nth(0).evaluate("e => e.click()")   # 第一步那张就是菜单图
@@ -114,17 +118,18 @@ def main():
             pg.locator("#extHow").screenshot(path=SHOT)
             log("  截图:", SHOT)
 
-            # 按钮只管选中文件夹，反馈直接指路到浏览器菜单
+            # 按钮 = 选中文件夹 + 把它的地址复制进剪贴板，方便加载弹窗里粘贴
             pg.locator("#btnExtSetup").evaluate("e => e.click()")
             pg.wait_for_timeout(700)
             assert pg.locator("#extHow .gstep").count() == 3, "点完三步不见了"
             tst = pg.inner_text("#toast")
             assert "扩展程序" in tst and "管理扩展程序" in tst, \
                 "按钮反馈没指路到浏览器菜单：%s" % tst
-            assert "复制" not in tst and "Ctrl" not in tst, \
-                "还在让人复制粘贴：%s" % tst
-            assert pg.locator("#extPaste").count() == 0, "复制提示条又回来了"
-            log("  OK 选中文件夹：反馈是去浏览器 ⋮ → 扩展程序，没有复制粘贴")
+            assert "地址已复制" in tst and "粘贴" in tst, \
+                "没提示地址已复制、可在加载弹窗粘贴：%s" % tst
+            assert pg.locator("#extPaste").count() == 0, \
+                "又整出常驻的复制提示条（提示走 toast 就够）"
+            log("  OK 选中文件夹 + 地址复制提示，仍指路到浏览器菜单")
             b.close()
     finally:
         srv.terminate()

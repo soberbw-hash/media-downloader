@@ -1050,7 +1050,7 @@ async function setupExt() {
   const r = await post("/api/login/setup_ext", {});
   if (btn) btn.disabled = false;
   if (!r.ok) { toast(r.error || "没打开，稍后再试一次"); return; }
-  toast(r.msg || "文件夹已选中");
+  toast(r.msg || "文件夹已选中", 5200);
   setTimeout(() => loadLogins(true), 3000);
 }
 

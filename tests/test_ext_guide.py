@@ -53,8 +53,12 @@ check("aria-expanded" in how, "折叠按钮带 aria-expanded 可达性标记")
 check("点开看" not in how, "没有「点开看四步」这种已经点开还让人点的字")
 check(how.index("管理扩展程序") < how.index("开发者模式") < how.index("加载未打包"),
       "顺序是：进扩展页 → 开发者模式 → 加载文件夹")
-check("地址栏" not in how and "粘贴" not in how and "Ctrl" not in how,
-      "第一步不再提复制/粘贴/快捷键，直接走浏览器菜单")
+check("地址栏" not in how, "全程不教往浏览器地址栏里粘东西")
+_steps = how.split('class="gstep"')          # [前缀, 第1步, 第2步, 第3步]
+check("粘贴" not in _steps[1] and "Ctrl" not in _steps[1],
+      "第一步只走浏览器菜单，不提复制粘贴")
+check("粘贴" in _steps[3] and "Ctrl+V" in _steps[3],
+      "第三步说了在加载弹窗里粘贴（Ctrl+V）地址直达")
 check("选中刚才那个扩展文件夹" in how, "说的是刚选中的那个文件夹，不用记英文目录名")
 check("加载未打包的扩展程序" in how, "按钮名用新版 Chrome 的叫法")
 check("旧版叫" in how and "加载已解压" in how, "老版本叫法也给了，免得找不到")
@@ -85,14 +89,16 @@ check('$("#extPage")' not in js and '$("#extFolder")' not in js,
 check("在浏览器右上角点" in how and "管理扩展程序" in how,
       "第一步写清了怎么进扩展页")
 
-log("=== 2. 一键装 = 只选中文件夹（不再复制地址）===")
+log("=== 2. 一键装 = 选中文件夹 + 复制地址 ===")
 tmp = tempfile.mkdtemp(prefix="extguide_")
 real_ext, real_popen, real_platform = login.EXT_DIR, login.subprocess.Popen, sys.platform
+real_copy = login.copy_to_clipboard
 saved_noopen = os.environ.pop("VDL_NO_OPEN", None)
-calls = []
+calls, copied = [], []
 try:
     login.EXT_DIR = tmp
     login.subprocess.Popen = lambda args, *a, **k: calls.append(list(args))
+    login.copy_to_clipboard = lambda t: (copied.append(t), True)[1]
 
     sys.platform = "win32"
     okw, _ = login.open_ext_dir()
@@ -101,21 +107,31 @@ try:
           "Windows 用 explorer /select, 选中文件夹本身")
 
     oks, msgs = login.setup_ext()
-    check(oks and "文件夹已选中" in msgs, "一键装只剩一件事：把文件夹选中")
+    check(oks and "文件夹已选中" in msgs, "一键装把文件夹选中")
     check("扩展程序" in msgs and "管理扩展程序" in msgs,
-          "下一步给的是浏览器菜单那条路，不是地址")
-    check("Ctrl+V" not in msgs and "地址已复制" not in msgs,
-          "不再让人复制粘贴地址")
-    check(len(calls) == 2, "只开文件管理器：不弹浏览器、不动剪贴板")
-    check(not hasattr(login, "copy_to_clipboard") and not hasattr(login, "open_ext_page"),
-          "复制地址那一套已经拆干净，别留一半")
+          "下一步给的是浏览器菜单那条路")
+    check("地址已复制" in msgs and "粘贴" in msgs and "Ctrl+V" in msgs,
+          "顺手复制地址，提示在加载弹窗里粘贴（Ctrl+V）直达")
+    check(copied and os.path.normpath(copied[-1]) == os.path.normpath(tmp),
+          "放进剪贴板的就是扩展文件夹的路径")
+    check(len(calls) == 2, "只开文件管理器：不弹浏览器")
+    check(hasattr(login, "copy_to_clipboard") and not hasattr(login, "open_ext_page"),
+          "复制的是文件夹地址，不自动开安装页（chrome:// 外部程序打不开）")
     check(not login.open_in_default_browser("chrome://extensions/")[0],
           "系统关联入口仍然挡住内部页地址")
+
+    login.copy_to_clipboard = lambda t: False
+    okf, msgf = login.setup_ext()
+    check(okf and "地址已复制" not in msgf and "管理扩展程序" in msgf,
+          "复制失败时不假称已复制，仍指路浏览器菜单")
+    login.copy_to_clipboard = lambda t: (copied.append(t), True)[1]
 
     sys.platform = "darwin"
     okm, _ = login.open_ext_dir()
     check(okm and calls[-1][0] == "open" and calls[-1][1] == "-R",
           "Mac 用 Finder 的 open -R 选中文件夹本身")
+    oksm, msgm = login.setup_ext()
+    check(oksm and "Cmd+V" in msgm, "Mac 上提示用 Cmd+V 粘贴")
 
     sys.platform = "linux"
     okl, _ = login.open_ext_dir()
@@ -132,6 +148,7 @@ try:
     check(okq and len(calls) == n, "测试环境下不会真弹文件管理器")
 finally:
     login.EXT_DIR, login.subprocess.Popen = real_ext, real_popen
+    login.copy_to_clipboard = real_copy
     sys.platform = real_platform
     if saved_noopen is None:
         os.environ.pop("VDL_NO_OPEN", None)

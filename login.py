@@ -556,6 +556,77 @@ def open_site(pid):
     return False, err
 
 
+def paste_key():
+    return "Cmd+V" if sys.platform == "darwin" else "Ctrl+V"
+
+
+def copy_to_clipboard(text):
+    """把一段纯文本放进系统剪贴板；自测环境不动用户的剪贴板。"""
+    if os.environ.get("VDL_NO_OPEN") == "1":
+        return True
+    text = text or ""
+    try:
+        if sys.platform == "win32":
+            return _win_clipboard(text)
+        if sys.platform == "darwin":
+            r = subprocess.run(["pbcopy"], input=text.encode("utf-8"), timeout=5,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return r.returncode == 0
+        for cmd in (["wl-copy"], ["xclip", "-selection", "clipboard"]):
+            try:
+                r = subprocess.run(cmd, input=text.encode("utf-8"), timeout=5,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                if r.returncode == 0:
+                    return True
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return False
+
+
+def _win_clipboard(text):
+    """Windows 直接写 CF_UNICODETEXT，中文路径不会变乱码；失败退回 clip.exe。"""
+    try:
+        import ctypes
+        u32, k32 = ctypes.windll.user32, ctypes.windll.kernel32
+        u32.SetClipboardData.argtypes = [ctypes.c_uint, ctypes.c_void_p]
+        u32.SetClipboardData.restype = ctypes.c_void_p
+        k32.GlobalAlloc.restype = ctypes.c_void_p
+        k32.GlobalAlloc.argtypes = [ctypes.c_uint, ctypes.c_size_t]
+        k32.GlobalLock.restype = ctypes.c_void_p
+        k32.GlobalLock.argtypes = [ctypes.c_void_p]
+        k32.GlobalUnlock.argtypes = [ctypes.c_void_p]
+        if not u32.OpenClipboard(None):
+            return False
+        try:
+            u32.EmptyClipboard()
+            data = (text + "\0").encode("utf-16-le")
+            h = k32.GlobalAlloc(0x0002, len(data))          # GMEM_MOVEABLE
+            if not h:
+                return False
+            p = k32.GlobalLock(h)
+            ctypes.memmove(p, data, len(data))
+            k32.GlobalUnlock(h)
+            return bool(u32.SetClipboardData(13, h))        # CF_UNICODETEXT
+        finally:
+            u32.CloseClipboard()
+    except Exception:
+        pass
+    # 兜底走 PowerShell：clip.exe 只按系统代码页收字节，中文路径会变乱码
+    try:
+        env = dict(os.environ, VDL_CLIP=text)
+        r = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+             "Set-Clipboard -Value $env:VDL_CLIP"],
+            env=env, timeout=8,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            creationflags=0x08000000)                    # 不闪黑框
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
 def open_ext_dir():
     """在文件管理器里**选中** browser-extension 文件夹本身，而不是打开进去。
 
@@ -581,16 +652,21 @@ def open_ext_dir():
 
 
 def setup_ext():
-    """「选中扩展文件夹」：选中文件夹，剩下三下点浏览器菜单就完事。
+    """「选中扩展文件夹」：选中文件夹，顺便把它的路径放进剪贴板。
 
     chrome:// 是特权内部页，外部程序打不开（命令行传进去只会被换成新标签页），
-    而浏览器菜单里本来就有「扩展程序 → 管理扩展程序」这条路。既然反正要手动
-    点进去，再让人复制地址、切过去粘贴就是多一道手 —— 所以只选中文件夹。
+    而浏览器菜单里本来就有「扩展程序 → 管理扩展程序」这条路。路径复制好，
+    「加载未打包」的弹窗里粘贴一下就能直达，不用一层层翻目录。
     """
     ok_dir, msg_dir = open_ext_dir()
     if not ok_dir:
         return False, msg_dir
-    return True, "文件夹已选中；去浏览器右上角 ⋮ →「扩展程序」→「管理扩展程序」"
+    copied = copy_to_clipboard(os.path.normpath(EXT_DIR))
+    menu = "去浏览器右上角 ⋮ →「扩展程序」→「管理扩展程序」"
+    if copied:
+        return True, ("文件夹已选中、地址已复制；%s，加载弹窗里粘贴（%s）就到"
+                      % (menu, paste_key()))
+    return True, "文件夹已选中；" + menu
 
 
 def start(pid, proxy=None):

@@ -180,6 +180,27 @@ def update_status():
         return dict(_UPD)
 
 
+# ---------------- 网络状态：境外站现在能不能下 ----------------
+_NET = {"at": 0.0, "proxy": "", "overseas": True}
+_NET_LOCK = threading.Lock()
+
+
+def net_state():
+    """给前端一句人话判断：能不能到境外站。
+    有代理不能直接当成「通」——公司电脑那个系统代理常年挂着但出不去，
+    得真握一次手；没代理就直连试一下（开了 TUN 的照样通）。
+    结果缓存 60 秒，别每贴一次链接就探一遍。"""
+    with _NET_LOCK:
+        if _NET["at"] and time.time() - _NET["at"] < 60:
+            return dict(_NET)
+        px = core.resolve_proxy("youtube", CFG.get("proxy"))
+        ok = core.proxy_reaches(px) if px else False
+        if not ok:
+            ok = core.reach_overseas()      # 代理不通也可能 TUN 直连就通
+        _NET.update({"at": time.time(), "proxy": px, "overseas": bool(ok)})
+        return dict(_NET)
+
+
 def _set_upd(**kw):
     with _UPD_LOCK:
         _UPD.update(kw)
@@ -701,6 +722,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": True, "update": update_status()})
         elif p == "/api/ping":
             self._json({"ok": True, "mode": MODE})
+        elif p == "/api/net":
+            self._json(net_state())
         elif p == "/api/search/sources":
             # 搜索页的来源按钮、资源站直达按钮都由后端下发，加源不用改前端
             import sources as sources_mod
@@ -747,7 +770,7 @@ class Handler(BaseHTTPRequestHandler):
         url = (qs.get("url") or [""])[0].strip()
         ok, msg, hint_title = False, "", ""
         if key != PUSH_KEY:
-            msg = "书签过期了，去「设置 → 高级选项 → 网页书签」重新复制一次"
+            msg = "这个书签的钥匙对不上，用不了了"
         elif not (url.startswith("http://") or url.startswith("https://")) or len(url) > 2048:
             msg = "没收到有效链接"
         else:

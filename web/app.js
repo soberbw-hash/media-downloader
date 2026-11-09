@@ -26,6 +26,20 @@ const HOSTS = [
 ];
 const ALL_HOSTS = HOSTS.flatMap((h) => h[0]).sort((a, b) => b.length - a.length);
 
+/* 境外站：没梯子就下不动。按域名认，等解析结果出来再说就晚了 */
+const OVERSEAS_HOSTS = [
+  "youtube.com", "youtu.be", "tiktok.com", "instagram.com", "instagr.am",
+  "twitter.com", "x.com", "t.co", "vimeo.com", "twitch.tv",
+  "reddit.com", "redditmedia.com", "redd.it", "suno.com", "suno.ai",
+];
+function hitsOverseas(urls) {
+  return (urls || []).some((u) => {
+    let h = "";
+    try { h = new URL(u).hostname.toLowerCase(); } catch (e) { return false; }
+    return OVERSEAS_HOSTS.some((d) => h === d || h.endsWith("." + d));
+  });
+}
+
 /* 只吃 ASCII，避免把紧随其后的中文一起吞进来 */
 const URL_RE = /https?:\/\/[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%]+/gi;
 const BARE_RE = new RegExp(
@@ -36,7 +50,6 @@ const BARE_RE = new RegExp(
 );
 
 let cfg = {};
-let pushKey = "";          // 「一键收网页」书签带的钥匙，跟着服务走
 let autoPaste = localStorage.getItem("autoPaste") !== "0";
 let supportRendered = false;
 
@@ -662,10 +675,6 @@ async function poll() {
     render(tasks);
     cfg = d.config || {};
     renderUpdateStatus(d.update);
-    if (d.push_key && d.push_key !== pushKey) {
-      pushKey = d.push_key;
-      renderPushBookmark();
-    }
     // 版本号先填本地的，别等联网检查时先闪一个「v—」
     if (d.version) {
       const cv = $("#curVer");
@@ -753,6 +762,19 @@ function renderSupport(list) {
 /* ---------- 提交：一次粘贴 = 一批 ---------- */
 let inflight = 0;
 
+/* 境外站没开梯子：先说一句，别让用户干等着看失败。一次会话只提醒一次 */
+let overseasWarned = false;
+async function warnOverseas(urls) {
+  if (overseasWarned || !hitsOverseas(urls)) return;
+  try {
+    const d = await (await fetch("/api/net")).json();
+    if (d && d.overseas === false) {
+      overseasWarned = true;
+      toast("这几个站在境外，得先开梯子（VPN）才能下", 5600);
+    }
+  } catch (e) { /* 服务没应答就算了，下载失败时也会说清楚 */ }
+}
+
 async function submitBlocks(blocks, localUrls) {
   // 粘贴、拖放、全局 Ctrl+V、剪贴板自动收都走这儿，统一一道闸防重复提交
   if (inflight > 0) return;
@@ -779,6 +801,7 @@ async function submitBlocks(blocks, localUrls) {
       setTimeout(() => toast(msg, 3800), added.length ? 1000 : 0);
     }
     if (!added.length && !skipped.length) toast("没认出链接");
+    warnOverseas(localUrls);      // 不挡下载：只是提前打个招呼
     poll();
   } catch (e) {
     toast("连接失败，服务可能已经关了");
@@ -915,54 +938,28 @@ $("#autoPaste").addEventListener("change", (e) => {
   toast(autoPaste ? "粘贴后自动开始下载" : "粘贴后点「开始下载」");
 });
 
-/* ---------- 网页书签 + 剪贴板（收进高级设置，用不上就看不见） ---------- */
-let bookmarklet = "";
-function renderPushBookmark() {
-  if (!pushKey) return;
-  const base = location.origin + "/push?k=" + encodeURIComponent(pushKey) + "&url=";
-  bookmarklet = "javascript:(function(){window.open('" + base +
-    "'+encodeURIComponent(location.href),'_blank');})()";
-}
-
-const copyBm = $("#btnCopyBookmark");
-if (copyBm) copyBm.onclick = async () => {
-  if (!bookmarklet) { toast("还没连上服务，稍等一下再点"); return; }
-  try {
-    await navigator.clipboard.writeText(bookmarklet);
-    toast("已复制 · 新建个书签，把地址粘进去就能用", 4200);
-  } catch (e) {
-    window.prompt("复制这段，新建书签时粘到地址里：", bookmarklet);
-  }
-};
-
+/* ---------- 剪贴板：切回窗口时自动收一次链接 ---------- */
 let lastClip = "";
-async function grabClipboard(manual) {
-  if (!manual && !autoPaste) return;          // 尊重「粘贴即下载」开关
-  if (!navigator.clipboard || !navigator.clipboard.readText) {
-    if (manual) toast("浏览器不让读剪贴板，直接 Ctrl+V 粘贴就行");
-    return;
-  }
+async function grabClipboard() {
+  if (!autoPaste) return;                     // 尊重「粘贴即下载」开关
+  if (!navigator.clipboard || !navigator.clipboard.readText) return;
   try {
     const text = (await navigator.clipboard.readText()) || "";
-    if (!text) { if (manual) toast("剪贴板里没东西"); return; }
+    if (!text || text === lastClip) return;   // 同一条只自动收一次
     const urls = urlsIn(text);
-    if (!urls.length) { if (manual) toast("剪贴板里没有能下的链接"); return; }
-    if (!manual && text === lastClip) return;  // 同一条只自动收一次
+    if (!urls.length) return;
     lastClip = text;
     submitBlocks([{ text }], urls);
     toast("剪贴板里的链接已加入下载");
   } catch (e) {
     // 浏览器没给剪贴板权限就安安静静当没这功能，原来的 Ctrl+V 照常用
-    if (manual) toast("读不到剪贴板，直接 Ctrl+V 粘贴就行");
   }
 }
-
-$("#btnGrabClip").onclick = () => grabClipboard(true);
 window.addEventListener("focus", () => {
-  if (!document.hidden) setTimeout(() => grabClipboard(false), 150);
+  if (!document.hidden) setTimeout(() => grabClipboard(), 150);
 });
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) grabClipboard(false);
+  if (!document.hidden) grabClipboard();
 });
 
 /* ---------- 账号登录 ---------- */
@@ -1258,7 +1255,6 @@ function openDrawer() {
   setPane(false);
   $("#cfgOut").value = cfg.out_dir || "";
   $("#cfgQuality").value = cfg.quality || "best";
-  if ($("#cfgProxy")) $("#cfgProxy").value = cfg.proxy || "";
   if ($("#cfgCookies")) $("#cfgCookies").value = cfg.cookies_file || "";
   $("#cfgConc").value = String(cfg.concurrency || 3);
   if ($("#cfgNameTpl")) $("#cfgNameTpl").value = cfg.name_tpl || "";
@@ -1532,7 +1528,6 @@ function collectCfg() {
     save_desc: $("#cfgDesc").checked,
   };
   // 高级页里才有的项：没渲染就不发，别把已有配置读成空
-  if ($("#cfgProxy")) out.proxy = $("#cfgProxy").value.trim();
   if ($("#cfgCookies")) out.cookies_file = $("#cfgCookies").value.trim();
   return out;
 }
@@ -1567,10 +1562,10 @@ function nameTplNow() {
 });
 
 // 文本框：停手一会儿再存，别把打了一半的路径建成文件夹
-["#cfgProxy", "#cfgCookies"].forEach((sel) => {
+["#cfgCookies"].forEach((sel) => {
   const el = $(sel);
   if (!el) return;
-  const key = { "#cfgProxy": "proxy", "#cfgCookies": "cookies_file" }[sel];
+  const key = { "#cfgCookies": "cookies_file" }[sel];
   el.addEventListener("input", () => cfgLater(key, { [key]: el.value.trim() }, 600));
 });
 const outEl = $("#cfgOut");
@@ -3155,6 +3150,11 @@ document.addEventListener("keydown", (e) => {
 applyTab(tabMode);
 initPreview();
 initRecognize();
+// 先把「境外站通不通」探好（结果在后端缓存 60 秒），贴链接时就能立刻提醒。
+// 必须把 body 读掉，不然这条请求一直挂着不结束，页面永远到不了「加载完」
+setTimeout(() => {
+  fetch("/api/net").then((r) => r.json()).catch(() => {});
+}, 800);
 // 第一次进搜索页，先给句引导，别让人对着空白框发呆
 if (tabMode === "music") {
   const h = $("#mHint");

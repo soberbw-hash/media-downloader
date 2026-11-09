@@ -112,7 +112,7 @@ def main():
             assert pg.locator(".chips .chip").count() == 4, "一起存不是四个方框"
             for i in range(4):
                 assert pg.locator(".chips .chip").nth(i).is_visible(), "第 %d 个存项没露出来" % (i + 1)
-            assert not pg.is_visible("#cfgProxy"), "代理跑到常用页上了"
+            assert pg.locator("#cfgProxy").count() == 0, "代理输入框该收走了（有梯子会自动用）"
             txt = pg.inner_text("#drawer")
             for bad in ("解析接口", "视频号", "自动更新", "高级设置", "支持平台"):
                 assert bad not in txt, "「%s」还占着设置的地方" % bad
@@ -125,7 +125,7 @@ def main():
             c1 = card(pg)
             assert (c1["x"], c1["y"], c1["w"], c1["h"]) == (c0["x"], c0["y"], c0["w"], c0["h"]), \
                 "换页时卡片跳了: %s -> %s" % (c0, c1)
-            assert pg.is_visible("#cfgProxy"), "高级页没打开"
+            assert pg.is_visible("#cfgCookies"), "高级页没打开"
             assert pg.inner_text("#setTitle") == "高级", "换页后标题没变"
             assert pg.is_visible("#setBack"), "高级页没有返回键"
             assert not pg.is_visible("#setMain"), "常用页没让位"
@@ -169,14 +169,18 @@ def main():
             # ⑥ 完成：存完再关
             pg.evaluate("() => document.querySelector('#openAdv').click()")
             pg.wait_for_timeout(300)
-            pg.fill("#cfgProxy", "http://127.0.0.1:7890")
+            pg.fill("#cfgCookies", "")
+            pg.locator("#cfgDanmaku").evaluate(
+                "e => { e.checked = !e.checked; e.dispatchEvent(new Event('change', {bubbles:true})); }")
+            pg.wait_for_timeout(200)
+            want_dm = pg.locator("#cfgDanmaku").is_checked()
             pg.evaluate("() => document.querySelector('#saveCfg').click()")
             pg.wait_for_timeout(700)
             assert not pg.evaluate("() => document.querySelector('#drawer').classList.contains('on')"), \
                 "点完成没关上"
             cfg = json.loads(OP.open("http://127.0.0.1:%d/api/state" % port, timeout=8)
                              .read().decode("utf-8"))["config"]
-            assert cfg["proxy"] == "http://127.0.0.1:7890", "完成没存住: %s" % cfg
+            assert bool(cfg["save_danmaku"]) == want_dm, "完成没存住: %s" % cfg
             log("  OK 完成按钮：存下来再关")
 
             # ⑦ 窄窗：两页都不横向溢出

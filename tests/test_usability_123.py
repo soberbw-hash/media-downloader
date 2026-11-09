@@ -72,16 +72,17 @@ def main():
         assert pg.locator(".chips .chip").count() == 4, "四个存项没并到一行"
         log("  ✓ 常用项一屏看全，没有折叠")
 
-        # ---- 3. 「一键收网页」这种少用的，换到高级那一页 ----
-        assert pg.locator("#btnCopyBookmark").count() == 1
-        assert pg.locator("#btnGrabClip").count() == 1
-        assert not pg.locator("#btnGrabClip").is_visible(), "书签按钮还在常用页上"
+        # ---- 3. 少用的东西：看不懂的入口直接收走，不靠解释 ----
+        for gone in ("#btnCopyBookmark", "#btnGrabClip", "#cfgProxy"):
+            assert pg.locator(gone).count() == 0, "%s 还挂在界面上" % gone
         pg.evaluate("() => document.querySelector('#openAdv').click()")
         pg.wait_for_timeout(300)
-        assert pg.locator("#btnGrabClip").is_visible(), "高级页里找不到书签按钮"
+        assert pg.locator("#cfgCookies").is_visible(), "高级页里没有 Cookie"
+        assert "网络代理" not in pg.inner_text("#setAdv"), "代理这一项还在"
+        assert "网页书签" not in pg.inner_text("#setAdv"), "网页书签这一项还在"
         pg.evaluate("() => document.querySelector('#setBack').click()")
         pg.wait_for_timeout(300)
-        log("  ✓ 网页书签挪到高级页，常用页看不见")
+        log("  ✓ 网络代理 / 网页书签入口已收走，高级页只剩命名模板 + Cookie + 退出")
 
         # ---- 4. 改完即存：不点「完成」，后端也要变 ----
         box = pg.locator("#cfgDanmaku")

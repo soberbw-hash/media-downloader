@@ -6,9 +6,9 @@
   1. Suno 游客态：不再把加密片段 / 4.8KB 静音占位当歌，给人话提示且不留文件
   2. 公开可下的 Suno 歌回归正常（别把好的也拦了）
   3. 账号登录里能找到 Suno，境外站点登录窗口会自动带系统代理
-  4. 一键收网页：/push 带钥匙才收，页面说人话；书签链接由后端钥匙生成
+  4. 老书签兜底：/push 带钥匙才收，页面说人话（界面上的入口已经收走）
   5. 视频号：本机辅助接口探测不拖慢流程，解析凭证能存能读
-  6. 界面：书签、剪贴板按钮、设置项都在，点一下不报错
+  6. 界面：代理 / 网页书签入口都不在，剩下的设置项点一下不报错
 """
 import json
 import os
@@ -109,7 +109,7 @@ def test_push():
 
     bad = get("/push?k=wrong&url=" + urllib.parse.quote(PUBLIC_SONG, safe=""),
               raw=True).decode("utf-8", "replace")
-    assert "没能加进队列" in bad and "书签过期" in bad, "错钥匙不该收"
+    assert "没能加进队列" in bad and "对不上" in bad, "错钥匙不该收"
 
     good = get("/push?k=" + key + "&url=" + urllib.parse.quote(PUBLIC_SONG, safe=""),
                raw=True).decode("utf-8", "replace")
@@ -172,19 +172,15 @@ def test_ui():
         pg.goto(URL + "/", wait_until="networkidle")
         pg.wait_for_timeout(900)
 
-        href = pg.evaluate("() => (typeof bookmarklet === 'string' ? bookmarklet : '')")
-        assert href.startswith("javascript:") and "/push?k=" in href, \
-            "书签链接没生成：" + href[:80]
-        log("书签链接:", href[:110] + "…")
+        assert pg.locator("#btnCopyBookmark").count() == 0, "网页书签入口该收走了"
+        assert pg.locator("#cfgProxy").count() == 0, "代理输入框该收走了"
 
         pg.click("#openSet")
         pg.wait_for_timeout(300)
         pg.click("#openAdv")
         pg.wait_for_timeout(300)
-        assert pg.is_visible("#btnGrabClip"), "高级页里没有收剪贴板按钮"
+        assert pg.is_visible("#cfgCookies"), "高级页里没有 Cookie"
         assert pg.locator("#cfgSphToken").count() == 0, "解析接口不该再出现在界面上"
-        pg.click("#btnGrabClip")     # headless 里读不到剪贴板也应安静兜住
-        pg.wait_for_timeout(300)
 
         pg.click("#setBack")         # 退回常用页，账号入口在那儿
         pg.wait_for_timeout(300)

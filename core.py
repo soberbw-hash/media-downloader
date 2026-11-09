@@ -6,6 +6,7 @@
 import json
 import os
 import re
+import socket
 import subprocess
 import sys
 import threading
@@ -601,17 +602,105 @@ def system_proxy():
     return server
 
 
+# 常见梯子客户端在本机开的 HTTP 代理端口。用户不会去设置里填端口，
+# 但客户端默认就在这几个上：Clash 7890 / Clash Verge 7897 / v2rayN 10809 /
+# Surge 6152 / ClashX 7890·8889 / V2rayU 1087。
+LOCAL_PROXY_PORTS = (7890, 7897, 7891, 1087, 10809, 2080, 6152, 8889)
+
+_proxy_cache = {"at": 0.0, "url": ""}
+
+
+def _proxy_works(host, port, timeout=1.5, connect_timeout=0.35):
+    """这个地址是不是一个真能出去的 HTTP 代理：发一次 CONNECT 看它回不回 200。
+    光看端口开着不够——7890 也可能被别的程序占着，用错了反而把下载搞挂。"""
+    try:
+        s = socket.create_connection((host, port), timeout=connect_timeout)
+    except OSError:
+        return False
+    try:
+        s.settimeout(timeout)
+        s.sendall(b"CONNECT www.youtube.com:443 HTTP/1.1\r\n"
+                  b"Host: www.youtube.com:443\r\n\r\n")
+        head = s.recv(64)
+        first = head.split(b"\r\n", 1)[0]
+        return first.startswith(b"HTTP/") and b" 200" in first
+    except OSError:
+        return False
+    finally:
+        try:
+            s.close()
+        except OSError:
+            pass
+
+
+def local_proxy():
+    """系统代理没开时（有的客户端只监听端口、不接管系统代理），
+    顺手看一眼本机常见端口上有没有能用的代理。命中就用，用户什么都不用填。
+
+    并行探、每个只等 0.12 秒：本机安全软件会把连不上的端口挂满超时，
+    一个个等下来能拖好几秒，全放到线程里一起等就只剩一次的钱。"""
+    now = time.time()
+    if now - _proxy_cache["at"] < 300:
+        return _proxy_cache["url"]
+    hits = {}
+
+    def probe(port):
+        if _proxy_works("127.0.0.1", port, connect_timeout=0.12):
+            hits[port] = 1
+
+    ts = [threading.Thread(target=probe, args=(p,), daemon=True)
+          for p in LOCAL_PROXY_PORTS]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join(2.0)
+    url = ""
+    for port in LOCAL_PROXY_PORTS:          # 按偏好顺序取第一个通的
+        if port in hits:
+            url = "http://127.0.0.1:%d" % port
+            break
+    _proxy_cache["at"] = now
+    _proxy_cache["url"] = url
+    return url
+
+
+def proxy_reaches(proxy_url):
+    """这个代理本身能不能到境外。系统代理经常是公司装的那种（存在但出不去），
+    所以不能「有代理就当能通」，得真握一次手。Socks 的认不出来，先当好用。"""
+    try:
+        u = urllib.parse.urlparse(proxy_url or "")
+    except ValueError:
+        return False
+    if not u.hostname:
+        return False
+    if (u.scheme or "").lower().startswith("socks"):
+        return True
+    return _proxy_works(u.hostname, u.port or 8080)
+
+
+def reach_overseas(timeout=1.2):
+    """现在这台机器能不能到境外站。开了 TUN 模式 / 全局代理的，直连就通。"""
+    for host in ("www.youtube.com", "www.google.com"):
+        try:
+            s = socket.create_connection((host, 443), timeout=timeout)
+            s.close()
+            return True
+        except OSError:
+            continue
+    return False
+
+
 def resolve_proxy(platform, cfg_proxy):
     """决定这条任务走哪个代理。
-    - 设置里填了就用设置的
-    - 没填且是境外平台，自动用系统代理（否则直连一定超时）
+    - 设置里填了就用设置的（老配置，界面上已经没有这一项了）
+    - 境外平台：系统代理 -> 本机常见端口上真能用的代理 -> 直连（TUN 模式）
     - 其余情况返回 ""，表示直连，且要显式屏蔽环境变量里的代理
     """
     cfg_proxy = (cfg_proxy or "").strip()
     if cfg_proxy:
         return cfg_proxy
     if platform in OVERSEAS:
-        return system_proxy() or ""
+        return system_proxy() or local_proxy() or ""
     return ""
 
 
@@ -1290,14 +1379,14 @@ _ERR_RULES = [
     (("private", "私密", "仅粉丝"), "私密内容", "作者设了权限，登录对应账号才看得到"),
     (("412", "risk", "verify", "风控", "验证码"), "触发了风控", "等几分钟再试，别一次贴太多条"),
     (("429", "too many", "频繁"), "被限速了", "把「同时下载数」调到 2，歇会儿再下"),
-    (("timed out", "timeout", "超时", "connection reset"), "网络超时", "重试一次通常就好；境外平台留意代理"),
+    (("timed out", "timeout", "超时", "connection reset"), "网络超时", "重试一次通常就好；境外站点要先开梯子（VPN）"),
     (("ssl", "certificate", "cert verify"), "证书校验失败", "系统时间不对，或者代理在劫持 https"),
     (("unsupported url", "no suitable", "不支持", "无法解析"), "这个链接解析不了", "换分享里的完整短链再试"),
     (("no space", "磁盘", "disk full"), "磁盘空间不足", "换个下载目录，或者清点空间"),
     (("permission", "access is denied", "拒绝访问", "winerror 5"), "写不进这个目录", "安全软件可能锁了文件，换个目录试试"),
     (("ffmpeg",), "缺少 ffmpeg", "合并音视频要用它，装一个再下"),
-    (("region", "country", "地区", "geo"), "地区限制", "需要挂代理才能下"),
-    (("connection refused", "max retries", "连接", "network is unreachable"), "连不上", "网络不通，或者代理挂了"),
+    (("region", "country", "地区", "geo"), "地区限制", "要先开梯子（VPN）才能下"),
+    (("connection refused", "max retries", "连接", "network is unreachable"), "连不上", "先看看梯子（VPN）开没开，再重试"),
 ]
 
 
@@ -1557,7 +1646,7 @@ class Manager(object):
                 if ("403" in raw or "Blocked" in raw or "authentication" in raw.lower()):
                     msg = "Reddit 拒绝了这台机器的出口 IP，换个代理再试。（%s）" % raw
                 else:
-                    msg = "连不上 Reddit，检查代理。（%s）" % raw
+                    msg = "连不上 Reddit，先把梯子（VPN）打开再试。（%s）" % raw
             elif t.platform in ("tiktok", "youtube", "twitter", "vimeo", "twitch"):
                 # 以前一律说"代理没开"，但链接失效、要登录也是同样的报错，会把方向带偏
                 low = raw.lower()
@@ -1572,7 +1661,7 @@ class Manager(object):
                 elif any(k in low for k in ("geo", "region", "country", "not made this video available")):
                     msg = "地区限制，换个出口再试。（%s）" % raw
                 else:
-                    msg = "连不上，检查代理是否覆盖这个域名。（%s）" % raw
+                    msg = "连不上。这个站在境外，先把梯子（VPN）打开再试。（%s）" % raw
             elif t.platform == "unknown":
                 msg = "这个站点解析不了，可能要登录或用强加密。（%s）" % raw
             elif "Unsupported URL" in raw:

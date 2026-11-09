@@ -295,6 +295,45 @@ def xhs_resolve(url):
     return note_id, token, final
 
 
+def _sanitize_state_json(blob):
+    """__INITIAL_STATE__ 里混着 JS 语法，先洗成合法 JSON 再 json.loads。
+
+    实测会遇到：new Map([]) / new Set([])（空集合直接替掉就够，
+    真带数据的 Map 页面数据里用不到）；undefined 也不是 JSON。
+    """
+    blob = re.sub(r"new Map\(\s*\[\s*\]\s*\)", "{}", blob)
+    blob = re.sub(r"new Set\(\s*\[\s*\]\s*\)", "[]", blob)
+    blob = blob.replace("undefined", "null")
+    return blob
+
+
+def _xhs_note_from_html(html, note_id):
+    """从 explore 页 HTML 里抠出笔记对象；失败时抛带出路的 RuntimeError。"""
+    idx = html.find("__INITIAL_STATE__")
+    if idx < 0:
+        raise RuntimeError("小红书没给笔记数据，一般是没登录。去「设置 → 账号」登录后重试")
+    start = html.find("{", idx)
+    blob = _json_object_at(html, start)
+    if not blob:
+        raise RuntimeError("小红书页面结构变了，解析不了。重试一次，还不行就反馈")
+    try:
+        state = json.loads(_sanitize_state_json(blob))
+    except Exception:
+        # 清洗后还挂，多半是页面改版；别再往「要登录」上带
+        raise RuntimeError("小红书页面数据读不出来。重试一次，还不行就反馈")
+
+    detail = (state.get("note") or {}).get("noteDetailMap") or {}
+    note = (detail.get(note_id) or {}).get("note") or {}
+    if not note:
+        for v in detail.values():
+            note = (v or {}).get("note") or {}
+            if note:
+                break
+    if not note:
+        raise RuntimeError("没拿到笔记内容：可能已删除、设为私密，或要登录")
+    return note
+
+
 def xhs_images(note):
     """小红书图文笔记的图片地址，尽量取原图（去掉 !nd_dft_xxx 缩略后缀）。"""
     out = []
@@ -312,6 +351,63 @@ def xhs_images(note):
         if u:
             out.append(u)
     return out
+
+
+def _xhs_video_urls(note, quality="best"):
+    """从 video.media / video.mediaV2 里收播放地址，按质量排序。
+
+    编码键历史上叫 h264/h265/av1，现在改叫 EF4/EF5/EF6——别写死，
+    stream 下面每一路都扫，新名字也接得住。mediaV2 是 JSON 字符串、蛇形键。
+    """
+    video = note.get("video") or {}
+    picked = []   # (短边, 宽*高, 码率, 主地址, [备用])
+
+    def take(group, url_key="masterUrl", bak_key="backupUrls"):
+        for s in group or []:
+            if not isinstance(s, dict):
+                continue
+            u = (s.get(url_key) or "").strip()
+            if not u:
+                continue
+            w, h = s.get("width") or 0, s.get("height") or 0
+            picked.append((min(w, h), w * h, s.get("videoBitrate") or 0,
+                           u, s.get(bak_key) or []))
+
+    def take_stream(container, url_key="masterUrl", bak_key="backupUrls"):
+        for group in (container or {}).values():
+            take(group, url_key, bak_key)
+
+    take_stream((video.get("media") or {}).get("stream"))
+    take((video.get("media") or {}).get("video"))
+
+    mv2 = video.get("mediaV2")
+    if isinstance(mv2, str):
+        try:
+            mv2 = json.loads(mv2)
+        except Exception:
+            mv2 = {}
+    if isinstance(mv2, dict):
+        # mediaV2 是蛇形键：master_url / backup_urls
+        take_stream(mv2.get("stream"), "master_url", "backup_urls")
+        take(mv2.get("video"), "master_url", "backup_urls")
+
+    key = (video.get("consumer") or {}).get("originVideoKey")
+    if key:
+        picked.append((0, 0, 0, "https://sns-video-bd.xhscdn.com/%s" % key, []))
+
+    want720 = (quality or "").strip().lower() == "720"
+    if want720:
+        # 720p 档（短边 ≤ 720）优先；一档都没有就退回全量，总比下不到强
+        floor = [p for p in picked if p[0] and p[0] <= 720]
+        if floor:
+            picked = floor
+    picked.sort(key=lambda x: (x[1], x[2]), reverse=True)
+
+    urls = []
+    for _, _, _, u, baks in picked:
+        urls.append(u)
+        urls.extend([b for b in baks if b])
+    return urls
 
 
 def xhs_download(url, out_dir, progress, quality="best", cookies_file=None):
@@ -335,47 +431,13 @@ def xhs_download(url, out_dir, progress, quality="best", cookies_file=None):
     if cookie:
         hdr["Cookie"] = cookie
     html = http_get(page, hdr, timeout=25).read().decode("utf-8", "ignore")
-
-    idx = html.find("__INITIAL_STATE__")
-    if idx < 0:
-        raise RuntimeError("页面没返回笔记数据，小红书限制了未登录访问")
-    start = html.find("{", idx)
-    blob = _json_object_at(html, start)
-    if not blob:
-        raise RuntimeError("页面数据结构异常")
-    blob = blob.replace("undefined", "null")
-    try:
-        state = json.loads(blob)
-    except Exception:
-        raise RuntimeError("笔记数据解析失败，可能需要登录 cookies")
-
-    detail = (state.get("note") or {}).get("noteDetailMap") or {}
-    note = (detail.get(note_id) or {}).get("note") or {}
-    if not note:
-        for v in detail.values():
-            note = (v or {}).get("note") or {}
-            if note:
-                break
-    if not note:
-        raise RuntimeError("没拿到笔记内容，可能已删除或需要登录")
+    note = _xhs_note_from_html(html, note_id)
 
     title = note.get("title") or (note.get("desc") or "")[:40] or "小红书笔记"
     author = ((note.get("user") or {}).get("nickname")) or "未知作者"
     progress(title=title, author=author)
 
-    video = note.get("video") or {}
-    urls = []
-    media = ((video.get("media") or {}).get("stream") or {})
-    for codec in ("h264", "h265", "av1"):
-        for s in media.get(codec) or []:
-            if s.get("masterUrl"):
-                urls.append(s["masterUrl"])
-    for key in (video.get("consumer") or {}).get("originVideoKey"),:
-        if key:
-            urls.append("https://sns-video-bd.xhscdn.com/%s" % key)
-    for s in (video.get("media") or {}).get("video") or []:
-        if s.get("masterUrl"):
-            urls.append(s["masterUrl"])
+    urls = _xhs_video_urls(note, quality)
 
     if not urls:
         imgs = xhs_images(note)
@@ -386,6 +448,8 @@ def xhs_download(url, out_dir, progress, quality="best", cookies_file=None):
                                     {"User-Agent": UA_PC,
                                      "Referer": "https://www.xiaohongshu.com/"})
             return folder, files
+        if (note.get("type") or "") == "video":
+            raise RuntimeError("视频地址没解析出来，重试一次；还不行就反馈")
         raise RuntimeError("这条笔记里既没有视频也没有图片")
 
     out_path = unique_path(os.path.join(

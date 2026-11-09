@@ -1,6 +1,9 @@
 /* 用 mock 的 chrome API 真跑一遍扩展的 syncAll()，打到本机正在运行的下载器。
  * 不用真装扩展就能验证「扩展 → 本机服务」整条链路。
- *   node tests/test_extension_sync.mjs
+ *   VDL_TEST_URL=http://127.0.0.1:8768 node tests/test_extension_sync.mjs
+ *
+ * 只打 VDL_TEST_URL 指定的端口（默认 8768）；8765 常被用户桌面版占着，
+ * 误连上去会把假 cookie 写进真登录态里，必须钉死。
  */
 import fs from "node:fs";
 import vm from "node:vm";
@@ -10,6 +13,17 @@ import { fileURLToPath } from "node:url";
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const SRC = fs.readFileSync(
   path.join(ROOT, "browser-extension", "background.js"), "utf-8");
+const TEST_URL = (process.env.VDL_TEST_URL || "http://127.0.0.1:8768").replace(/\/+$/, "");
+
+const realFetch = globalThis.fetch;
+const fetch = async (url, opts) => {
+  const u = String(url);
+  if (!u.startsWith(TEST_URL + "/") && u !== TEST_URL) {
+    // 别的端口一律当不存在，防止扩展的端口探测扫到用户桌面上的真服务
+    return { ok: false, status: 0, json: async () => ({}) };
+  }
+  return realFetch(u, opts);
+};
 
 const fakeCookies = {
   "suno.com": [{
@@ -25,7 +39,11 @@ const fakeCookies = {
 const store = {};
 const noopListener = { addListener() {} };
 const chrome = {
-  cookies: { getAll: async ({ domain }) => fakeCookies[domain] || [] },
+  cookies: {
+    getAll: async ({ domain }) => fakeCookies[domain] || [],
+    onChanged: noopListener
+  },
+  tabs: { onUpdated: noopListener },
   storage: { local: {
     get: async (keys) => {
       const out = {};

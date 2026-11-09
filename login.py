@@ -58,8 +58,8 @@ SITES = {
     "xiaohongshu": {
         "name": "小红书", "url": "https://www.xiaohongshu.com/explore",
         "need": ["web_session"], "domains": ["xiaohongshu.com"],
-        # 小红书连游客都发 web_session，必须再问一次接口是不是游客态
-        "verify": "xhs", "required": True,
+        # web_session 只有登录后才有（游客 cookie 里没有），拿它当登录判据
+        "required": True,
         "tip": "小红书不给未登录访客视频地址，必须登录",
     },
     "instagram": {
@@ -672,8 +672,8 @@ def setup_ext():
 def start(pid, proxy=None):
     """「登录」主入口：直接用系统默认浏览器打开，不再弹任何自动化窗口。
 
-    登录态由浏览器扩展一键同步，或手动粘贴 cookie。返回 (ok, 人话消息)。
-    proxy 参数留着是为了兼容旧调用，现在用不上。
+    登录态由浏览器扩展自动同步回来（只登一个站也行，登谁谁同步）。
+    返回 (ok, 人话消息)。proxy 参数留着是为了兼容旧调用，现在用不上。
     """
     if pid not in SITES:
         return False, "不支持的登录平台"

@@ -116,7 +116,9 @@ async function autoOn() {
 }
 
 chrome.runtime.onInstalled.addListener(async () => {
-  await chrome.storage.local.set({ auto: true });
+  // 只在从没设过时才给默认值，升级时不覆盖用户手动关掉的选择
+  const d = await chrome.storage.local.get("auto");
+  if (d.auto === undefined) await chrome.storage.local.set({ auto: true });
   schedule();
   syncAll();                    // 装完立刻送一次登录态
 });
@@ -132,7 +134,7 @@ chrome.alarms.onAlarm.addListener(a => {
 
 /* 登录完就自动送过来：不用用户回来点「同步」，也不用等 15 分钟的定时器。
    登录成功的那一刻 cookie 会变，站点页面加载完也会触发；合并 4 秒内的抖动，
-   两次同步至少隔 15 秒，免得频繁扫 cookie。 */
+   两次同步至少隔 15 秒，免得频繁扫 cookie——但这波变化不能丢，到点补跑。 */
 let syncTimer = null;
 let lastSyncAt = 0;
 
@@ -143,13 +145,20 @@ function isWatched(domain) {
 
 function queueSync() {
   if (syncTimer) clearTimeout(syncTimer);
-  syncTimer = setTimeout(async () => {
-    syncTimer = null;
-    if (Date.now() - lastSyncAt < 15000) return;
-    if (!(await autoOn())) return;
-    lastSyncAt = Date.now();
-    await syncAll();
-  }, 4000);
+  syncTimer = setTimeout(runSync, 4000);
+}
+
+async function runSync() {
+  syncTimer = null;
+  if (!(await autoOn())) return;
+  const wait = lastSyncAt ? (15000 - (Date.now() - lastSyncAt)) : 0;
+  if (wait > 0) {
+    // 刚同步过没多久：到点再补一次，别把这波 cookie 变化吞掉
+    syncTimer = setTimeout(runSync, wait);
+    return;
+  }
+  lastSyncAt = Date.now();
+  await syncAll();
 }
 
 chrome.cookies.onChanged.addListener(info => {

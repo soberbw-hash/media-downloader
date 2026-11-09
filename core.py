@@ -1639,7 +1639,10 @@ class Manager(object):
             if t.platform == "kuaishou":
                 msg = "快手要登录才能解析。去「设置 → 账号」登一次再重试。（%s）" % raw
             elif t.platform == "xiaohongshu":
-                msg = "小红书要登录才能拿到地址。设置里登录后重试。（%s）" % raw
+                # cn_sites 的报错已经写清原因和出路，别再一律安「要登录」把人带偏
+                msg = raw if any(k in raw for k in
+                                 ("登录", "重试", "反馈", "分享", "删除", "图片")) \
+                    else "小红书解析失败，重试一次看看。（%s）" % raw
             elif t.platform == "instagram":
                 msg = "Instagram 要登录 cookies + 代理，配好再试。"
             elif t.platform == "reddit":

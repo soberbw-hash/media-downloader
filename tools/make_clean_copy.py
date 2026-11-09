@@ -98,6 +98,12 @@ def clean(dst):
     data["out_dir_set"] = True
     data.pop("music_dir", None)
     data["cookies_file"] = ""
+    # 外发包的默认值：跟开发机 config.json 解耦，别人拿到手就是这个状态
+    data["name_tpl"] = "{date}_{platform}_{author}_{title}"
+    data["save_cover"] = False
+    data["down_subs"] = False
+    data["save_danmaku"] = False
+    data["save_desc"] = False
     os.makedirs(os.path.join(dst, "下载的文件"), exist_ok=True)
     tmp = cfg + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:

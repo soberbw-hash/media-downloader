@@ -43,7 +43,7 @@ check("cfgMusicDir" not in html and "pickMusic" not in html,
       "音乐目录的输入框和浏览按钮已删")
 check("音乐目录" not in html and "跟视频放一起" not in html,
       "界面上没有音乐目录相关文字")
-check(html.count('class="path-row"') == 1, "设置里只有一个路径行")
+check(html.count("path-row") == 1, "设置里只有一个路径行")
 for token in ("cfgMusicDir", "pickMusic", "music_dir", "音乐目录"):
     check(token not in js, "app.js 里没有 %s" % token)
 

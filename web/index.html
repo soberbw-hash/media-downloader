@@ -41,6 +41,12 @@
     </div>
   </div>
 
+  <!-- 支持哪些站：摆在粘贴框下面，不用进设置翻 -->
+  <div class="platline" id="platLine">
+    <span class="pl-l">支持</span>
+    <span class="support" id="support"></span>
+  </div>
+
   <!-- 搜索：按名字全网检索，结果混排并标出来源 -->
   <div class="music" id="musicPanel" hidden>
     <div class="msearch">
@@ -176,11 +182,17 @@
 
 <div class="mask" id="mask"></div>
 
-<!-- ---------- 设置：居中弹窗，两栏铺开，不再挤在一条窄边栏里 ---------- -->
+<!-- ---------- 设置：一屏看全，不折叠不展开；真少用的东西换一页，卡片高度始终不变 ---------- -->
 <div class="modal" id="drawer" role="dialog" aria-modal="true" aria-label="设置">
  <div class="mcard set-card">
-  <div class="drawer-head">
-    <h3>设置</h3>
+  <div class="drawer-head set-head">
+    <button class="back-btn" id="setBack" hidden title="返回" aria-label="返回">
+      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+        <path d="M14.5 5.5L8 12l6.5 6.5" fill="none" stroke="currentColor"
+              stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </button>
+    <h3 id="setTitle">设置</h3>
     <button class="drawer-x" id="closeSet" title="关闭" aria-label="关闭设置">
       <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
         <path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor"
@@ -191,216 +203,172 @@
 
   <div class="drawer-body set-body">
 
-    <button class="acct-entry" id="openAcct" type="button">
-      <span class="ae-ic" aria-hidden="true">
-        <svg viewBox="0 0 24 24" width="15" height="15">
-          <circle cx="12" cy="8.4" r="3.3" fill="none" stroke="currentColor" stroke-width="1.6"/>
-          <path d="M5.8 19c.7-2.9 3.2-4.5 6.2-4.5s5.5 1.6 6.2 4.5" fill="none"
-                stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-        </svg>
-      </span>
-      <span class="ae-body">
-        <span class="ae-t">账号登录</span>
-        <span class="ae-s" id="acctSummary">只有少数平台需要登录</span>
-      </span>
-      <span class="ae-arrow" aria-hidden="true">
-        <svg viewBox="0 0 24 24" width="13" height="13">
-          <path d="M9.5 5.5L16 12l-6.5 6.5" fill="none" stroke="currentColor"
-                stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </span>
-    </button>
+    <!-- ===== 常用：日常要用的全在这儿，不用点开任何东西 ===== -->
+    <div class="pane" id="setMain">
 
-    <div class="set-cols">
-    <div class="set-col">
+      <button class="acct-entry" id="openAcct" type="button">
+        <span class="ae-ic" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="15" height="15">
+            <circle cx="12" cy="8.4" r="3.3" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <path d="M5.8 19c.7-2.9 3.2-4.5 6.2-4.5s5.5 1.6 6.2 4.5" fill="none"
+                  stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          </svg>
+        </span>
+        <span class="ae-body">
+          <span class="ae-t">账号</span>
+          <span class="ae-s" id="acctSummary">只有少数平台需要登录</span>
+        </span>
+        <span class="ae-arrow" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="13" height="13">
+            <path d="M9.5 5.5L16 12l-6.5 6.5" fill="none" stroke="currentColor"
+                  stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </span>
+      </button>
 
-    <section class="grp">
-      <div class="field">
-        <label for="cfgOut">下载目录</label>
-        <div class="path-row">
-          <input id="cfgOut" placeholder="D:\素材\下载">
-          <button class="pick-btn" id="pickOut">浏览</button>
+      <div class="rows">
+        <div class="row">
+          <span class="row-l">保存到</span>
+          <div class="row-c path-row">
+            <input id="cfgOut" placeholder="默认文件夹" title="下载好的文件都放这儿">
+            <button class="pick-btn" id="pickOut">更改</button>
+          </div>
         </div>
-      </div>
 
-      <details class="qbox name-box" id="nameBox">
-        <summary id="nameSummary">文件命名</summary>
-        <div class="qbox-body">
-          <div class="field">
-            <label for="cfgNamePre">模板</label>
+        <div class="row">
+          <span class="row-l">一起存</span>
+          <div class="row-c chips">
+            <label class="chip" title="多存一张同名的封面图">
+              <input type="checkbox" id="cfgCover"><i aria-hidden="true"></i><span>封面图</span>
+            </label>
+            <label class="chip" title="B站、YouTube 有字幕时存成 .srt">
+              <input type="checkbox" id="cfgSubs"><i aria-hidden="true"></i><span>字幕</span>
+            </label>
+            <label class="chip" title="B站弹幕存成同名的 .xml">
+              <input type="checkbox" id="cfgDanmaku"><i aria-hidden="true"></i><span>弹幕</span>
+            </label>
+            <label class="chip" title="标题、作者、链接、简介写成 .txt">
+              <input type="checkbox" id="cfgDesc"><i aria-hidden="true"></i><span>简介</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="row">
+          <span class="row-l">画质</span>
+          <div class="row-c">
+            <select id="cfgQuality" title="登了音乐会员会优先给无损">
+              <option value="best">最高画质</option>
+              <option value="1080">1080p 及以下</option>
+              <option value="720">720p 及以下</option>
+              <option value="audio">只要音频 mp3</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="row">
+          <span class="row-l">同时下载</span>
+          <div class="row-c">
+            <select id="cfgConc">
+              <option value="2">2 个</option>
+              <option value="3">3 个</option>
+              <option value="5">5 个</option>
+              <option value="8">8 个</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="row">
+          <span class="row-l">文件名</span>
+          <div class="row-c">
             <select id="cfgNamePre">
-              <option value="">默认（沿用原标题）</option>
+              <option value="">标题</option>
               <option value="{date}_{platform}_{author}_{title}" selected>日期_平台_作者_标题</option>
               <option value="{platform}_{author}_{title}">平台_作者_标题</option>
               <option value="{author}_{title}">作者_标题</option>
               <option value="{date}_{title}">日期_标题</option>
-              <option value="__custom__">自定义…</option>
             </select>
-            <div class="name-edit" id="nameEdit" hidden>
-              <input id="cfgNameTpl" placeholder="点下面的标签，拼出文件名" autocomplete="off">
-              <div class="toks" id="nameToks">
-                <button type="button" class="tok" data-t="{title}">标题</button>
-                <button type="button" class="tok" data-t="{author}">作者</button>
-                <button type="button" class="tok" data-t="{platform}">平台</button>
-                <button type="button" class="tok" data-t="{date}">日期</button>
-                <button type="button" class="tok" data-t="{time}">时间</button>
-                <button type="button" class="tok" data-t="{id}">ID</button>
-                <button type="button" class="tok" data-t="{kind}">类型</button>
-              </div>
-            </div>
-            <div class="hint" id="nameHint">留空用原标题。选「自定义」后，点标签往里加，用下划线连接。</div>
           </div>
         </div>
-      </details>
-
-      <div class="tg-list" title="打开的附件会收进一个跟视频同名的文件夹，下载目录里还是一排视频">
-        <label class="tg" title="多一张同名 .cover.jpg">
-          <span class="tg-txt"><b>保存封面图</b></span>
-          <span class="switch">
-            <input type="checkbox" id="cfgCover">
-            <span class="track"><i></i></span>
-          </span>
-        </label>
-        <label class="tg" title="B站、YouTube 有字幕时存成 .srt">
-          <span class="tg-txt"><b>下载字幕</b></span>
-          <span class="switch">
-            <input type="checkbox" id="cfgSubs">
-            <span class="track"><i></i></span>
-          </span>
-        </label>
-        <label class="tg" title="B站弹幕存成同名 .xml 文件">
-          <span class="tg-txt"><b>保存弹幕</b></span>
-          <span class="switch">
-            <input type="checkbox" id="cfgDanmaku">
-            <span class="track"><i></i></span>
-          </span>
-        </label>
-        <label class="tg" title="标题、作者、链接、简介写成同名 .txt">
-          <span class="tg-txt"><b>保存简介</b></span>
-          <span class="switch">
-            <input type="checkbox" id="cfgDesc">
-            <span class="track"><i></i></span>
-          </span>
-        </label>
       </div>
-    </section>
 
-    <section class="grp">
-      <div class="grp-t">下载</div>
-      <div class="grp-cols">
-        <div class="field">
-          <label for="cfgQuality">清晰度</label>
-          <select id="cfgQuality" title="最高画质：登了音乐会员会优先取无损；720p 用普通音质">
-            <option value="best">最高画质</option>
-            <option value="1080">1080p 及以下</option>
-            <option value="720">720p 及以下</option>
-            <option value="audio">仅音频 mp3</option>
-          </select>
+      <div class="upd-box">
+        <div class="row">
+          <span class="row-l">版本</span>
+          <div class="row-c upd-info">
+            <b id="curVer">v—</b>
+            <i id="updMsg">自动更新已开启</i>
+          </div>
+          <button class="pick-btn" id="checkUpd">检查更新</button>
         </div>
-        <div class="field">
-          <label for="cfgConc">同时下载</label>
-          <select id="cfgConc">
-            <option value="2">2 个（稳）</option>
-            <option value="3">3 个（推荐）</option>
-            <option value="5">5 个（快）</option>
-            <option value="8">8 个（易限速）</option>
-          </select>
-        </div>
+        <div class="upd-bar" id="updBar" hidden><i></i></div>
+        <i class="upd-tip" id="updTip" hidden>GitHub 下载慢？先开 VPN / 代理</i>
       </div>
-    </section>
 
     </div>
-    <div class="set-col">
 
-    <section class="grp">
-      <div class="grp-t">版本与更新</div>
-      <div class="upd-row">
-        <div class="upd-info">
-          <b id="curVer">v—</b>
-          <i id="updMsg">启动时自动检查新版</i>
-        </div>
-        <button class="pick-btn" id="checkUpd">检查更新</button>
-      </div>
-      <div class="upd-bar" id="updBar" hidden><i></i></div>
-      <i class="upd-tip" id="updTip" hidden>GitHub 下载慢？先开 VPN / 代理</i>
-    </section>
+    <!-- ===== 高级：换一页，卡片高度不变，所以不会跳 ===== -->
+    <div class="pane" id="setAdv" hidden>
 
-    <details class="adv" id="advBox">
-      <summary>高级设置</summary>
-      <div class="adv-body">
-
-        <div class="field">
-          <label class="tg" for="cfgAutoUpd">
-            <span class="tg-txt"><b>自动更新</b></span>
-            <span class="switch">
-              <input type="checkbox" id="cfgAutoUpd">
-              <span class="track"><i></i></span>
-            </span>
-          </label>
-        </div>
-
-        <div class="field">
-          <label for="cfgProxy">代理</label>
-          <input id="cfgProxy" placeholder="留空 = 自动用系统代理">
-          <div class="hint">境外平台自动走系统代理，国内平台始终直连</div>
-        </div>
-
-        <div class="field">
-          <label for="cfgCookies">cookies 文件 <span class="opt">可选</span></label>
-          <input id="cfgCookies" placeholder="D:\cookies.txt">
-        </div>
-
-        <div class="field">
-          <label>视频号</label>
-          <div class="hint">分享短链里没有视频地址，自己的作品去助手里点「下载视频」就是原片。</div>
-          <button type="button" class="s-btn" id="btnChannels">打开视频号助手</button>
-          <details class="qbox">
-            <summary>解析接口（进阶）</summary>
-            <div class="qbox-body">
-              <input id="cfgSph" placeholder="https://你的解析服务/api/fetch_video_profile">
-              <input id="cfgSphToken" placeholder="访问凭证（没有就留空）" style="margin-top:8px">
-              <p>软件 POST <code>{"url": "分享链接"}</code> 到这个地址，凭证会放在
-              <code>Authorization: Bearer</code> 里。返回的 JSON 里带视频地址就行
-              （<code>videoUrl</code> / <code>url</code> / <code>src</code> 都认，
-              或者任意带 <code>stodownload</code> 的字符串）。境外接口会自动走系统代理。</p>
+      <div class="rows">
+        <div class="row row-top">
+          <span class="row-l">命名模板</span>
+          <div class="row-c">
+            <input id="cfgNameTpl" placeholder="留空 = 直接用视频标题" autocomplete="off" spellcheck="false">
+            <div class="toks" id="nameToks">
+              <button type="button" class="tok" data-t="{title}">标题</button>
+              <button type="button" class="tok" data-t="{author}">作者</button>
+              <button type="button" class="tok" data-t="{platform}">平台</button>
+              <button type="button" class="tok" data-t="{date}">日期</button>
+              <button type="button" class="tok" data-t="{time}">时间</button>
+              <button type="button" class="tok" data-t="{id}">ID</button>
+              <button type="button" class="tok" data-t="{kind}">类型</button>
             </div>
-          </details>
-        </div>
-
-        <div class="field">
-          <label>从网页收链接 <span class="opt">可选</span></label>
-          <div class="hint">主界面直接 Ctrl+V 就能贴链接，用不上可以不管。</div>
-          <div class="row-btns">
-            <button type="button" class="s-btn" id="btnCopyBookmark">复制书签地址</button>
-            <button type="button" class="s-btn" id="btnGrabClip">收下剪贴板</button>
+            <div class="hint" id="nameHint"></div>
           </div>
         </div>
 
-      </div>
-    </details>
-
-    <section class="grp">
-      <div class="grp-t">支持平台</div>
-      <div class="support" id="support"></div>
-    </section>
-
-    <section class="grp" id="quitGrp" hidden>
-      <div class="grp-t">退出</div>
-      <div class="upd-row">
-        <div class="upd-info">
-          <b>关掉窗口就退出了</b>
-          <i>后台没跟着退干净时，才需要点右边</i>
+        <div class="row">
+          <span class="row-l">网络代理</span>
+          <div class="row-c">
+            <input id="cfgProxy" placeholder="留空 = 跟着系统走">
+            <div class="hint">一般不用填。境外网站下不动时，才写自己的代理，比如 http://127.0.0.1:7890</div>
+          </div>
         </div>
-        <button class="pick-btn" id="quitApp">彻底退出</button>
-      </div>
-    </section>
 
-    </div>
+        <div class="row">
+          <span class="row-l">Cookie</span>
+          <div class="row-c">
+            <input id="cfgCookies" placeholder="选填，例如 D:\cookies.txt">
+            <div class="hint">只在个别必须登录的网站上用得上，平时留空</div>
+          </div>
+        </div>
+
+        <div class="row">
+          <span class="row-l">网页书签</span>
+          <div class="row-c">
+            <div class="row-btns">
+              <button type="button" class="s-btn" id="btnCopyBookmark">复制书签地址</button>
+              <button type="button" class="s-btn" id="btnGrabClip">收下剪贴板</button>
+            </div>
+            <div class="hint">逛网页时看到想下的，点一下浏览器书签，链接就送过来了</div>
+          </div>
+        </div>
+
+        <div class="row" id="quitGrp" hidden>
+          <span class="row-l">退出</span>
+          <div class="row-c">
+            <div class="hint">关窗口就是退出。后台没退干净、进程还在时才点这里</div>
+            <div class="row-btns"><button class="pick-btn" id="quitApp">彻底退出</button></div>
+          </div>
+        </div>
+      </div>
+
     </div>
 
   </div>
 
-  <div class="drawer-foot">
+  <div class="drawer-foot set-foot">
+    <button class="link-btn" id="openAdv">高级选项</button>
     <button class="save-btn" id="saveCfg">完成</button>
   </div>
  </div>

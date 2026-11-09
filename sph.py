@@ -9,7 +9,7 @@
     官方预览页只给封面和文案，视频流要登录态才发。
   · 所以这里提供两条路：
       1) 直接粘 finder.video.qq.com 的直链 —— 软件负责下载（带正确的 Referer）
-      2) 在设置里填一个「解析接口」，软件把分享链接发过去，取回直链
+      2) config.json 里填一个「解析接口」（界面不提供入口），软件把分享链接发过去，取回直链
 """
 
 import json
@@ -220,16 +220,17 @@ def resolve(share_url, api="", timeout=25, token=""):
         if data is None:
             raise RuntimeError(
                 "解析接口没回应，或没给视频地址\n"
-                "检查设置里的接口地址和凭证；境外接口会自动走系统代理\n"
+                "检查 config.json 里的接口地址和凭证；境外接口会自动走系统代理\n"
                 "也可能是这条视频设了权限，或者接口这会儿限流了")
     else:
         data = _local_helper(share_url)
         if not data:
             raise RuntimeError(
-                "视频号分享链接里没有视频\n"
-                "微信只把地址发给微信客户端，网页里拿不到，这是微信的限制\n"
-                "自己的作品：设置里点「打开视频号助手」下原片；别人的视频："
-                "在设置里填解析接口，或本机装 wx_channels_download（我会自动接上）")
+                "视频号分享链接里没有视频地址\n"
+                "微信只把这个地址发给它自己的客户端，网页里拿不到，这不是软件坏了\n"
+                "你自己的作品：电脑上打开 channels.weixin.qq.com（视频号助手），"
+                "后台点「下载视频」就是原片\n"
+                "别人的视频：只能在手机上保存到相册，或者录屏")
     media = _find_media(data)
     if not media:
         msg = _text_field(data, "error", "errMsg", "msg", "message", "detail")

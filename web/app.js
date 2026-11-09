@@ -699,33 +699,54 @@ function applyMode(mode) {
   });
 }
 
+/* 支持哪些站：摆在粘贴框下面一行小字。
+   只列真能下的 —— 要自己搭接口才有戏的（视频号）和明确不支持的，不在这儿画饼。 */
+const PLAT_LEVEL_TIP = {
+  cookie: "要登录一下才能下",
+  experimental: "能下，个别链接可能失败",
+};
+/* 一行放得下的才列出来，剩下的用「等 N 个」带过；鼠标停在整个行上能看到全部 */
+const PLAT_ORDER = ["douyin", "bilibili", "xiaohongshu", "kuaishou", "weibo",
+  "ixigua", "youtube", "twitter", "tiktok", "instagram", "netease", "qqmusic", "suno"];
+const PLAT_SHOW_MAX = 13;
+
 function renderSupport(list) {
   if (supportRendered) return;
   supportRendered = true;
   const box = $("#support");
   if (!box) return;
+  const usable = list.filter((p) => p.level !== "unsupported" && p.level !== "needs-api");
+  const rank = (p) => {
+    const i = PLAT_ORDER.indexOf(p.id);
+    return i < 0 ? PLAT_ORDER.length : i;
+  };
+  const sorted = usable.slice().sort((a, b) => rank(a) - rank(b));
+  const shown = sorted.slice(0, PLAT_SHOW_MAX);
+  const rest = sorted.length - shown.length;
+
   box.innerHTML = "";
-  list.forEach((p) => {
-    const el = document.createElement("span");
-    el.className = "tag";
-    if (p.level === "needs-api") {
-      el.className = "tag warn";
-      el.title = "要填解析接口，或直接粘视频直链";
-    } else if (p.level === "cookie") {
-      el.className = "tag warn";
-      el.title = "需要登录 cookies 文件";
-    } else if (p.level === "experimental") {
-      el.className = "tag warn";
-      el.title = "实验性支持，部分链接可能失败";
-    } else if (p.level === "unsupported") {
-      el.className = "tag no";
-      el.title = "无公开接口，无法支持";
-    } else {
-      el.title = "开箱可用";
+  shown.forEach((p, i) => {
+    if (i) {
+      const sep = document.createElement("span");
+      sep.className = "pl-sep";
+      sep.textContent = "·";
+      box.appendChild(sep);
     }
+    const el = document.createElement("span");
+    el.className = "pl-item";
     el.textContent = p.name;
+    el.title = PLAT_LEVEL_TIP[p.level] || "粘链接就能下";
     box.appendChild(el);
   });
+  if (rest > 0) {
+    const more = document.createElement("span");
+    more.className = "pl-more";
+    more.textContent = "共 " + sorted.length + " 个网站";
+    more.title = sorted.map((p) => p.name).join("、");
+    box.appendChild(more);
+  }
+  const line = $("#platLine");
+  if (line) line.hidden = !usable.length;
 }
 
 /* ---------- 提交：一次粘贴 = 一批 ---------- */
@@ -1007,7 +1028,7 @@ function renderLogins(sites, status) {
   if (sum) {
     sum.textContent = on
       ? `已登录 ${on} / ${sites.length} 个平台`
-      : `${must} 个平台必须登录，其余可选`;
+      : `只有 ${must} 个平台要登录`;
   }
   const num = $("#acctNum");
   if (num) num.innerHTML = `${on}<span>/${sites.length}</span>`;
@@ -1211,23 +1232,33 @@ async function ensureDir() {
 }
 
 /* ---------- 设置 ---------- */
+/* 常用页 / 高级页同一张卡片里换，卡片高度是死的，所以不会跳 */
+function setPane(adv) {
+  const main = $("#setMain"), ex = $("#setAdv");
+  if (!main || !ex) return;
+  adv = !!adv;
+  main.hidden = adv;
+  ex.hidden = !adv;
+  if ($("#setBack")) $("#setBack").hidden = !adv;
+  if ($("#setTitle")) $("#setTitle").textContent = adv ? "高级" : "设置";
+  if ($("#openAdv")) $("#openAdv").hidden = adv;
+  const body = $("#drawer .drawer-body");
+  if (body) body.scrollTop = 0;   // 每页都从头看
+}
+
 function openDrawer() {
   closeAllDrawers(true);
   $("#mask").classList.add("on");
   $("#drawer").classList.add("on");
-  const setBody = $("#drawer .drawer-body");
-  if (setBody) setBody.scrollTop = 0;   // 每次打开都从头看，不留上次的滚动位置
+  setPane(false);
   $("#cfgOut").value = cfg.out_dir || "";
   $("#cfgQuality").value = cfg.quality || "best";
-  $("#cfgProxy").value = cfg.proxy || "";
-  $("#cfgCookies").value = cfg.cookies_file || "";
-  $("#cfgSph").value = cfg.sph_api || "";
-  $("#cfgSphToken").value = cfg.sph_token || "";
+  if ($("#cfgProxy")) $("#cfgProxy").value = cfg.proxy || "";
+  if ($("#cfgCookies")) $("#cfgCookies").value = cfg.cookies_file || "";
   $("#cfgConc").value = String(cfg.concurrency || 3);
-  $("#cfgNameTpl").value = cfg.name_tpl || "";
+  if ($("#cfgNameTpl")) $("#cfgNameTpl").value = cfg.name_tpl || "";
   syncNameUI();
   $("#cfgCover").checked = !!cfg.save_cover;
-  if ($("#cfgAutoUpd")) $("#cfgAutoUpd").checked = cfg.auto_update !== false;
   $("#cfgSubs").checked = !!cfg.down_subs;
   $("#cfgDanmaku").checked = !!cfg.save_danmaku;   // 默认关
   $("#cfgDesc").checked = !!cfg.save_desc;         // 默认关
@@ -1279,28 +1310,9 @@ $("#mask").onclick = closeAllDrawers;
   });
 });
 
-// 视频号：微信不给外部播放地址，能下的是自己账号的原片，
-// 直接把人送到官方的视频号助手，那边点「下载视频」就是原片
-const btnChannels = $("#btnChannels");
-if (btnChannels) {
-  btnChannels.onclick = async () => {
-    const r = await post("/api/open_url", { url: "https://channels.weixin.qq.com/platform" });
-    if (!r.ok) toast(r.error || "打不开浏览器");
-  };
-}
-
-// 高级设置默认收起，记住上次展开状态
-const advBox = $("#advBox");
-if (advBox) {
-  advBox.open = localStorage.getItem("advOpen") === "1";
-  advBox.addEventListener("toggle", () => {
-    localStorage.setItem("advOpen", advBox.open ? "1" : "0");
-    // 展开后把这一块推进视野；两栏布局下别再硬滚到底，会把下面的分组顶出去
-    if (advBox.open) {
-      setTimeout(() => advBox.scrollIntoView({ block: "nearest", behavior: "smooth" }), 60);
-    }
-  });
-}
+// 少用的东西收进「高级选项」那一页：点进去、点左上角箭号回来
+if ($("#openAdv")) $("#openAdv").onclick = () => setPane(true);
+if ($("#setBack")) $("#setBack").onclick = () => setPane(false);
 
 /* ---------- 文件命名：下拉预设 + 可点标签 ---------- */
 const NAME_PRESETS = {
@@ -1325,53 +1337,54 @@ function nameExample(tpl) {
   return out + ".mp4";
 }
 
-function syncNameUI(fromSelect) {
-  const pre = $("#cfgNamePre");
-  const inp = $("#cfgNameTpl");
-  const edit = $("#nameEdit");
-  const hint = $("#nameHint");
-  if (!pre || !inp) return;
-  const v = inp.value.trim();
-  if (!fromSelect) {
-    // 输入框变化时同步下拉；但只要用户选过模板/自定义，编辑区就别收，
-    // 不然拼到一半清个空，整个编辑器就消失了
-    if (!v) {
-      if (pre.value && pre.value !== "__custom__") pre.value = "__custom__";
-    } else if (Object.prototype.hasOwnProperty.call(NAME_PRESETS, v)) {
-      pre.value = v;
-    } else {
-      pre.value = "__custom__";
-    }
+/* 「自定义」不摆在常用页的下拉里：模板和预设对不上时，这里补一个选项兜住，
+   平时看不见它，也不会被「自定义…」这种字眼劝退。 */
+function customNameOpt(pre) {
+  let opt = pre.querySelector('option[value="__custom__"]');
+  if (!opt) {
+    opt = document.createElement("option");
+    opt.value = "__custom__";
+    opt.textContent = "自定义";
+    pre.appendChild(opt);
   }
-  edit.hidden = pre.value === "";
-  const ex = nameExample(v);
-  hint.textContent = ex
-    ? "示例：" + ex
-    : "留空用原标题。选「自定义」后，点标签往里加，用下划线连接。";
-  syncNameSummary();
+  return opt;
 }
 
-/* 折叠状态下也要一眼看到现在用的是哪套命名 */
-function syncNameSummary() {
-  const el = $("#nameSummary");
-  if (!el) return;
+function dropCustomNameOpt(pre) {
+  const opt = pre.querySelector('option[value="__custom__"]');
+  if (opt) opt.remove();
+}
+
+/* 高级页改了模板 → 常用页的下拉跟着走；常用页选了预设 → 模板跟着走 */
+function syncNameUI() {
   const pre = $("#cfgNamePre");
-  const tpl = $("#cfgNameTpl");
-  if (!pre || !tpl) return;
-  const v = pre.value === "" ? "" : tpl.value.trim();
-  const opt = pre.options[pre.selectedIndex];
-  const label = opt ? opt.textContent : "自定义";
-  el.textContent = !v ? "文件命名 · 原标题"
-    : "文件命名 · " + (pre.value === "__custom__" ? "自定义" : label);
+  const inp = $("#cfgNameTpl");
+  const hint = $("#nameHint");
+  if (!pre || !inp) return;
+  const v = (inp.value || "").trim();
+  if (!v || Object.prototype.hasOwnProperty.call(NAME_PRESETS, v)) {
+    pre.value = v;
+    dropCustomNameOpt(pre);
+  } else {
+    customNameOpt(pre).selected = true;
+  }
+  if (hint) {
+    const ex = nameExample(v);
+    hint.textContent = ex
+      ? "示例：" + ex
+      : "留空就用视频原标题。点上面的标签往里加，中间用下划线连起来。";
+  }
 }
 
 if ($("#cfgNamePre")) {
   $("#cfgNamePre").addEventListener("change", () => {
-    const v = $("#cfgNamePre").value;
+    const pre = $("#cfgNamePre");
     const inp = $("#cfgNameTpl");
-    if (v !== "__custom__") inp.value = v;   // 预设 = 直接填模板；自定义 = 保留现内容
-    syncNameUI(true);
-    if (v !== "") inp.focus();
+    if (pre.value !== "__custom__") {
+      inp.value = pre.value;    // 选预设 = 直接换成那套模板
+      dropCustomNameOpt(pre);
+    }
+    syncNameUI();
   });
   $("#cfgNameTpl").addEventListener("input", syncNameUI);
   $("#nameToks").addEventListener("click", (e) => {
@@ -1404,7 +1417,7 @@ function renderUpdateStatus(u) {
   const state = u.state || "idle";
   if (u.current && $("#curVer")) $("#curVer").textContent = "v" + u.current;
   if (msg) {
-    if (state === "idle") msg.textContent = u.detail || "启动时自动检查新版";
+    if (state === "idle") msg.textContent = u.detail || "自动更新已开启";
     else if (state === "checking") msg.textContent = "正在检查…";
     else if (state === "downloading") msg.textContent = "正在下载新版 " + Math.round(u.percent || 0) + "%";
     else if (state === "waiting")
@@ -1447,12 +1460,12 @@ async function checkUpdate(manual) {
       if (cv) cv.textContent = "v" + r.current;
     }
     if (!r.ok) {
-      if (msg) msg.textContent = manual ? (r.error || "检查失败，稍后再试") : "启动时自动检查新版";
+      if (msg) msg.textContent = manual ? (r.error || "检查失败，稍后再试") : "自动更新已开启";
       if (manual) toast(r.error || "检查失败，稍后再试", 3200);
       return;
     }
     if (!r.has_update) {
-      if (msg) msg.textContent = "当前版本 v" + r.current + "，已是最新";
+      if (msg) msg.textContent = "已是最新版";
       const bar = $("#updBar"), tip = $("#updTip");
       if (bar) bar.hidden = true;
       if (tip) tip.hidden = true;
@@ -1472,7 +1485,7 @@ async function checkUpdate(manual) {
       toast("发现新版本 v" + r.latest, 3200);
     }
   } catch (e) {
-    if (msg) msg.textContent = manual ? "检查失败，网络不通" : "启动时自动检查新版";
+    if (msg) msg.textContent = manual ? "检查失败，网络不通" : "自动更新已开启";
   }
 }
 if ($("#checkUpd")) $("#checkUpd").onclick = () => checkUpdate(true);
@@ -1503,21 +1516,20 @@ $("#quitApp").onclick = async () => {
 
 /* ---------- 设置：改一下就存一下，不用记着点「完成」 ---------- */
 function collectCfg() {
-  return {
+  const out = {
     out_dir: $("#cfgOut").value.trim(),
     quality: $("#cfgQuality").value,
-    proxy: $("#cfgProxy").value.trim(),
-    cookies_file: $("#cfgCookies").value.trim(),
-    sph_api: $("#cfgSph").value.trim(),
-    sph_token: $("#cfgSphToken").value.trim(),
     concurrency: parseInt($("#cfgConc").value, 10) || 3,
     name_tpl: ($("#cfgNamePre").value === "" ? "" : $("#cfgNameTpl").value.trim()),
     save_cover: $("#cfgCover").checked,
-    auto_update: $("#cfgAutoUpd") ? $("#cfgAutoUpd").checked : true,
     down_subs: $("#cfgSubs").checked,
     save_danmaku: $("#cfgDanmaku").checked,
     save_desc: $("#cfgDesc").checked,
   };
+  // 高级页里才有的项：没渲染就不发，别把已有配置读成空
+  if ($("#cfgProxy")) out.proxy = $("#cfgProxy").value.trim();
+  if ($("#cfgCookies")) out.cookies_file = $("#cfgCookies").value.trim();
+  return out;
 }
 
 async function pushCfg(patch) {
@@ -1541,7 +1553,6 @@ function nameTplNow() {
 [["#cfgQuality", () => ({ quality: $("#cfgQuality").value })],
  ["#cfgConc", () => ({ concurrency: parseInt($("#cfgConc").value, 10) || 3 })],
  ["#cfgCover", () => ({ save_cover: $("#cfgCover").checked })],
- ["#cfgAutoUpd", () => ({ auto_update: $("#cfgAutoUpd").checked })],
  ["#cfgSubs", () => ({ down_subs: $("#cfgSubs").checked })],
  ["#cfgDanmaku", () => ({ save_danmaku: $("#cfgDanmaku").checked })],
  ["#cfgDesc", () => ({ save_desc: $("#cfgDesc").checked })],
@@ -1551,11 +1562,10 @@ function nameTplNow() {
 });
 
 // 文本框：停手一会儿再存，别把打了一半的路径建成文件夹
-["#cfgProxy", "#cfgCookies", "#cfgSph", "#cfgSphToken"].forEach((sel) => {
+["#cfgProxy", "#cfgCookies"].forEach((sel) => {
   const el = $(sel);
   if (!el) return;
-  const key = { "#cfgProxy": "proxy", "#cfgCookies": "cookies_file", "#cfgSph": "sph_api",
-                "#cfgSphToken": "sph_token" }[sel];
+  const key = { "#cfgProxy": "proxy", "#cfgCookies": "cookies_file" }[sel];
   el.addEventListener("input", () => cfgLater(key, { [key]: el.value.trim() }, 600));
 });
 const outEl = $("#cfgOut");
@@ -1563,11 +1573,7 @@ if (outEl) outEl.addEventListener("change", () => pushCfg({ out_dir: outEl.value
 const tplEl = $("#cfgNameTpl");
 if (tplEl) tplEl.addEventListener("input", () => cfgLater("name_tpl", nameTplNow(), 600));
 const preEl = $("#cfgNamePre");
-if (preEl) preEl.addEventListener("change", () => {
-  syncNameUI(true);
-  pushCfg(nameTplNow());
-  syncNameSummary();
-});
+if (preEl) preEl.addEventListener("change", () => pushCfg(nameTplNow()));
 
 $("#saveCfg").onclick = async () => {
   Object.keys(cfgTimers).forEach((k) => clearTimeout(cfgTimers[k]));
@@ -2924,9 +2930,12 @@ if ($("#clearHist")) {
   };
 }
 
-/* 遮罩和 Esc 要能关掉两个抽屉 */
+/* Esc：在高级页先退回常用页，再按一次才关 —— 和浏览器后退一个习惯 */
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") closeAllDrawers();
+  if (e.key !== "Escape") return;
+  const adv = $("#setAdv");
+  if (adv && !adv.hidden) { setPane(false); return; }
+  closeAllDrawers();
 });
 
 applyTab(tabMode);

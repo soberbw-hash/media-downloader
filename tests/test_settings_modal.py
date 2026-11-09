@@ -1,9 +1,18 @@
 # -*- coding: utf-8 -*-
-"""设置改成居中弹窗后的行为：居中、两栏、点外面 / Esc 能关、换弹窗不叠、窄窗叠一栏。
+"""设置改成「一行一项，全部平铺」之后的行为。
+
+要看住这几件事：
+  ① 日常要用的项全在明面上，没有一个要展开才看得见（不再有 details / 折叠）
+  ② 少用的项换一页，卡片尺寸一模一样 —— 换页不跳
+  ③ 点外面 / Esc 能关；Esc 在高级页先退回常用页
+  ④ 改一下就存；重开不丢
+  ⑤ 窄窗不溢出
+  ⑥ 支持平台挪到了首屏，没在设置里，也没把视频号算进去
 
 跑法：python tests/test_settings_modal.py
 自己起隔离服务，用完自动关；VDL_NO_OPEN=1 不会真弹窗口。
 """
+import json
 import os
 import subprocess
 import sys
@@ -35,12 +44,16 @@ def find_new_service(pf):
     return 0
 
 
-def card_box(pg, sel="#drawer .mcard"):
-    return pg.evaluate("""(s) => {
-        const r = document.querySelector(s).getBoundingClientRect();
-        return {x: r.x, y: r.y, w: r.width, h: r.height,
-                cx: r.x + r.width / 2, cy: r.y + r.height / 2};
-    }""", sel)
+def card(pg):
+    return pg.evaluate("""() => {
+        const c = document.querySelector('#drawer .mcard');
+        const b = document.querySelector('#drawer .drawer-body');
+        const r = c.getBoundingClientRect();
+        return {x: Math.round(r.x), y: Math.round(r.y),
+                w: Math.round(r.width), h: Math.round(r.height),
+                cx: r.x + r.width / 2, cy: r.y + r.height / 2,
+                scrollTop: b.scrollTop, over: b.scrollHeight - b.clientHeight};
+    }""")
 
 
 def main():
@@ -65,100 +78,126 @@ def main():
             errs = []
             pg.on("pageerror", lambda e: errs.append(str(e)))
             pg.goto("http://127.0.0.1:%d/" % port, wait_until="networkidle", timeout=30000)
+            pg.wait_for_timeout(900)
+
+            # ① 首屏：支持平台在粘贴框下面，不在设置里
+            line = pg.evaluate("""() => {
+                const l = document.querySelector('#platLine');
+                if (!l) return null;
+                const r = l.getBoundingClientRect();
+                return {text: l.innerText.replace(/\\s+/g, ' ').trim(),
+                        y: Math.round(r.y), underBox: r.y > document.querySelector('#composer')
+                                                          .getBoundingClientRect().bottom - 2,
+                        inDrawer: !!l.closest('#drawer')};
+            }""")
+            assert line and line["text"], "首屏没有支持平台那一行"
+            assert "B站" in line["text"] and "抖音" in line["text"], "常用平台没列出来: %s" % line
+            assert "视频号" not in line["text"], "视频号还挂在支持列表里"
+            assert not line["inDrawer"] and line["underBox"], "平台行没挪到粘贴框下面"
+            log("  OK 支持平台在首屏粘贴框下面：%s" % line["text"][:70])
+
             pg.evaluate("() => document.querySelector('#openSet').click()")
             pg.wait_for_timeout(500)
 
-            # ① 居中，不是贴右边的一条边栏
-            box = card_box(pg)
-            assert abs(box["cx"] - 590) <= 2, "弹窗没在水平中间: %s" % box
-            assert abs(box["cy"] - 450) <= 2, "弹窗没在垂直中间: %s" % box
-            assert 700 <= box["w"] <= 820, "弹窗宽度不对: %s" % box
-            assert pg.evaluate("() => document.querySelector('#drawer').classList.contains('on')")
-            log("  OK 设置是居中的弹窗（%.0fx%.0f）" % (box["w"], box["h"]))
-
-            # ② 两栏并排：左栏在左、右栏在右，顶边对齐
-            cols = pg.evaluate("""() => [...document.querySelectorAll('#drawer .set-col')]
-                .map(e => { const r = e.getBoundingClientRect();
-                            return {x: r.x, y: r.y, w: r.width}; })""")
-            assert len(cols) == 2, "不是两栏: %s" % cols
-            assert cols[1]["x"] > cols[0]["x"] + 300, "两栏没并排: %s" % cols
-            assert abs(cols[0]["y"] - cols[1]["y"]) <= 1, "两栏顶边没对齐"
-            log("  OK 两栏铺开（%s）" % " / ".join("%.0f" % c["w"] for c in cols))
-
-            # ③ 弹出动画结束后是完全归位的（不是停在半透明 / 缩小状态）
-            st = pg.evaluate("""() => {
-                const c = document.querySelector('#drawer .mcard');
-                const m = document.querySelector('#drawer');
-                return {t: getComputedStyle(c).transform, o: getComputedStyle(c).opacity,
-                        mo: getComputedStyle(m).opacity};
-            }""")
-            assert st["t"] in ("none", "matrix(1, 0, 0, 1, 0, 0)"), "卡片没归位: %s" % st
-            assert abs(float(st["o"]) - 1) < .01 and abs(float(st["mo"]) - 1) < .01, \
-                "弹窗没完全显示: %s" % st
-            log("  OK 动画收尾停在原位（transform=%s）" % st["t"])
+            # ② 居中 + 常用项全在明面上，没有一个藏在折叠里
+            c0 = card(pg)
+            assert abs(c0["cx"] - 590) <= 2 and abs(c0["cy"] - 450) <= 2, "弹窗没居中: %s" % c0
+            assert pg.evaluate("() => document.querySelectorAll('#drawer details').length") == 0, \
+                "设置里还有折叠块"
+            shown = ["#cfgOut", "#cfgQuality", "#cfgConc", "#cfgNamePre",
+                     "#checkUpd", "#saveCfg"]
+            hidden = [s for s in shown if not pg.is_visible(s)]
+            assert not hidden, "这些日常项要展开才看得见: %s" % hidden
+            # 四个「一起存」是方框 chip：勾选框本身藏起来，露出来的是外围那颗
+            assert pg.locator(".chips .chip").count() == 4, "一起存不是四个方框"
+            for i in range(4):
+                assert pg.locator(".chips .chip").nth(i).is_visible(), "第 %d 个存项没露出来" % (i + 1)
+            assert not pg.is_visible("#cfgProxy"), "代理跑到常用页上了"
+            txt = pg.inner_text("#drawer")
+            for bad in ("解析接口", "视频号", "自动更新", "高级设置", "支持平台"):
+                assert bad not in txt, "「%s」还占着设置的地方" % bad
+            log("  OK 常用项全平铺（%.0fx%.0f），解析接口 / 视频号 / 自动更新开关都不在" % (c0["w"], c0["h"]))
             pg.screenshot(path=SHOT)
-            log("  截图:", SHOT)
 
-            # ④ 点卡片外面的空白 = 点遮罩，能关
-            pg.mouse.click(20, 20)
+            # ③ 换页：卡片一点不动，只有内容换
+            pg.evaluate("() => document.querySelector('#openAdv').click()")
             pg.wait_for_timeout(400)
-            assert not pg.evaluate("() => document.querySelector('#drawer').classList.contains('on')"), \
-                "点外面没关上"
+            c1 = card(pg)
+            assert (c1["x"], c1["y"], c1["w"], c1["h"]) == (c0["x"], c0["y"], c0["w"], c0["h"]), \
+                "换页时卡片跳了: %s -> %s" % (c0, c1)
+            assert pg.is_visible("#cfgProxy"), "高级页没打开"
+            assert pg.inner_text("#setTitle") == "高级", "换页后标题没变"
+            assert pg.is_visible("#setBack"), "高级页没有返回键"
+            assert not pg.is_visible("#setMain"), "常用页没让位"
+            assert not pg.is_visible("#openAdv"), "高级页底部还挂着「高级选项」"
+            assert c1["scrollTop"] == 0, "换页后没回到顶部"
+            # 完成按钮仍在右下角
+            fb = pg.evaluate("""() => { const r = document.querySelector('#saveCfg').getBoundingClientRect();
+                const c = document.querySelector('#drawer .mcard').getBoundingClientRect();
+                return {right: Math.round(c.right - r.right), centerY: r.y + r.height / 2}; }""")
+            assert fb["right"] < 40, "「完成」跑到左边了: %s" % fb
+            log("  OK 换页不跳（卡片 %s 完全一致）" % "x/y/w/h")
 
-            # ⑤ Esc 也能关
-            pg.evaluate("() => document.querySelector('#openSet').click()")
-            pg.wait_for_timeout(350)
+            # ④ Esc：先退回常用页，再按一次才关
+            pg.keyboard.press("Escape")
+            pg.wait_for_timeout(300)
+            assert pg.is_visible("#setMain") and not pg.is_visible("#setAdv"), "Esc 没退回常用页"
+            assert pg.evaluate("() => document.querySelector('#drawer').classList.contains('on')"), \
+                "Esc 第一次就把弹窗关了"
             pg.keyboard.press("Escape")
             pg.wait_for_timeout(350)
             assert not pg.evaluate("() => document.querySelector('#drawer').classList.contains('on')"), \
-                "Esc 没关上"
-            log("  OK 点外面 / Esc 都能关")
+                "再按 Esc 没关上"
+            log("  OK Esc 先返一级，再关")
 
-            # ⑥ 设置里点账号登录：旧的直接消失，别两个弹窗叠在中间
+            # ⑤ 一起存：点一下就存，重开还在
             pg.evaluate("() => document.querySelector('#openSet').click()")
-            pg.wait_for_timeout(350)
-            pg.evaluate("() => document.querySelector('#openAcct').click()")
-            pg.wait_for_timeout(450)
-            on = pg.evaluate("""() => ['#drawer', '#acctDrawer', '#histDrawer']
-                .filter(s => document.querySelector(s).classList.contains('on'))""")
-            assert on == ["#acctDrawer"], "弹窗叠在一起了: %s" % on
-            log("  OK 换弹窗时旧的直接收掉，只剩账号")
-
-            # ⑦ 完成按钮：存一下再关
-            pg.keyboard.press("Escape")
+            pg.wait_for_timeout(400)
+            pg.locator('.chip:has(#cfgCover)').click()
+            pg.wait_for_timeout(700)
+            want = pg.locator("#cfgCover").is_checked()
+            got = json.loads(OP.open("http://127.0.0.1:%d/api/state" % port, timeout=8)
+                             .read().decode("utf-8"))["config"].get("save_cover")
+            assert bool(got) == want, "点封面图没存住: 期望 %s 实际 %s" % (want, got)
+            pg.evaluate("() => document.querySelector('#mask').click()")
             pg.wait_for_timeout(300)
             pg.evaluate("() => document.querySelector('#openSet').click()")
             pg.wait_for_timeout(350)
-            pg.evaluate("() => { document.querySelector('#advBox').open = true; }")
+            assert pg.locator("#cfgCover").is_checked() == want, "重开值回退了"
+            log("  OK 一起存改一下就存（封面图 = %s），重开不丢" % want)
+
+            # ⑥ 完成：存完再关
+            pg.evaluate("() => document.querySelector('#openAdv').click()")
             pg.wait_for_timeout(300)
             pg.fill("#cfgProxy", "http://127.0.0.1:7890")
             pg.evaluate("() => document.querySelector('#saveCfg').click()")
             pg.wait_for_timeout(700)
             assert not pg.evaluate("() => document.querySelector('#drawer').classList.contains('on')"), \
                 "点完成没关上"
-            import json
-            cfg = json.loads(OP.open("http://127.0.0.1:%d/api/state" % port,
-                                     timeout=8).read().decode("utf-8"))["config"]
+            cfg = json.loads(OP.open("http://127.0.0.1:%d/api/state" % port, timeout=8)
+                             .read().decode("utf-8"))["config"]
             assert cfg["proxy"] == "http://127.0.0.1:7890", "完成没存住: %s" % cfg
             log("  OK 完成按钮：存下来再关")
 
-            # ⑧ 窄窗叠成一栏，第二栏前要有分隔线（不然像连在一起）
-            pg.set_viewport_size({"width": 700, "height": 900})
+            # ⑦ 窄窗：两页都不横向溢出
+            pg.set_viewport_size({"width": 700, "height": 760})
             pg.evaluate("() => document.querySelector('#openSet').click()")
-            pg.wait_for_timeout(500)
+            pg.wait_for_timeout(400)
             narrow = pg.evaluate("""() => {
-                const cs = [...document.querySelectorAll('#drawer .set-col')];
-                const r0 = cs[0].getBoundingClientRect(), r1 = cs[1].getBoundingClientRect();
-                const first = cs[1].firstElementChild;
-                const cs2 = getComputedStyle(first);
-                return {sameX: Math.abs(r0.x - r1.x) < 1, below: r1.y > r0.y + 100,
-                        border: cs2.borderTopWidth, w: document.querySelector('#drawer .mcard')
-                                .getBoundingClientRect().width};
+                const c = document.querySelector('#drawer .mcard');
+                const b = document.querySelector('#drawer .drawer-body');
+                const r = c.getBoundingClientRect();
+                return {w: Math.round(r.width), overX: b.scrollWidth - b.clientWidth,
+                        overY: b.scrollHeight - b.clientHeight};
             }""")
-            assert narrow["sameX"] and narrow["below"], "窄窗没叠成一栏: %s" % narrow
-            assert narrow["border"] != "0px", "叠起来后第二栏第一块没有分隔线: %s" % narrow
             assert narrow["w"] <= 676, "窄窗还撑这么宽: %s" % narrow
-            log("  OK 窄窗叠成一栏，分隔线还在")
+            assert narrow["overX"] <= 0, "窄窗横向溢出了: %s" % narrow
+            pg.evaluate("() => document.querySelector('#openAdv').click()")
+            pg.wait_for_timeout(350)
+            over_x = pg.evaluate("""() => { const b = document.querySelector('#drawer .drawer-body');
+                return b.scrollWidth - b.clientWidth; }""")
+            assert over_x <= 0, "窄窗下高级页横向溢出: %s" % over_x
+            log("  OK 窄窗（700）两页都不溢出")
 
             assert not errs, "有 JS 报错: %s" % errs
             log("  OK 没有 JS 报错")
@@ -169,6 +208,7 @@ def main():
             srv.wait(5)
         except Exception:
             srv.kill()
+        logf.close()
     log("全部通过")
 
 

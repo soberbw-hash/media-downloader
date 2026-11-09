@@ -736,7 +736,7 @@ class Handler(BaseHTTPRequestHandler):
         url = (qs.get("url") or [""])[0].strip()
         ok, msg, hint_title = False, "", ""
         if key != PUSH_KEY:
-            msg = "书签过期了，去设置里重新拖一次「一键收网页」"
+            msg = "书签过期了，去「设置 → 高级选项 → 网页书签」重新复制一次"
         elif not (url.startswith("http://") or url.startswith("https://")) or len(url) > 2048:
             msg = "没收到有效链接"
         else:

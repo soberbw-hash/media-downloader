@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
-"""真浏览器看自动更新的界面：进度、VPN 提示、手动兜底、自动更新开关。
+"""真浏览器看自动更新的界面：进度、VPN 提示、手动兜底、默认开着且不摆开关。
 
 跑法：python tests/test_update_ui.py
 自己起隔离服务，用完自动关；VDL_NO_AUTO_UPDATE=1 不会真的替换重启。
 """
+import json
 import os
 import subprocess
 import sys
@@ -102,11 +103,14 @@ def main():
             assert pg.locator("#updTip").is_visible(), "手动下载时没提示开 VPN"
             log("  ok 失败时给手动下载 + VPN 提示")
 
-            auto = pg.locator("#cfgAutoUpd")
-            assert auto.count() == 1 and auto.is_checked(), "自动更新开关默认没开"
-            assert pg.evaluate("""() => !!document.querySelector('#advBox #cfgAutoUpd')"""), \
-                "自动更新开关没收进高级设置"
-            log("  ok 自动更新开关默认开，收在高级设置里")
+            # 自动更新默认就是开的，不摆开关占地方；设置里只留「检查更新」
+            assert pg.locator("#cfgAutoUpd").count() == 0, "自动更新开关还在设置里"
+            assert pg.is_visible("#checkUpd"), "设置里没有检查更新按钮"
+            st = json.loads(OP.open("http://127.0.0.1:%d/api/state" % port, timeout=8)
+                            .read().decode("utf-8"))
+            assert (st.get("config") or {}).get("auto_update") is not False, \
+                "自动更新没默认开: %s" % st.get("config")
+            log("  ok 自动更新默认开、界面不摆开关")
             assert not errs, "界面脚本报错: %s" % errs[:2]
             b.close()
         log("全部通过")

@@ -143,7 +143,9 @@ def test_sph_config():
         except RuntimeError as e:
             msg = str(e)
             log("视频号提示:", msg.replace("\n", " | ")[:160])
-            assert "三条" in msg or "wx_channels_download" in msg, "没给出路"
+            # 界面上已经没有「解析接口」入口了，提示必须自带出路
+            assert "视频号助手" in msg or "保存到相册" in msg, "没给出路"
+            assert "解析接口" not in msg, "还在让人去填已经删掉的解析接口"
     finally:
         post("/api/config", {"sph_token": old.get("sph_token", ""),
                              "sph_api": old.get("sph_api", "")})
@@ -170,22 +172,22 @@ def test_ui():
         pg.goto(URL + "/", wait_until="networkidle")
         pg.wait_for_timeout(900)
 
-        href = pg.get_attribute("#pushBookmark", "href") or ""
+        href = pg.evaluate("() => (typeof bookmarklet === 'string' ? bookmarklet : '')")
         assert href.startswith("javascript:") and "/push?k=" in href, \
             "书签链接没生成：" + href[:80]
         log("书签链接:", href[:110] + "…")
 
         pg.click("#openSet")
         pg.wait_for_timeout(300)
-        pg.evaluate("() => { const a = document.querySelector('#advBox'); "
-                    "if (a) a.open = true; "
-                    "document.querySelectorAll('.qbox').forEach(d => d.open = true); }")
-        pg.wait_for_timeout(150)
-        assert pg.is_visible("#cfgSphToken"), "设置里没有解析凭证输入框"
-        assert pg.is_visible("#btnGrabClip"), "设置里没有收剪贴板按钮"
+        pg.click("#openAdv")
+        pg.wait_for_timeout(300)
+        assert pg.is_visible("#btnGrabClip"), "高级页里没有收剪贴板按钮"
+        assert pg.locator("#cfgSphToken").count() == 0, "解析接口不该再出现在界面上"
         pg.click("#btnGrabClip")     # headless 里读不到剪贴板也应安静兜住
         pg.wait_for_timeout(300)
 
+        pg.click("#setBack")         # 退回常用页，账号入口在那儿
+        pg.wait_for_timeout(300)
         pg.click("#openAcct")
         pg.wait_for_timeout(700)
         txt = pg.inner_text("#acctDrawer")

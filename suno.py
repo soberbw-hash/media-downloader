@@ -440,7 +440,7 @@ def download(url, out_dir, progress, quality="best", proxy=""):
         if "加密片段或占位音频" in tried and not logged:
             raise RuntimeError(
                 "这首 Suno 只对登录用户开放\n"
-                "去「设置 → 账号登录 → Suno」登一次，回来点「重试」\n"
+                "去「设置 → 账号 → Suno」登一次，回来点「重试」\n"
                 "没登录时 Suno 只给一段加密试听片段，下下来是坏文件，所以"
                 "这里直接拦住了。不是链接失效，也不是歌被删了。")
         if "加密片段或占位音频" in tried:
@@ -451,7 +451,7 @@ def download(url, out_dir, progress, quality="best", proxy=""):
         raise RuntimeError(
             "这首歌的音频暂时拿不到（试过：%s）\n"
             "过几分钟点「重试」，或在浏览器里确认它能播放\n"
-            "刚做好的歌要等 Suno 生成完；自己的歌建议先在设置里登录 Suno。"
+            "刚做好的歌要等 Suno 生成完；自己的歌建议先在「设置 → 账号」里登录 Suno。"
             % ("、".join(tried[:4]) or "没有可用地址"))
 
     # 其他候选留下的半截文件（比如先试 mp3 没成、最后用 mp4 成了）顺手清掉

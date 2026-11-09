@@ -280,8 +280,8 @@ def classify(url):
         # 不认识不代表下不了：交给 yt-dlp 的通用识别去试一遍
         return pid, "其它站点", "generic", ""
     if level == "unsupported":
-        return pid, pname, level, ("视频号是微信生态的封闭链接，没有公开接口。"
-                                   "只能在手机端「保存到相册」或录屏。")
+        return pid, pname, level, ("这个站没有公开接口，下不了。"
+                                   "能下的话，手机端保存到相册或录屏。")
     for pat, why in NOT_VIDEO.get(pid, []):
         if re.search(pat, url, re.I):
             return pid, pname, level, why
@@ -1281,7 +1281,7 @@ def ytdlp_download(url, out_dir, progress, quality="best", proxy=None, cookies_f
 # 前端不再拿英文异常去猜，这里先认一遍。认不出来就原样返回，不硬编。
 _ERR_RULES = [
     (("login", "sign in", "cookies", "未登录", "需要登录", "vip", "会员"),
-     "需要登录", "打开设置里的「账号登录」登一次，再重试"),
+     "需要登录", "打开「设置 → 账号」登一次，再重试"),
     (("403", "forbidden"), "被平台拒绝了", "链接可能过期，重新复制一次分享链接"),
     # ffmpeg 打不开输入：多半是下到了网页 / 加密片段，别再骗用户说「内容不存在」
     (("invalid data found", "error opening input", "moov atom not found"),
@@ -1545,7 +1545,7 @@ class Manager(object):
             msg = raw
             # 卡片上只有一行位置，原因说清楚就够，建议跟一句，别写成小作文
             if t.platform == "kuaishou":
-                msg = "快手要登录才能解析。设置里填 cookies 后重试。（%s）" % raw
+                msg = "快手要登录才能解析。去「设置 → 账号」登一次再重试。（%s）" % raw
             elif t.platform == "xiaohongshu":
                 msg = "小红书要登录才能拿到地址。设置里登录后重试。（%s）" % raw
             elif t.platform == "instagram":

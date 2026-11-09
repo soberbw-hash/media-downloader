@@ -359,8 +359,9 @@ def main():
         c = open(os.path.join(ROOT, "web/style.css"), encoding="utf-8").read()
         rd = open(os.path.join(ROOT, "README.md"), encoding="utf-8").read()
         bp = open(os.path.join(ROOT, "tools/build_portable.py"), encoding="utf-8").read()
-        check(all(x in h for x in ('id="updBar"', 'id="updTip"', 'id="cfgAutoUpd"')),
-              "界面有进度条 / VPN 提示 / 自动更新开关")
+        check(all(x in h for x in ('id="updBar"', 'id="updTip"', 'id="checkUpd"')),
+              "界面有进度条 / VPN 提示 / 检查更新")
+        check('id="cfgAutoUpd"' not in h, "自动更新不该再摆开关（默认开着）")
         check("renderUpdateStatus" in j and "/api/update/start" in j
               and "/api/update/apply" in j, "前端接了自动更新接口")
         check("VPN" in j and "VPN" in h, "下载处会提示开 VPN")

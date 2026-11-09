@@ -60,27 +60,28 @@ def main():
         log("  ✓ 说明文字已收走，设置里只剩控件")
 
         # 标题悬停仍能看到说明，信息没丢
-        tip = pg.locator('.tg[title*="cover.jpg"]').count()
-        assert tip == 1, "封面图开关的悬停说明丢了"
+        tip = pg.locator('.chip[title*="封面图"]').count()
+        assert tip == 1, "封面图的悬停说明丢了"
         log("  ✓ 说明改走悬停提示")
 
-        # ---- 2. 文件命名默认折叠，摘要能看出当前用的哪套 ----
-        nb = pg.locator("#nameBox")
-        assert nb.count() == 1 and not nb.evaluate("e => e.open"), "命名区没默认收起"
-        summary = pg.locator("#nameSummary").inner_text()
-        assert "文件命名" in summary, "折叠摘要没写当前模板: %s" % summary
-        log("  命名折叠摘要:", summary)
-        nb.evaluate("e => e.open = true")
-        pg.wait_for_timeout(150)
-        assert pg.locator("#cfgNameTpl").is_visible(), "展开后看不到模板输入"
-        nb.evaluate("e => e.open = false")
+        # ---- 2. 常用项全平铺：没有任何要展开才看得见的东西 ----
+        assert pg.evaluate("() => document.querySelectorAll('#drawer details').length") == 0, \
+            "设置里还有折叠块"
+        assert pg.locator("#nameBox").count() == 0, "文件命名还留着折叠"
+        assert pg.is_visible("#cfgNamePre"), "常用页上选不到命名方式"
+        assert pg.locator(".chips .chip").count() == 4, "四个存项没并到一行"
+        log("  ✓ 常用项一屏看全，没有折叠")
 
-        # ---- 3. 「一键收网页」挪进默认收起的高级设置 ----
-        adv = pg.locator("#advBox")
-        assert not adv.evaluate("e => e.open"), "高级设置默认展开"
+        # ---- 3. 「一键收网页」这种少用的，换到高级那一页 ----
         assert pg.locator("#btnCopyBookmark").count() == 1
         assert pg.locator("#btnGrabClip").count() == 1
-        log("  ✓ 网页书签收进高级设置")
+        assert not pg.locator("#btnGrabClip").is_visible(), "书签按钮还在常用页上"
+        pg.evaluate("() => document.querySelector('#openAdv').click()")
+        pg.wait_for_timeout(300)
+        assert pg.locator("#btnGrabClip").is_visible(), "高级页里找不到书签按钮"
+        pg.evaluate("() => document.querySelector('#setBack').click()")
+        pg.wait_for_timeout(300)
+        log("  ✓ 网页书签挪到高级页，常用页看不见")
 
         # ---- 4. 改完即存：不点「完成」，后端也要变 ----
         box = pg.locator("#cfgDanmaku")

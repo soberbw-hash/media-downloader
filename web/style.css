@@ -527,7 +527,7 @@ body.tab-music .tasks-block {
 .set-card .save-btn { width: auto; min-width: 92px; padding: 0 22px; }
 
 .set-card  { max-width: 800px; }
-.acct-card { max-width: 560px; position: relative; }
+.acct-card { max-width: 620px; position: relative; }
 .hist-card { max-width: 640px; }
 
 /* 账号弹窗没有底部按钮条，列表滚到边时也淡一下 */
@@ -1251,27 +1251,26 @@ body.playing .toast { bottom: 84px; }
   width: 14px; height: 14px; border-radius: 50%;
   background: #e7e5e4; color: #57534e; font-size: 10px; font-weight: 600;
 }
-.gsteps { display: flex; flex-direction: column; gap: 13px; }
+.gsteps { display: flex; flex-direction: column; gap: 16px; }
 .gstep { display: flex; flex-direction: column; gap: 6px; }
 .gn {
   flex: 0 0 15px; height: 15px; border-radius: 50%; margin-top: 1px;
   display: flex; align-items: center; justify-content: center;
-  background: #1c1917; color: #fff; font-size: 9.5px;
+  background: #1c1917; color: #fff; font-size: 10px;
 }
 .gpic {
-  /* 截图有多少像素就显示多大，别为了撑满栏宽把 258px 的图拉到 400px 变糊 */
-  display: block; width: auto; max-width: 100%; height: auto;
-  margin: 0 auto;
+  /* 图都是 2 倍截图，撑满栏宽也不糊，看得清字更要紧 */
+  display: block; width: 100%; height: auto;
   border: 1px solid #e7e5e4; border-radius: 7px; background: #fff;
   cursor: zoom-in;
 }
 .gpic:hover { border-color: #d6d3d1; }
 .gt {
   display: flex; align-items: flex-start; gap: 7px;
-  font-size: 10.5px; line-height: 1.6; color: #57534e;
+  font-size: 11.5px; line-height: 1.62; color: #57534e;
 }
 .gt > span:last-child { flex: 1 1 auto; min-width: 0; }
-.ghint { margin-top: 9px; font-size: 9.5px; color: #b3ada7; }
+.ghint { margin-top: 10px; font-size: 10.5px; color: #b3ada7; }
 
 /* 点开看大图：教程图缩在抽屉里太小，点一下铺满屏幕 */
 .shotbox {

@@ -71,8 +71,8 @@ def main():
 
             steps = pg.locator("#extHow .gstep")
             pics = pg.locator("#extHow img.gpic")
-            assert steps.count() == 3 and pics.count() == 3, "图文三步不齐"
-            for i in range(3):
+            assert steps.count() == 4 and pics.count() == 4, "图文四步不齐"
+            for i in range(4):
                 assert pics.nth(i).is_visible(), "第 %d 张图没显示" % (i + 1)
                 nw = pics.nth(i).evaluate("e => e.naturalWidth")
                 assert nw > 0, "第 %d 张图没真正加载出来" % (i + 1)
@@ -80,14 +80,14 @@ def main():
                 shown = pics.nth(i).evaluate("e => e.getBoundingClientRect().width")
                 assert shown <= nw + 2, \
                     "第 %d 张图被拉伸了（%dpx 拉到 %dpx），会糊" % (i + 1, nw, shown)
-            log("  OK 小按钮点开后三步图文都在，三张截图都加载了且没被拉伸")
+            log("  OK 小按钮点开后四步图文都在，截图都加载了且没被拉伸")
 
             # 点图看大图能弹出、Esc 能关
-            pics.nth(1).evaluate("e => e.click()")   # 抽屉内滚动，直接派发点击更稳
+            pics.nth(1).evaluate("e => e.click()")   # 弹窗内滚动，直接派发点击更稳
             pg.wait_for_timeout(400)
             assert pg.locator("#shotBox").is_visible(), "点了图没弹出大图"
             src = pg.locator("#shotImg").get_attribute("src")
-            assert src and "ext-page2.png" in src, "大图不是整页标注图"
+            assert src and "ext-page-menu.png" in src, "大图不是整页标注图"
             pg.keyboard.press("Escape")
             pg.wait_for_timeout(300)
             assert not pg.locator("#shotBox").is_visible(), "Esc 没关掉大图"
@@ -96,14 +96,14 @@ def main():
             # 卡片不能横向溢出抽屉（330px），文字也不能被图挤没
             drawer = pg.locator("#acctDrawer").bounding_box()
             right = drawer["x"] + drawer["width"]
-            for i in range(3):
+            for i in range(4):
                 box = steps.nth(i).bounding_box()
                 assert box["x"] >= drawer["x"] - 1, "第 %d 步跑出抽屉左边" % (i + 1)
                 assert box["x"] + box["width"] <= right + 1, \
                     "第 %d 步横向溢出抽屉" % (i + 1)
                 txt = steps.nth(i).locator(".gt").bounding_box()
                 assert txt and txt["width"] >= 90, "第 %d 步文字被挤没了" % (i + 1)
-            log("  OK 三步在抽屉里没溢出、文字没被挤掉")
+            log("  OK 四步在弹窗里没溢出、文字没被挤掉")
 
             steps.first.scroll_into_view_if_needed()
             pg.locator("#extHow").screenshot(path=SHOT)

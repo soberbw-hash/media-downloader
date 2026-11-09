@@ -35,22 +35,24 @@ log("=== 1. 图文三步 ===")
 html = read("web/index.html")
 panel = html[html.index('id="acctDrawer"'):html.index('id="histDrawer"')]
 how = panel[panel.index('id="extHow"'):panel.index('</details>')]
-check(how.count('class="gstep"') == 3, "三步各有一张卡片")
-check(how.count('class="gpic"') == 3, "三步各有一张图")
+check(how.count('class="gstep"') == 4, "四步各有一张卡片")
+check(how.count('class="gpic"') == 4, "四步各有一张图")
 check(how.count("<svg") == 0, "图换成了真实截图，不再是手画示意图")
-check("ext-step1.png" in how and "ext-step2.png" in how and "ext-step3.png" in how,
-      "三张图各自指向自己的截图文件")
-check('data-full="/img/ext-page2.png"' in how and 'data-full="/img/ext-page3.png"' in how,
+for _n in ("ext-step1", "ext-step2", "ext-step3", "ext-step4"):
+    check(_n + ".png" in how, "第 %s 步指向自己的截图" % _n[-1])
+check('data-full="/img/ext-page.png"' in how and 'data-full="/img/ext-page-menu.png"' in how,
       "点开能看整页大图（知道目标在页面哪个角落）")
-for _n in ("ext-step1", "ext-step2", "ext-step3", "ext-page2", "ext-page3"):
+for _n in ("ext-step1", "ext-step2", "ext-step3", "ext-step4",
+           "ext-page", "ext-page-menu"):
     _p = os.path.join(ROOT, "web", "img", _n + ".png")
-    # 门槛只用于确认「不是空白图」；step1 只裁了那颗按钮，4KB 出头是正常的
+    # 门槛只用于确认「不是空白图」；step1 只裁了那颗按钮，几 KB 是正常的
     check(os.path.isfile(_p) and os.path.getsize(_p) > 1500,
           "截图 %s 在包里（%d 字节）" % (_n, os.path.getsize(_p) if os.path.isfile(_p) else 0))
 check('class="gq"' in how, "「怎么装」是个带 ? 的小按钮")
 check("加载未打包的扩展程序" in how, "按钮名用新版 Chrome 的叫法")
 check("旧版叫" in how and "加载已解压" in how, "老版本叫法也给了，免得找不到")
 check("开发者模式" in how and "右上角" in how, "说清了开发者模式在右上角")
+check("管理扩展程序" in how or "扩展程序" in how, "给了从浏览器菜单进扩展页的另一条路")
 check("左上角" in how, "说清了加载按钮在左上角")
 check(".crx" not in how and "zip" not in how.lower() and "改后缀" not in how,
       "没让人去拖 Chrome 已拒收的 crx / 压缩包")
@@ -72,7 +74,7 @@ js = read("web/app.js")
 check("toast(r.msg" in js, "一键按钮原样显示服务端给的动作（Mac 会说 Cmd+V）")
 check('$("#extPage")' not in js and '$("#extFolder")' not in js,
       "前端不再绑定那两个点不开的按钮")
-check("粘进浏览器地址栏" in how and "文件夹会选中" in how,
+check("地址栏粘上" in how and "文件夹会选中" in how,
       "图文说清了粘贴地址这一步")
 
 log("=== 2. 选中文件夹 + 备好扩展页地址 ===")

@@ -1152,6 +1152,20 @@ if (typeof document !== "undefined") {
       if (e.key === "Escape" && !_box.hidden) closeShot();
     });
   }
+
+  // 图取不回来时别留一个破图标 + 一行灰字，直接说清楚怎么办
+  document.querySelectorAll("#extHow img.gpic").forEach((el) => {
+    el.addEventListener("error", () => {
+      const holder = el.parentNode;
+      if (!holder) return;
+      const tip = document.createElement("div");
+      tip.className = "gt";
+      tip.innerHTML = '<span class="gn">!</span>'
+        + "<span>图没加载出来，把软件完全退出再打开一次就好。</span>";
+      el.remove();
+      holder.appendChild(tip);
+    });
+  });
 }
 
 /* ---------- 下载目录 ---------- */

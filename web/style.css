@@ -228,6 +228,9 @@ header {
 .platline[hidden] { display: none; }
 .platline .pl-l { flex-shrink: 0; }
 
+/* 搜索页有自己的一排来源按钮，再说「支持哪些站」是串味 */
+body.tab-music .platline { display: none; }
+
 .support { display: inline; line-height: 1.85; }
 
 .pl-item { color: var(--text-2); cursor: help; }

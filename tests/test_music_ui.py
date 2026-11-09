@@ -47,6 +47,11 @@ def main():
         # ================= 搜索页 =================
         pg.click('#tabs .tab[data-tab="music"]')
         pg.wait_for_timeout(300)
+        # 搜索页有自己那排来源按钮，「支持 抖音 B站…」挂在这上头串味，必须收掉
+        assert pg.evaluate(
+            "() => getComputedStyle(document.querySelector('#platLine')).display"
+        ) == "none", "搜索页还挂着「支持 抖音 B站…」那排"
+        log("A0) 搜索页不显示支持平台一行")
         pg.fill("#mQuery", "告白气球")
         pg.click("#mGo")
         pg.wait_for_timeout(4500)
@@ -122,6 +127,9 @@ def main():
         # --- D) 切回链接下载页 ---
         pg.click('#tabs .tab[data-tab="video"]')
         pg.wait_for_timeout(700)
+        assert pg.evaluate(
+            "() => getComputedStyle(document.querySelector('#platLine')).display"
+        ) != "none", "切回链接下载后「支持」那排没回来"
         d = pg.evaluate("""() => {
           const w=document.querySelector('.wrap').getBoundingClientRect();
           const c=document.querySelector('#composer').getBoundingClientRect();

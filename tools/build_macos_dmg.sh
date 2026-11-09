@@ -7,18 +7,21 @@ cd "$(dirname "$0")/.."
 ROOT="$PWD"
 VER="$(tr -d '[:space:]' < version.txt)"
 ARCH="$(uname -m)"
-if [ "$ARCH" = "arm64" ]; then
-    EDITION="M系列芯片版"
-    VOLNAME="音视频下载器 M系列版"
-else
-    EDITION="Intel芯片版"
-    VOLNAME="音视频下载器 Intel版"
+# 目前只发 Apple 芯片版，别在 Intel runner 上打出一个名字对不上内容的包
+if [ "$ARCH" != "arm64" ]; then
+    echo "这一版只给 Apple 芯片的 Mac 打包，当前机器是 $ARCH，已停止。"
+    echo "Intel Mac 请用源码里的 启动.command 运行，功能一样。"
+    exit 1
 fi
-# 文件名用中文说人话：拿到两个 DMG 的人不用懂 arm64 / x86_64，
-# 看「M系列芯片版」还是「Intel芯片版」就知道该下哪个。
-OUT="$ROOT/音视频下载器-${VER}-${EDITION}.dmg"
+EDITION="M系列芯片版"
+FILE_TAG="Apple-M-Mac"
+VOLNAME="音视频下载器 M系列版"
+# 实测：GitHub 会把 Release 资产名里的非 ASCII 字符全删掉
+# （音视频下载器-1.24.1-M系列芯片版.dmg → -1.24.1-M.dmg）。
+# 所以文件名用纯英文，卷标和包内说明仍用中文写清给谁用。
+OUT="$ROOT/VideoDL-${VER}-${FILE_TAG}.dmg"
 
-echo "==> 版本 $VER / $ARCH ($EDITION)"
+echo "==> 版本 $VER / $ARCH ($EDITION / $FILE_TAG)"
 
 python3 -m pip install --quiet --upgrade pip
 python3 -m pip install --quiet -r requirements.txt pyinstaller imageio-ffmpeg
@@ -114,7 +117,7 @@ STAGE="$ROOT/dmgstage"
 mkdir -p "$STAGE"
 cp -R "$APP" "$STAGE/"
 ln -s /Applications "$STAGE/Applications"
-cp "$ROOT/Mac使用说明.txt" "$STAGE/先看我-${EDITION}.txt"
+cp "$ROOT/Mac使用说明.txt" "$STAGE/先看我.txt"
 # 卷标也带版型：双击挂载后 Finder 里两个 DMG 不会都显示「音视频下载器」
 hdiutil create -volname "$VOLNAME" -srcfolder "$STAGE" -ov -format UDZO "$OUT"
 echo "==> 完成: $OUT ($(du -h "$OUT" | cut -f1))"

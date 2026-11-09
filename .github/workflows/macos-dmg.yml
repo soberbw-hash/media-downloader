@@ -17,16 +17,8 @@ permissions:
 
 jobs:
   build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # macos-14 已于 2026-11-02 退役；macos-15 是 arm64，带 -intel 的是 x86_64
-          - runner: macos-15
-            arch: arm64
-          - runner: macos-15-intel
-            arch: x86_64
-    runs-on: ${{ matrix.runner }}
+    # 只发 Apple 芯片版；macos-15 是 arm64 runner（macos-14 已于 2026-11-02 退役）
+    runs-on: macos-15
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -40,7 +32,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: dmg-${{ matrix.arch }}
+          name: dmg-arm64
           path: '*.dmg'
           if-no-files-found: error
 
@@ -48,12 +40,11 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: 收齐两个架构的 DMG
+      - name: 取回 DMG
         uses: actions/download-artifact@v4
         with:
+          name: dmg-arm64
           path: dmgs
-          pattern: dmg-*
-          merge-multiple: true
 
       - name: 发布到 GitHub Release
         env:
@@ -63,17 +54,14 @@ jobs:
           set -e
           ls -lh dmgs/
           cat > notes.md <<'EOF'
-          ## 音视频下载器 · Mac 版
+          ## 音视频下载器 · Mac 版（Apple 芯片专用）
 
-          **两个包长得不一样，只下一个就行：**
+          **只有一个包，不用挑。** 这一版只给 Apple 芯片的 Mac
+          （M1 / M2 / M3 / M4）。不知道自己芯片：点屏幕左上角  → 「关于本机」，
+          看「芯片」那一行写的是不是「Apple M…」。
 
-          | 你的 Mac | 下这个 |
-          |---|---|
-          | 关于本机里写「芯片 Apple M1 / M2 / M3 / M4」 | **M系列芯片版**.dmg |
-          | 关于本机里写「处理器 Intel」 | **Intel芯片版**.dmg |
-
-          不知道芯片型号：点屏幕左上角  → 「关于本机」，看「芯片」或「处理器」那一行。
-          下错了打不开而已，删掉换另一个重下，不会有别的影响。
+          Intel 芯片的 Mac 暂时没有安装包，下了也打不开。想用的话去本仓库
+          下源码，双击 `启动.command` 就能跑，功能一样。
 
           双击 DMG，把 App 拖进「应用程序」。第一次打开请**右键 → 打开**，
           或先在终端跑一次：
@@ -86,33 +74,28 @@ jobs:
           Python、ffmpeg、下载内核都打进包里了，不用另外装任何东西。
           下好的文件默认在「下载 / 音视频下载器」。DMG 里附了中文说明。
           EOF
+          TITLE="音视频下载器 $TAG · Mac 版（Apple 芯片专用）"
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file notes.md
+            RID=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq '.id')
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$RID" \
+              -f "name=$TITLE" >/dev/null
           else
             gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
-              --title "音视频下载器 $TAG · Mac 版（按芯片选包）" --notes-file notes.md
+              --title "$TITLE" --notes-file notes.md
           fi
-          # 先把这个发布页上的旧资产全清掉，再上传本次的两个包。
-          # 顺序保证新包不会被清掉；也不做文件名比对（中文名在 shell/jq 里容易被拆坏）。
+          # 先把这个发布页上的旧包（含之前 Intel 版、残缺中文名）全清掉再上传，
+          # 保证页面上永远只有一个包，不用再教人分辨。
           RID=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq '.id')
           for aid in $(gh api "repos/$GITHUB_REPOSITORY/releases/$RID/assets" --jq '.[].id'); do
             echo "清掉旧资产 id=$aid"
             gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$aid" >/dev/null
           done
-          # gh release upload 会把中文资产名剥成 "-1.24.1-M.dmg" 这种残缺名，
-          # 所以走官方上传接口，用 name= 显式指定（URL 编码后的完整中文名）。
-          UPLOAD="https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RID/assets"
-          for f in dmgs/*.dmg; do
-            name=$(basename "$f")
-            enc=$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1],safe=""))' "$name")
-            echo "上传: $name"
-            curl -fsS --max-time 600 -X POST \
-              -H "Authorization: Bearer $GH_TOKEN" \
-              -H "Content-Type: application/octet-stream" \
-              --data-binary "@$f" "$UPLOAD?name=$enc" >/dev/null
-          done
+          gh release upload "$TAG" dmgs/*.dmg --repo "$GITHUB_REPOSITORY" --clobber
           echo "本次资产："
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name'
-          # 名字没保住就让它红，别悄悄发出一个认不出来的包
+          # 只准有一个包，且名字要能看出是 Apple 芯片专用
+          test "$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets \
+                   --jq '.assets | length')" = "1"
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets \
-            --jq '[.assets[].name | select(contains("芯片版"))] | length' | grep -qx 2
+            --jq '.assets[].name' | grep -q 'Apple-M-Mac'

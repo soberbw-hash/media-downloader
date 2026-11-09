@@ -75,14 +75,11 @@ python server.py --server  # 只起服务，不动浏览器
 
 **macOS（推荐：直接下 DMG，什么都不用装）**
 
-去 [Releases](https://github.com/soberbw-hash/media-downloader/releases) 下载，**两个包只要下一个**，文件名直接写了给谁用：
+去 [Releases](https://github.com/soberbw-hash/media-downloader/releases) 下 `VideoDL-版本号-Apple-M-Mac.dmg`，**只有一个包，不用挑**。
 
-- **M 系列芯片版**（关于本机里写「芯片 Apple M1 / M2 / M3 / M4」）→ `音视频下载器-版本号-M系列芯片版.dmg`
-- **Intel 芯片版**（关于本机里写「处理器 Intel」）→ `音视频下载器-版本号-Intel芯片版.dmg`
+这一版只支持 Apple 芯片的 Mac（M1 / M2 / M3 / M4）：点屏幕左上角  → 「关于本机」，看「芯片」那一行写的是不是「Apple M…」。Intel 芯片的 Mac 暂时没有安装包，别下；想用可以双击 `启动.command` 跑源码，功能一样。
 
-不知道自己芯片：点屏幕左上角  → 「关于本机」，看「芯片」或「处理器」那一行。文件名、DMG 打开后的窗口标题、包里的说明文件名，三处都标了版型，不用记 `arm64` / `x86_64` 这种词。
-
-双击 DMG → 把 App 拖进「应用程序」→ **第一次在图标上点右键 → 打开**。Python、下载内核、ffmpeg 都打进包里了，不用装 Homebrew，也不用装 Python。没有 Apple 开发者签名，Gatekeeper 会先拦一下，右键打开一次就好；DMG 里的「先看我-…版.txt」有完整说明。
+双击 DMG → 把 App 拖进「应用程序」→ **第一次在图标上点右键 → 打开**。Python、下载内核、ffmpeg 都打进包里了，不用装 Homebrew，也不用装 Python。没有 Apple 开发者签名，Gatekeeper 会先拦一下，右键打开一次就好；DMG 里的「先看我.txt」有完整说明。
 
 想直接跑源码：双击 **`启动.command`**，它会自动在用户目录建虚拟环境装依赖（第一次约 1 分钟），不往程序目录写东西。
 
@@ -109,7 +106,7 @@ python server.py --server  # 只起服务，不动浏览器
 
 功能本身没有删减：搜索、下载、断点续传、识曲、账号扩展、视频号解析两边都一样。mac 没有 Apple 公证，所以第一次打开要多点一下右键，这是唯一需要手动的地方。
 
-DMG 由 GitHub Actions 在 macOS runner 上编译（`macos-15` / `macos-15-intel` 双架构），想自己出包就跑「Actions → 打包 macOS DMG」。
+DMG 由 GitHub Actions 在 `macos-15`（Apple 芯片）上编译，只发一个包；想自己出包就跑「Actions → 打包 macOS DMG」。
 
 ## 怎么用
 
@@ -383,7 +380,7 @@ start.bat        旧的启动逻辑，仓库里留着，便携版不打包
 Mac使用说明.txt   DMG 里附的中文说明（含首次打开的处理办法）
 tools/           打包用：图标生成、启动器、便携版打包脚本
 tools/macos.spec、mac_entry.py、build_macos_dmg.sh   macOS .app 打包
-.github/workflows/macos-dmg.yml  GitHub Actions 在 macOS 编双架构 DMG 并发 Release
+.github/workflows/macos-dmg.yml  GitHub Actions 在 macOS 编 Apple 芯片版 DMG 并发 Release
 tests/           回归自测：断点续传、分片拼接、端到端，改下载逻辑后跑一遍
 ```
 

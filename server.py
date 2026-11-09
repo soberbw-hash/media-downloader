@@ -475,6 +475,8 @@ class Handler(BaseHTTPRequestHandler):
                 "tasks": MANAGER.snapshot(),
                 "config": CFG,
                 "push_key": PUSH_KEY,
+                # 诊断用：Mac 版随包的 ffmpeg 到底找没找到，一眼能看出来
+                "ffmpeg": paths_mod.ffmpeg_path(),
                 "platforms": [{"id": x["id"], "name": x["name"], "level": x["level"]}
                               for x in core.PLATFORMS],
             })

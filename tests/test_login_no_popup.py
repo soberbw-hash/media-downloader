@@ -22,7 +22,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, ROOT)
 
-URL = "http://127.0.0.1:8765"
+URL = os.environ.get("VDL_TEST_URL", "http://127.0.0.1:8765").rstrip("/")
 OP = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
@@ -198,7 +198,7 @@ def test_ui():
         pg.evaluate("() => document.querySelector('#openAcct').click()")
         pg.wait_for_timeout(900)
         lead = pg.inner_text(".acct-lead")
-        assert "无痕" in lead and "不会再弹" in lead, "旧说明还在: %s" % lead
+        assert "已登录" in lead and "小助手" in lead, "旧说明还在: %s" % lead
         assert pg.locator("#extCard").count() == 1, "缺扩展引导卡"
         assert pg.locator("#extFolder").count() == 1, "缺「打开扩展文件夹」"
         assert pg.locator("#extPage").count() == 1, "缺「打开扩展安装页」"

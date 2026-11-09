@@ -130,6 +130,38 @@ chrome.alarms.onAlarm.addListener(a => {
   if (a.name === ALARM) syncAll();
 });
 
+/* 登录完就自动送过来：不用用户回来点「同步」，也不用等 15 分钟的定时器。
+   登录成功的那一刻 cookie 会变，站点页面加载完也会触发；合并 4 秒内的抖动，
+   两次同步至少隔 15 秒，免得频繁扫 cookie。 */
+let syncTimer = null;
+let lastSyncAt = 0;
+
+function isWatched(domain) {
+  const d = (domain || "").toLowerCase().replace(/^\./, "");
+  return PLATFORMS.some(p => d === p.domain || d.endsWith("." + p.domain));
+}
+
+function queueSync() {
+  if (syncTimer) clearTimeout(syncTimer);
+  syncTimer = setTimeout(async () => {
+    syncTimer = null;
+    if (Date.now() - lastSyncAt < 15000) return;
+    if (!(await autoOn())) return;
+    lastSyncAt = Date.now();
+    await syncAll();
+  }, 4000);
+}
+
+chrome.cookies.onChanged.addListener(info => {
+  if (info && info.cookie && isWatched(info.cookie.domain)) queueSync();
+});
+chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
+  if (change.status !== "complete" || !tab || !tab.url) return;
+  try {
+    if (isWatched(new URL(tab.url).hostname)) queueSync();
+  } catch (e) { /* 不是网页地址，忽略 */ }
+});
+
 chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   if (msg && msg.type === "sync") {
     syncAll().then(reply).catch(e => reply({ ok: false, msg: String(e) }));

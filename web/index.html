@@ -409,7 +409,7 @@
       <div class="at-num" id="acctNum">0<span>/0</span></div>
       <div class="at-txt">
         <b>已登录</b>
-        <i>登录态只保存在本机 cookies 目录，不上传</i>
+        <i>登录信息只存在这台电脑，不上传</i>
       </div>
     </div>
 
@@ -424,25 +424,56 @@
                   stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </span>
-        <b>一键同步登录态</b>
+        <b>装一次，以后自动登录</b>
         <span class="ext-badge" id="extBadge">可选</span>
       </div>
-      <p class="ext-p">装一次小扩展，就把你 <b id="extBrowser">日常浏览器</b> 里已登录的账号自动同步进来，之后一直自己更新，不用再登一遍。</p>
+      <p class="ext-p" id="extLead">装一次小助手，之后在 <b>日常浏览器</b> 里登录哪个网站，
+        这边就自动显示「已登录」。</p>
       <div class="ext-acts">
-        <button type="button" id="extFolder">打开扩展文件夹</button>
-        <button type="button" id="extPage">打开扩展安装页</button>
+        <button type="button" class="primary" id="btnExtSetup">一键装小助手</button>
       </div>
-      <p class="ext-steps">扩展页右上角开「开发者模式」→「加载已解压的扩展程序」→ 选中刚打开的 <code>browser-extension</code> 文件夹。装好立刻自动同步一次。</p>
-      <p class="ext-note">只读取下载器支持的站点，只发到本机 127.0.0.1，不上传。<span id="extLast"></span></p>
+      <details class="qbox" id="extHow">
+        <summary>怎么装？点开看三步</summary>
+        <div class="qbox-body">
+          <ol>
+            <li>点「一键装小助手」，会打开文件夹和网页。</li>
+            <li>网页右上角打开<b>开发者模式</b>，点<b>加载已解压的扩展程序</b>。</li>
+            <li>选中刚打开的文件夹，就装好了。</li>
+          </ol>
+          <div class="ext-acts small">
+            <button type="button" id="extFolder">只开文件夹</button>
+            <button type="button" id="extPage">只开安装页</button>
+          </div>
+        </div>
+      </details>
+      <p class="ext-note">只读下载器支持的几个网站，只发到本机，不上传。<span id="extLast"></span></p>
     </div>
 
     <p class="acct-lead">
-      点「打开」用的是<b>你平时那个已登录的浏览器</b>，不会再弹独立 / 无痕窗口。
-      装了扩展，登录态会自己进来；不想装，就在那行点「粘贴」贴一次。
+      第一次用先装上面的小助手，之后点「打开」登录，回来就是「已登录」。
     </p>
 
     <div id="logins" class="logins"></div>
     <div class="login-bar" id="loginBar"></div>
+
+    <details class="adv manual-box" id="manualBox">
+      <summary>装不了小助手？手动贴一次</summary>
+      <div class="adv-body">
+        <p class="manual-tip">这台电脑不方便装扩展的话，把浏览器导出的整串登录信息贴进来就行。
+          不知道怎么导出就别折腾，用上面的小助手更省事。</p>
+        <div class="field">
+          <label for="ckSite">哪个网站</label>
+          <select id="ckSite"></select>
+        </div>
+        <div class="field">
+          <label for="ckInput">导出的整串</label>
+          <textarea id="ckInput" spellcheck="false" autocomplete="off"
+                    placeholder="把导出的整串贴这儿"></textarea>
+        </div>
+        <div class="ck-err" id="ckErr"></div>
+        <button type="button" class="s-btn" id="ckSave">保存</button>
+      </div>
+    </details>
   </div>
 </aside>
 
@@ -468,21 +499,6 @@
 </aside>
 
 <div class="toast" id="toast"></div>
-
-<!-- ---------- 粘贴 cookie ---------- -->
-<div class="modal" id="ckModal" hidden>
-  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="ckTitle">
-    <h4 id="ckTitle">粘贴 Cookie</h4>
-    <p class="ck-tip" id="ckTip"></p>
-    <textarea id="ckInput" spellcheck="false" autocomplete="off"
-              placeholder="MUSIC_U=xxxxxx; __csrf=yyyyyy"></textarea>
-    <div class="ck-err" id="ckErr"></div>
-    <div class="modal-foot">
-      <button class="ghost-btn" id="ckCancel">取消</button>
-      <button class="save-btn" id="ckSave">保存</button>
-    </div>
-  </div>
-</div>
 
 <script src="/icons.js"></script>
 <script src="/app.js"></script>

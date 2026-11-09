@@ -10,7 +10,7 @@ import sys
 import time
 import urllib.request
 
-URL = "http://127.0.0.1:8765"
+URL = os.environ.get("VDL_TEST_URL", "http://127.0.0.1:8765").rstrip("/")
 OP = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 EXE = r"C:/Program Files/Google/Chrome/Application/chrome.exe"
 

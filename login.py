@@ -563,6 +563,20 @@ def open_ext_page():
     return ok, ("已打开扩展安装页" if ok else err)
 
 
+def setup_ext():
+    """「一键装小助手」：文件夹和浏览器扩展页一起打开，用户只差选一下文件夹。
+
+    以前要在界面上点两个按钮、还得自己弄懂先后顺序；这一步合并掉。
+    """
+    ok_dir, msg_dir = open_ext_dir()
+    ok_page, msg_page = open_ext_page()
+    if ok_dir and ok_page:
+        return True, "已打开安装页和文件夹，在页面里点「加载已解压的扩展程序」选中它就行"
+    if ok_dir or ok_page:
+        return True, "打开了一个，另一个没开成：%s" % (msg_page if ok_dir else msg_dir)
+    return False, "没打开：%s / %s" % (msg_dir, msg_page)
+
+
 def start(pid, proxy=None):
     """「登录」主入口：直接用系统默认浏览器打开，不再弹任何自动化窗口。
 

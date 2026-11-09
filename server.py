@@ -38,7 +38,7 @@ import core  # noqa: E402
 import login as login_mod  # noqa: E402
 import picker  # noqa: E402
 
-APP_VERSION = "1.24.1"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
+APP_VERSION = "1.24.2"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
 UPDATE_REPO = "soberbw-hash/media-downloader"
 
 # 识曲上传的上限（base64 长度）。20MB 原文件约 27MB base64，够一段音频了。
@@ -687,6 +687,11 @@ class Handler(BaseHTTPRequestHandler):
 
         elif p == "/api/login/open_ext_page":
             ok, msg = login_mod.open_ext_page()
+            self._json({"ok": ok, "msg": msg, "error": "" if ok else msg})
+
+        elif p == "/api/login/setup_ext":
+            # 一个按钮同时打开扩展文件夹和浏览器安装页，别让用户自己拼步骤
+            ok, msg = login_mod.setup_ext()
             self._json({"ok": ok, "msg": msg, "error": "" if ok else msg})
 
         elif p == "/api/login/cancel":

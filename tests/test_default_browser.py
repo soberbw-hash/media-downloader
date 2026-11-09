@@ -23,7 +23,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, ROOT)
 
-URL = "http://127.0.0.1:8765"
+URL = os.environ.get("VDL_TEST_URL", "http://127.0.0.1:8765").rstrip("/")
 OP = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
@@ -147,7 +147,7 @@ def test_ui():
             "面板没显示具体浏览器名: %s" % txt
         assert "不再弹独立窗口" in txt, "没说清不再弹独立 / 无痕窗口"
         lead = pg.inner_text(".acct-lead")
-        assert "无痕" in lead and "已登录" in lead, "说明文字还是旧的: %s" % lead
+        assert "已登录" in lead and "小助手" in lead, "说明文字还是旧的: %s" % lead
         n = pg.locator('#logins [data-act="login"]').count()
         assert n >= 8, "每行都该有「打开」按钮，实际 %d" % n
         assert pg.locator('#logins [data-act="login"]').first.inner_text() == "打开"

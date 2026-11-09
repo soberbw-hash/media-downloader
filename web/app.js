@@ -941,6 +941,7 @@ document.addEventListener("visibilitychange", () => {
 let loginSig = "";
 let defaultBrowser = null;
 let extInfo = null;
+let lastLogged = null;
 
 async function loadLogins(force) {
   try {
@@ -948,10 +949,18 @@ async function loadLogins(force) {
     const d = await r.json();
     defaultBrowser = d.default_browser || null;
     extInfo = d.extension || null;
-    const sig = JSON.stringify([d.sites, d.status, defaultBrowser, extInfo]);
+    const list = d.sites || [];
+    // 扩展把登录态送进来时，界面自己变「已登录」；再给一句人话确认，
+    // 用户不用一直盯着面板等。
+    if (lastLogged) {
+      const added = list.filter((s) => s.logged_in && !lastLogged.includes(s.id));
+      if (added.length) toast(`${added.map((s) => s.name).join("、")} 已登录，可以下了`);
+    }
+    lastLogged = list.filter((s) => s.logged_in).map((s) => s.id);
+    const sig = JSON.stringify([list, d.status, defaultBrowser, extInfo]);
     if (sig === loginSig && !force) return;
     loginSig = sig;
-    renderLogins(d.sites || [], d.status || {});
+    renderLogins(list, d.status || {});
   } catch (e) {}
 }
 
@@ -1000,6 +1009,14 @@ function renderLogins(sites, status) {
   }
   const num = $("#acctNum");
   if (num) num.innerHTML = `${on}<span>/${sites.length}</span>`;
+  // 手动兜底区的站点下拉跟着最新状态走，别让用户自己记平台 id
+  const ckSel = $("#ckSite");
+  if (ckSel) {
+    const cur = ckSel.value;
+    ckSel.innerHTML = sites.map((s) =>
+      `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join("");
+    if (cur && sites.some((s) => s.id === cur)) ckSel.value = cur;
+  }
   const def = $("#acctDef");
   if (def) {
     def.innerHTML = `<i></i>当前默认浏览器 <b>${esc(dailyName())}</b> · `
@@ -1010,19 +1027,44 @@ function renderLogins(sites, status) {
   renderLoginBar(status, busy);
 }
 
-/* 一键同步扩展：这里只做引导，真正的同步由扩展在你自己的浏览器里发起 */
+/* 一键装小助手：真正读登录态的是扩展，这边只负责把安装压成一个按钮 */
+async function setupExt() {
+  const btn = $("#btnExtSetup");
+  if (btn) btn.disabled = true;
+  const r = await post("/api/login/setup_ext", {});
+  if (btn) btn.disabled = false;
+  if (!r.ok) { toast(r.error || "没打开，稍后再试一次"); return; }
+  toast("安装页和文件夹都打开了 · 照着下面三步选一下就行");
+  const how = $("#extHow");
+  if (how) how.open = true;
+  setTimeout(() => loadLogins(true), 3000);
+}
+
 function renderExt() {
   const card = $("#extCard");
   if (!card) return;
-  const bn = $("#extBrowser");
-  if (bn) bn.textContent = dailyName();
-  const badge = $("#extBadge");
-  const last = $("#extLast");
   const on = !!(extInfo && extInfo.synced);
+  const badge = $("#extBadge");
   if (badge) {
-    badge.textContent = on ? "已连接" : "可选";
+    badge.textContent = on ? "已连上" : "第一次要装";
     badge.className = on ? "ext-badge on" : "ext-badge";
   }
+  const lead = $("#extLead");
+  if (lead) {
+    lead.innerHTML = on
+      ? `已连上 <b>${esc(dailyName())}</b> 的小助手。以后在浏览器里登录哪个网站，`
+        + `这边就自动变「已登录」。`
+      : `装一次小助手，之后在 <b>${esc(dailyName())}</b> 里登录哪个网站，`
+        + `这边就自动显示「已登录」。`;
+  }
+  const btn = $("#btnExtSetup");
+  if (btn) {
+    btn.textContent = on ? "重新检查" : "一键装小助手";
+    btn.onclick = on ? () => { loadLogins(true); toast("已重新检查"); } : setupExt;
+  }
+  const how = $("#extHow");
+  if (how) how.hidden = on;      // 装好就别再占着位置
+  const last = $("#extLast");
   if (last) {
     last.textContent = on ? ` 本次运行已同步 ${extInfo.synced_count} 个平台。` : "";
   }
@@ -1045,14 +1087,11 @@ function loginRow(s, status, busy) {
       + (acc.vip ? `<span class="vip">${esc(acc.detail || "VIP")}</span>` : "")
       + `</span>`
     : "";
-  const paste = s.importable
-    ? `<button type="button" data-act="paste" title="从浏览器里复制 cookie 贴进来">粘贴</button>`
-    : "";
   const out = s.logged_in || acc.ok ? `<button type="button" data-act="out">退出</button>` : "";
   row.innerHTML = iconHTML(s.id)
     + `<span class="nm">${esc(s.name)}</span>`
     + `<span class="${stCls}">${stText}</span>`
-    + `<span class="acts">${paste}<button type="button" data-act="login"`
+    + `<span class="acts"><button type="button" data-act="login"`
     + ` title="用${esc(dailyName())}打开（你平时已登录的那个窗口）">打开</button>`
     + `${out}</span>`
     + sub;
@@ -1061,11 +1100,6 @@ function loginRow(s, status, busy) {
   const lb = row.querySelector('[data-act="login"]');
   lb.disabled = busy;
   lb.onclick = () => startLogin(s.id);
-  const pb = row.querySelector('[data-act="paste"]');
-  if (pb) {
-    pb.disabled = busy;
-    pb.onclick = () => openCookieModal(s);
-  }
   const ob = row.querySelector('[data-act="out"]');
   if (ob) {
     ob.disabled = busy;
@@ -1097,16 +1131,13 @@ function renderLoginBar(status, busy) {
     // 打开网页之后别让状态栏空着，明确告诉用户下一步（或不用做什么）
     const synced = !!(extInfo && extInfo.synced);
     show(synced
-      ? "网页已打开 · 登录态会自动同步，这边不用管了"
-      : "网页已打开 · 装一次同步扩展，以后登录态自己就进来了", false);
+      ? "网页已打开 · 登录完这边会自动变「已登录」，不用回来点"
+      : "网页已打开 · 先装一下小助手，以后登录态就自己进来了", false);
     if (!synced) {
       const b = document.createElement("button");
       b.className = "go";
-      b.textContent = "看怎么装";
-      b.onclick = () => {
-        const card = $("#extCard");
-        if (card) card.scrollIntoView({ behavior: "smooth", block: "center" });
-      };
+      b.textContent = "一键装小助手";
+      b.onclick = () => setupExt();
       bar.appendChild(b);
     }
   } else if (["done", "error", "timeout", "closed"].includes(status.state)) {
@@ -1121,80 +1152,41 @@ async function startLogin(pid) {
   loadLogins(true);
 }
 
-/* 手动贴 cookie：给不想开登录窗口、或者登录窗口抽风的人留的一条路 */
-let ckSite = null;
-
-const CK_TIP = {
-  music_netease:
-    "在浏览器里登录 music.163.com，按 F12 → Application → Cookies → music.163.com，"
-    + "找到 <code>MUSIC_U</code> 复制它的值，或者用 Cookie 导出插件整串复制，粘进来就行。",
-  music_qqmusic:
-    "在浏览器里登录 y.qq.com，按 F12 → Application → Cookies → y.qq.com，"
-    + "把 <code>qm_keyst</code> 和 <code>uin</code> 一起复制；用插件导出的整串直接粘也行。",
-  suno:
-    "在你日常浏览器里登录 suno.com，按 F12 → Application → Cookies → suno.com，"
-    + "找到 <code>__session</code>（或 <code>__clerk_db_jwt</code>）复制；"
-    + "用插件导出的整串直接粘也行。贴完就能下只对登录用户开放的歌。",
-};
-
-function openCookieModal(s) {
-  ckSite = s;
-  $("#ckTitle").textContent = "粘贴 " + s.name + " Cookie";
-  const key = (s.need && s.need.length) ? s.need[0] : "登录 cookie";
-  $("#ckTip").innerHTML = CK_TIP[s.id]
-    || `在你日常的${esc(dailyName())}里打开已登录的页面，按 F12 → Application → Cookies，`
-       + `把 <code>${esc(key)}</code> 复制过来；用插件导出的整串`
-       + `「名字=值; 名字=值」直接粘也行。装了同步扩展就不用做这一步。`;
-  $("#ckInput").value = "";
-  $("#ckErr").textContent = "";
-  $("#ckModal").hidden = false;
-  setTimeout(() => $("#ckInput").focus(), 40);
-}
-
-function closeCookieModal() {
-  $("#ckModal").hidden = true;
-  ckSite = null;
-}
-
+/* 手动贴：装不了扩展的电脑留的兜底，默认折叠在账号面板最下面。
+   文案不出现开发者工具、键名这类词 —— 看不懂的人本来就不该点进来。 */
 async function saveCookie() {
-  if (!ckSite) return;
-  const raw = $("#ckInput").value.trim();
-  if (!raw) {
-    $("#ckErr").textContent = "还没贴内容";
-    return;
-  }
+  const pid = ($("#ckSite") || {}).value || "";
+  const raw = ($("#ckInput") || {}).value.trim();
+  if (!pid) { $("#ckErr").textContent = "先选一个网站"; return; }
+  if (!raw) { $("#ckErr").textContent = "还没贴内容"; return; }
   const btn = $("#ckSave");
   btn.disabled = true;
-  const r = await post("/api/login/import", { platform: ckSite.id, cookie: raw });
+  const r = await post("/api/login/import", { platform: pid, cookie: raw });
   btn.disabled = false;
-  if (!r.ok) {
-    $("#ckErr").textContent = r.error || "保存失败";
-    return;
-  }
-  closeCookieModal();
+  if (!r.ok) { $("#ckErr").textContent = r.error || "保存失败"; return; }
+  $("#ckInput").value = "";
+  $("#ckErr").textContent = "";
   toast(r.msg || "已保存");
   loadLogins(true);
 }
 
 async function logoutSite(s) {
   const r = await post("/api/login/logout", { platform: s.id });
-  toast(r.ok ? `已退出 ${s.name} · 想恢复，点扩展同步或「粘贴」就行`
+  toast(r.ok ? `已退出 ${s.name} · 在浏览器里重新登录，会自动同步回来`
              : (r.msg || "退出失败"));
   loadLogins(true);
 }
 
 /* 脚本在 body 末尾加载，DOM 已经就绪，直接绑 */
 if (typeof document !== "undefined") {
-  const _m = $("#ckModal");
-  if (_m) {
-    $("#ckSave").onclick = saveCookie;
-    $("#ckCancel").onclick = closeCookieModal;
-    _m.addEventListener("click", (e) => { if (e.target === _m) closeCookieModal(); });
-    $("#ckInput").addEventListener("keydown", (e) => {
-      if (e.key === "Escape") closeCookieModal();
-      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) saveCookie();
-    });
-  }
+  const _cs = $("#ckSave");
+  if (_cs) _cs.onclick = saveCookie;
+  const _ci = $("#ckInput");
+  if (_ci) _ci.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) saveCookie();
+  });
+  const _es = $("#btnExtSetup");
+  if (_es) _es.onclick = setupExt;
   const ef = $("#extFolder");
   if (ef) ef.onclick = async () => {
     const r = await post("/api/login/open_ext_dir", {});

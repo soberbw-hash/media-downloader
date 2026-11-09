@@ -968,10 +968,6 @@ function dailyName() {
   return (defaultBrowser && defaultBrowser.name) || "默认浏览器";
 }
 
-function browserName() {
-  return (defaultBrowser && defaultBrowser.login_name) || dailyName();
-}
-
 function renderLogins(sites, status) {
   const box = $("#logins");
   if (!box || !sites || !sites.length) return;   // 还没拉到，先别把空列表画上去
@@ -980,8 +976,8 @@ function renderLogins(sites, status) {
 
   // 按「必须登 / 登了更好」分区，用户一眼就知道哪些能跳过
   const groups = [
-    { t: "必须登录", sub: "不登录拿不到地址", list: sites.filter((s) => s.required) },
-    { t: "可选登录", sub: "不登也能下，登了更稳", list: sites.filter((s) => !s.required) },
+    { t: "必须登录", list: sites.filter((s) => s.required) },
+    { t: "可选登录", list: sites.filter((s) => !s.required) },
   ];
 
   groups.forEach((g) => {
@@ -990,7 +986,7 @@ function renderLogins(sites, status) {
     sec.className = "lg-grp";
     const h = document.createElement("div");
     h.className = "lg-t";
-    h.innerHTML = `${esc(g.t)}<span>${esc(g.sub)}</span>`;
+    h.textContent = g.t;
     sec.appendChild(h);
     const list = document.createElement("div");
     list.className = "lg-list";
@@ -1017,12 +1013,6 @@ function renderLogins(sites, status) {
       `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join("");
     if (cur && sites.some((s) => s.id === cur)) ckSel.value = cur;
   }
-  const def = $("#acctDef");
-  if (def) {
-    def.innerHTML = `<i></i>当前默认浏览器 <b>${esc(dailyName())}</b> · `
-      + `不再弹独立窗口`;
-  }
-
   renderExt();
   renderLoginBar(status, busy);
 }
@@ -1034,7 +1024,7 @@ async function setupExt() {
   const r = await post("/api/login/setup_ext", {});
   if (btn) btn.disabled = false;
   if (!r.ok) { toast(r.error || "没打开，稍后再试一次"); return; }
-  toast("安装页和文件夹都打开了 · 照着下面三步选一下就行");
+  toast("照着下面三步选一下");
   const how = $("#extHow");
   if (how) how.open = true;
   setTimeout(() => loadLogins(true), 3000);
@@ -1049,14 +1039,6 @@ function renderExt() {
     badge.textContent = on ? "已连上" : "第一次要装";
     badge.className = on ? "ext-badge on" : "ext-badge";
   }
-  const lead = $("#extLead");
-  if (lead) {
-    lead.innerHTML = on
-      ? `已连上 <b>${esc(dailyName())}</b> 的小助手。以后在浏览器里登录哪个网站，`
-        + `这边就自动变「已登录」。`
-      : `装一次小助手，之后在 <b>${esc(dailyName())}</b> 里登录哪个网站，`
-        + `这边就自动显示「已登录」。`;
-  }
   const btn = $("#btnExtSetup");
   if (btn) {
     btn.textContent = on ? "重新检查" : "一键装小助手";
@@ -1064,10 +1046,6 @@ function renderExt() {
   }
   const how = $("#extHow");
   if (how) how.hidden = on;      // 装好就别再占着位置
-  const last = $("#extLast");
-  if (last) {
-    last.textContent = on ? ` 本次运行已同步 ${extInfo.synced_count} 个平台。` : "";
-  }
   card.classList.toggle("missing", !!(extInfo && !extInfo.exists));
 }
 
@@ -1092,7 +1070,7 @@ function loginRow(s, status, busy) {
     + `<span class="nm">${esc(s.name)}</span>`
     + `<span class="${stCls}">${stText}</span>`
     + `<span class="acts"><button type="button" data-act="login"`
-    + ` title="用${esc(dailyName())}打开（你平时已登录的那个窗口）">打开</button>`
+    + ` title="用${esc(dailyName())}打开">打开</button>`
     + `${out}</span>`
     + sub;
   row.title = acc.ok && acc.error ? acc.error : (s.tip || "");
@@ -1126,13 +1104,10 @@ function renderLoginBar(status, busy) {
     }
   };
   if (busy) {
-    show(status.msg || "请在浏览器窗口里完成登录", true);
+    show(status.msg || "请在浏览器里完成登录", true);
   } else if (status.state === "opened") {
-    // 打开网页之后别让状态栏空着，明确告诉用户下一步（或不用做什么）
     const synced = !!(extInfo && extInfo.synced);
-    show(synced
-      ? "网页已打开 · 登录完这边会自动变「已登录」，不用回来点"
-      : "网页已打开 · 先装一下小助手，以后登录态就自己进来了", false);
+    show(synced ? "网页已打开 · 登录完就好" : "网页已打开", false);
     if (!synced) {
       const b = document.createElement("button");
       b.className = "go";
@@ -1147,7 +1122,7 @@ function renderLoginBar(status, busy) {
 
 async function startLogin(pid) {
   const r = await post("/api/login/start", { platform: pid });
-  toast(r.ok ? (r.msg || `已在你日常的${dailyName()}里打开`)
+  toast(r.ok ? (r.msg || `已在 ${dailyName()} 打开`)
              : (r.error || "打不开浏览器"));
   loadLogins(true);
 }
@@ -1172,8 +1147,7 @@ async function saveCookie() {
 
 async function logoutSite(s) {
   const r = await post("/api/login/logout", { platform: s.id });
-  toast(r.ok ? `已退出 ${s.name} · 在浏览器里重新登录，会自动同步回来`
-             : (r.msg || "退出失败"));
+  toast(r.ok ? `已退出 ${s.name}` : (r.msg || "退出失败"));
   loadLogins(true);
 }
 

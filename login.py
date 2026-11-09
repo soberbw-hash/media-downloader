@@ -526,13 +526,13 @@ def launch_options():
 
 
 def open_site(pid):
-    """点「打开」：用系统默认浏览器打开该站点的登录页（你平时已登录的那个窗口）。"""
+    """点「打开」：用系统默认浏览器打开该站点的登录页。"""
     site = SITES.get(pid)
     if not site:
         return False, "不支持的平台"
     ok, err = open_in_default_browser(site["url"])
     if ok:
-        return True, "已在%s里打开 %s，就是你平时那个已登录的窗口" % (
+        return True, "已在%s里打开 %s" % (
             default_browser()["name"], site["name"])
     return False, err
 

@@ -64,8 +64,8 @@ def test_no_popup():
     st = login.status()
     log("  start ->", st["state"], "|", msg)
     assert st["state"] == "opened", "还在走旧的等待登录流程: %s" % st
-    assert "已登录" in msg, "没说明是已登录的那个窗口: %s" % msg
-    assert "独立窗口" not in msg and "无痕" not in msg, msg
+    assert "已在" in msg and "Suno" in msg, "打开反馈不对: %s" % msg
+    assert "窗口" not in msg and "无痕" not in msg, "又加回解释性文案了: %s" % msg
     assert "Chrome" in msg or "Edge" in msg or "浏览器" in msg, "没说用的哪个浏览器"
     after = [t.name for t in __import__("threading").enumerate()]
     assert after == before, "不该起任何后台线程（说明又去拉 Playwright 了）"
@@ -88,7 +88,7 @@ def test_api_start():
     d = post("/api/login/start", {"platform": "bilibili"})
     assert d["ok"] and d["msg"], "接口没返回人话消息: %s" % d
     assert d["status"]["state"] == "opened", "服务端状态不对: %s" % d["status"]
-    assert "窗口" not in d["msg"] or "已登录的窗口" in d["msg"], d["msg"]
+    assert "窗口" not in d["msg"], "打开反馈里还有解释性文案: %s" % d["msg"]
     log("  /api/login/start ->", d["msg"])
     bad = post("/api/login/start", {"platform": "nope"})
     assert not bad["ok"], "不存在的平台不该说成功"
@@ -197,8 +197,8 @@ def test_ui():
         pg.goto(URL + "/", wait_until="networkidle", timeout=30000)
         pg.evaluate("() => document.querySelector('#openAcct').click()")
         pg.wait_for_timeout(900)
-        lead = pg.inner_text(".acct-lead")
-        assert "已登录" in lead and "小助手" in lead, "旧说明还在: %s" % lead
+        assert pg.locator(".acct-lead").count() == 0, "解释段又回来了"
+        assert pg.locator("#acctDef").count() == 0, "默认浏览器说明又回来了"
         assert pg.locator("#extCard").count() == 1, "缺扩展引导卡"
         assert pg.locator("#extFolder").count() == 1, "缺「打开扩展文件夹」"
         assert pg.locator("#extPage").count() == 1, "缺「打开扩展安装页」"
@@ -207,7 +207,7 @@ def test_ui():
         assert btns.first.inner_text() == "打开", "按钮还叫「登录」"
         assert pg.locator('#logins [data-act="daily"]').count() == 0, \
             "重复的 ↗ 按钮没去掉"
-        log("  面板:", pg.inner_text("#acctDef").strip())
+        log("  面板已无解释性小字")
         btns.first.click()
         pg.wait_for_timeout(500)
         assert not errs, "界面脚本报错: %s" % errs[:2]

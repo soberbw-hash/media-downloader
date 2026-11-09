@@ -140,14 +140,13 @@ def test_ui():
         # 顶栏按钮在窄视口可能滚出屏幕，直接触发点击，测的是面板行为
         pg.evaluate("() => document.querySelector('#openAcct').click()")
         pg.wait_for_timeout(900)
-        txt = pg.inner_text("#acctDef")
-        log("  面板显示:", txt)
-        assert "默认浏览器" in txt, "面板没告诉用户用的是哪个浏览器"
-        assert "Chrome" in txt or "Edge" in txt or "Firefox" in txt, \
-            "面板没显示具体浏览器名: %s" % txt
-        assert "不再弹独立窗口" in txt, "没说清不再弹独立 / 无痕窗口"
-        lead = pg.inner_text(".acct-lead")
-        assert "已登录" in lead and "小助手" in lead, "说明文字还是旧的: %s" % lead
+        # 1.24.3：面板只留动作，默认浏览器名放到「打开」按钮的 title 里
+        assert pg.locator("#acctDef").count() == 0, "默认浏览器说明又回来了"
+        assert pg.locator(".acct-lead").count() == 0, "解释段又回来了"
+        title = pg.locator('#logins [data-act="login"]').first.get_attribute("title")
+        log("  打开按钮 title:", title)
+        assert "Chrome" in title or "Edge" in title or "Firefox" in title, \
+            "没认出默认浏览器: %s" % title
         n = pg.locator('#logins [data-act="login"]').count()
         assert n >= 8, "每行都该有「打开」按钮，实际 %d" % n
         assert pg.locator('#logins [data-act="login"]').first.inner_text() == "打开"

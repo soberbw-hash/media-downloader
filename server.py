@@ -38,7 +38,7 @@ import core  # noqa: E402
 import login as login_mod  # noqa: E402
 import picker  # noqa: E402
 
-APP_VERSION = "1.24.2"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
+APP_VERSION = "1.24.3"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
 UPDATE_REPO = "soberbw-hash/media-downloader"
 
 # 识曲上传的上限（base64 长度）。20MB 原文件约 27MB base64，够一段音频了。
@@ -1362,7 +1362,8 @@ def main():
             pass
 
     # 已经有实例在跑：不再起第二个服务，只开窗口
-    running = find_running()
+    # VDL_FORCE_NEW 只给回归测试用：另起隔离实例，不碰用户正在用的那个
+    running = None if os.environ.get("VDL_FORCE_NEW") == "1" else find_running()
     blog("find_running=%s" % running)
     if running:
         url = "http://127.0.0.1:%d/" % running

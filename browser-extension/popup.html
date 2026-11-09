@@ -10,7 +10,6 @@
   .hd { display: flex; align-items: baseline; gap: 8px; }
   .hd b { font-size: 14px; font-weight: 600; letter-spacing: .2px; }
   .hd span { font-size: 11px; color: #a8a29e; }
-  .tip { margin: 10px 0 14px; font-size: 12px; color: #78716c; }
   button { width: 100%; padding: 9px 12px; border: 1px solid #292524; border-radius: 8px;
            background: #292524; color: #fff; font-size: 13px; cursor: pointer;
            font-family: inherit; }
@@ -24,16 +23,13 @@
           padding-top: 12px; border-top: 1px solid #e7e5e4; font-size: 12px;
           color: #57534e; cursor: pointer; }
   .auto input { margin: 0; accent-color: #292524; }
-  .note { margin: 10px 0 0; font-size: 11px; line-height: 1.55; color: #a8a29e; }
 </style>
 </head>
 <body>
-  <div class="hd"><b>音视频下载器</b><span>登录态同步</span></div>
-  <p class="tip">装好就自动把已登录的账号送进下载器，之后每 15 分钟自己更新，不用管。</p>
+  <div class="hd"><b>音视频下载器</b><span>小助手</span></div>
   <button id="sync" type="button">立即再同步一次</button>
   <div id="out"></div>
   <label class="auto"><input type="checkbox" id="auto"> 自动同步（每 15 分钟）</label>
-  <p class="note">只读取下载器支持的那些网站的登录信息，只发到本机；不上传、不保存别处。随时可关。</p>
   <script src="popup.js"></script>
 </body>
 </html>

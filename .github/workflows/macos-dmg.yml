@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: '发布用的版本号标签（如 v1.24.2）'
+        description: '发布用的版本号标签（如 v1.24.3）'
         required: false
-        default: 'v1.24.2'
+        default: 'v1.24.3'
   push:
     tags:
       - 'v*'

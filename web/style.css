@@ -1080,35 +1080,7 @@ body.playing .toast { bottom: 84px; }
   margin-left: 2px;
 }
 
-.at-txt { display: flex; flex-direction: column; gap: 2px; }
 .at-txt b { font-weight: 400; font-size: 12.5px; color: var(--text-2); }
-.at-txt i { font-style: normal; font-size: 11px; color: var(--hint); }
-
-.acct-def {
-  /* 别用 flex：文字段会各自变成匿名 flex item，窄抽屉里被挤成
-     「浏览 / 器」「窗 / 口」这种孤字换行。整段走 inline 流就好 */
-  display: block;
-  margin: -4px 0 14px;
-  font-size: 11.5px;
-  line-height: 1.65;
-  color: var(--hint);
-}
-.acct-def:empty { display: none; }
-.acct-def b { color: var(--text); font-weight: 600; }
-.acct-def i {
-  display: inline-block; width: 6px; height: 6px; border-radius: 50%;
-  background: #55a97a; margin-right: 6px; vertical-align: 1px;
-}
-
-.acct-lead {
-  margin: 0 0 22px;
-  padding-bottom: 18px;
-  border-bottom: 1px solid var(--line-soft);
-  font-size: 11.5px;
-  line-height: 1.7;
-  color: var(--hint);
-}
-.acct-lead b { color: var(--text); font-weight: 600; }
 
 /* 一键同步登录态 */
 .ext-card {
@@ -1123,8 +1095,6 @@ body.playing .toast { bottom: 84px; }
   background: #f5f4f2; color: #a8a29e; font-size: 10px; letter-spacing: .2px;
 }
 .ext-badge.on { background: #e8f5ec; color: #15803d; }
-.ext-p { margin: 8px 0 10px; font-size: 11.5px; line-height: 1.65; color: #78716c; }
-.ext-p b { color: var(--text); font-weight: 600; }
 .ext-acts { display: flex; gap: 6px; }
 .ext-acts button {
   flex: 1 1 0; min-width: 0; padding: 6px 4px; font-size: 11px;
@@ -1132,13 +1102,6 @@ body.playing .toast { bottom: 84px; }
   color: #57534e; cursor: pointer; font-family: inherit;
 }
 .ext-acts button:hover { border-color: #d6d3d1; background: #fff; color: var(--text); }
-.ext-steps { margin: 10px 0 0; font-size: 11px; line-height: 1.65; color: #a8a29e; }
-.ext-steps code {
-  padding: 0 3px; border-radius: 3px; background: #f5f4f2;
-  color: #78716c; font-size: 10.5px;
-}
-.ext-note { margin: 8px 0 0; font-size: 10.5px; line-height: 1.6; color: #a8a29e; }
-.ext-note span { color: #15803d; }
 .ext-card.missing { opacity: .6; }
 /* 一个主按钮就够了，别摆两个让人挑 */
 .ext-acts button.primary {
@@ -1160,7 +1123,6 @@ body.playing .toast { bottom: 84px; }
 
 /* 手动兜底：默认收起，别占主流程的位置 */
 .manual-box { margin-top: 20px; }
-.manual-tip { margin: 0 0 12px; font-size: 11px; line-height: 1.7; color: var(--muted); }
 .manual-box .field { margin-bottom: 10px; }
 .manual-box .field label { display: block; margin-bottom: 5px; font-size: 11px; color: var(--muted); }
 .manual-box select {
@@ -1174,19 +1136,10 @@ body.playing .toast { bottom: 84px; }
 .lg-grp + .lg-grp { margin-top: 22px; }
 
 .lg-t {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
   margin-bottom: 9px;
   font-size: 11px;
   letter-spacing: .04em;
   color: #a8a29e;
-}
-
-.lg-t span {
-  font-size: 10.5px;
-  letter-spacing: 0;
-  color: #cdc8c2;
 }
 
 .lg-list { display: flex; flex-direction: column; gap: 6px; }

@@ -326,7 +326,6 @@
         <div class="field">
           <label for="cfgCookies">cookies 文件 <span class="opt">可选</span></label>
           <input id="cfgCookies" placeholder="D:\cookies.txt">
-          <div class="hint">一般不用填，用上面的「账号登录」更省事</div>
         </div>
 
         <div class="field">
@@ -409,11 +408,8 @@
       <div class="at-num" id="acctNum">0<span>/0</span></div>
       <div class="at-txt">
         <b>已登录</b>
-        <i>登录信息只存在这台电脑，不上传</i>
       </div>
     </div>
-
-    <div class="acct-def" id="acctDef"></div>
 
     <div class="ext-card" id="extCard">
       <div class="ext-h">
@@ -425,10 +421,8 @@
           </svg>
         </span>
         <b>装一次，以后自动登录</b>
-        <span class="ext-badge" id="extBadge">可选</span>
+        <span class="ext-badge" id="extBadge">第一次要装</span>
       </div>
-      <p class="ext-p" id="extLead">装一次小助手，之后在 <b>日常浏览器</b> 里登录哪个网站，
-        这边就自动显示「已登录」。</p>
       <div class="ext-acts">
         <button type="button" class="primary" id="btnExtSetup">一键装小助手</button>
       </div>
@@ -446,12 +440,7 @@
           </div>
         </div>
       </details>
-      <p class="ext-note">只读下载器支持的几个网站，只发到本机，不上传。<span id="extLast"></span></p>
     </div>
-
-    <p class="acct-lead">
-      第一次用先装上面的小助手，之后点「打开」登录，回来就是「已登录」。
-    </p>
 
     <div id="logins" class="logins"></div>
     <div class="login-bar" id="loginBar"></div>
@@ -459,8 +448,6 @@
     <details class="adv manual-box" id="manualBox">
       <summary>装不了小助手？手动贴一次</summary>
       <div class="adv-body">
-        <p class="manual-tip">这台电脑不方便装扩展的话，把浏览器导出的整串登录信息贴进来就行。
-          不知道怎么导出就别折腾，用上面的小助手更省事。</p>
         <div class="field">
           <label for="ckSite">哪个网站</label>
           <select id="ckSite"></select>

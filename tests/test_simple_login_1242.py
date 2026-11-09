@@ -21,7 +21,11 @@ OP = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 EXE = r"C:/Program Files/Google/Chrome/Application/chrome.exe"
 
 BAD_WORDS = ["F12", "Application", "DevTools", "web_session", "MUSIC_U",
-             "__session", "qm_keyst", "粘贴 Cookie", "粘贴 cookie", "Cookies"]
+             "__session", "qm_keyst", "粘贴 Cookie", "粘贴 cookie", "Cookies",
+             # 1.24.3：解释「自己多安全、多聪明」的话也不许留在面板上
+             "不上传", "不共享", "不落盘", "只读取", "只发到本机",
+             "127.0.0.1", "不再弹", "无痕", "不用复制", "不用管",
+             "一次就够", "更省事", "本机 cookies"]
 
 
 def log(*a):
@@ -108,7 +112,7 @@ def main():
             pg.wait_for_timeout(700)
             assert pg.locator("#extHow").evaluate("e => e.open"), \
                 "点完没自动展开三步说明"
-            assert "安装页和文件夹都打开了" in pg.inner_text("#toast"), \
+            assert "照着下面三步选一下" in pg.inner_text("#toast"), \
                 "一键装小助手没给反馈"
             log("  ✓ 一键装小助手：接口通、自动展开三步")
 

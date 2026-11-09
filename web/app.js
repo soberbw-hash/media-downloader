@@ -1043,11 +1043,33 @@ async function setupExt() {
   const r = await post("/api/login/setup_ext", {});
   if (btn) btn.disabled = false;
   if (!r.ok) { toast(r.error || "没打开，稍后再试一次"); return; }
-  toast(r.msg || "地址已复制，按 Ctrl+V 回车");
+  showPasteHint(r.key);
+  toast(r.msg || "地址已复制");
   const how = $("#extHow");
   if (how) how.open = true;
   setTimeout(() => loadLogins(true), 3000);
 }
+
+/* 地址复制好了就常驻一条确认条：toast 会消失，这条留着给用户照着按 */
+function showPasteHint(key) {
+  const row = $("#extPaste");
+  if (!row) return;
+  const parts = String(key || "Ctrl+V").split("+");
+  const k1 = $("#extK1"), k2 = $("#extK2");
+  if (k1) k1.textContent = parts[0] || "Ctrl";
+  if (k2) k2.textContent = parts[1] || "V";
+  row.hidden = false;
+}
+
+async function copyExtUrl(btn) {
+  const r = await post("/api/login/copy_ext_url", {});
+  toast(r.ok ? "地址已复制" : (r.error || "复制不了，手动输入吧"));
+  if (r.ok && btn) {
+    btn.textContent = "已复制";
+    setTimeout(() => { btn.textContent = "再复制"; }, 1400);
+  }
+}
+$("#btnCopyExt").onclick = (e) => copyExtUrl(e.currentTarget);
 
 function renderExt() {
   const card = $("#extCard");
@@ -1065,6 +1087,8 @@ function renderExt() {
   }
   const how = $("#extHow");
   if (how) how.hidden = on;      // 装好就别再占着位置
+  const paste = $("#extPaste");
+  if (on && paste) paste.hidden = true;   // 装好了就别再喊粘贴
   card.classList.toggle("missing", !!(extInfo && !extInfo.exists));
 }
 
@@ -1417,7 +1441,7 @@ function renderUpdateStatus(u) {
   const state = u.state || "idle";
   if (u.current && $("#curVer")) $("#curVer").textContent = "v" + u.current;
   if (msg) {
-    if (state === "idle") msg.textContent = u.detail || "自动更新已开启";
+    if (state === "idle") msg.textContent = u.detail || "";
     else if (state === "checking") msg.textContent = "正在检查…";
     else if (state === "downloading") msg.textContent = "正在下载新版 " + Math.round(u.percent || 0) + "%";
     else if (state === "waiting")
@@ -1460,7 +1484,7 @@ async function checkUpdate(manual) {
       if (cv) cv.textContent = "v" + r.current;
     }
     if (!r.ok) {
-      if (msg) msg.textContent = manual ? (r.error || "检查失败，稍后再试") : "自动更新已开启";
+      if (msg) msg.textContent = manual ? (r.error || "检查失败，稍后再试") : "";
       if (manual) toast(r.error || "检查失败，稍后再试", 3200);
       return;
     }
@@ -1485,7 +1509,7 @@ async function checkUpdate(manual) {
       toast("发现新版本 v" + r.latest, 3200);
     }
   } catch (e) {
-    if (msg) msg.textContent = manual ? "检查失败，网络不通" : "自动更新已开启";
+    if (msg) msg.textContent = manual ? "检查失败，网络不通" : "";
   }
 }
 if ($("#checkUpd")) $("#checkUpd").onclick = () => checkUpdate(true);

@@ -296,7 +296,7 @@
           <span class="row-l">版本</span>
           <div class="row-c upd-info">
             <b id="curVer">v—</b>
-            <i id="updMsg">自动更新已开启</i>
+            <i id="updMsg"></i>
           </div>
           <button class="pick-btn" id="checkUpd">检查更新</button>
         </div>
@@ -410,6 +410,14 @@
       <div class="ext-acts">
         <button type="button" class="primary" id="btnExtSetup">一键装小助手</button>
       </div>
+      <div class="ext-paste" id="extPaste" hidden>
+        <span>地址已复制</span>
+        <span class="ep-k" id="extK1">Ctrl</span>
+        <span class="ep-plus">+</span>
+        <span class="ep-k" id="extK2">V</span>
+        <span>后回车</span>
+        <button type="button" class="ep-copy" id="btnCopyExt">再复制</button>
+      </div>
       <details class="qbox" id="extHow">
         <summary><span class="gq" aria-hidden="true">?</span>怎么装？点开看四步</summary>
         <div class="qbox-body">
@@ -419,7 +427,7 @@
               <img class="gpic" src="/img/ext-step1.png" alt="一键装小助手按钮" loading="lazy">
             </div>
             <div class="gstep">
-              <div class="gt"><span class="gn">2</span><span>地址栏粘上回车。不想粘就点右上角 ⋮ →「扩展程序」→「管理扩展程序」。</span></div>
+              <div class="gt"><span class="gn">2</span><span>回到浏览器，把地址粘到地址栏再回车（浏览器不让软件替你打开扩展页，只能粘一下）。不想粘就点右上角 ⋮ →「扩展程序」。</span></div>
               <img class="gpic" src="/img/ext-step2.png" data-full="/img/ext-page-menu.png" alt="从浏览器右上角菜单进扩展程序" loading="lazy">
             </div>
             <div class="gstep">

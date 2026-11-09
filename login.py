@@ -563,8 +563,8 @@ def copy_to_clipboard(text):
     return False
 
 
-def open_new_tab():
-    """在用户日常那个浏览器里开一个空白标签页，给粘贴地址留个落点。"""
+def open_browser():
+    """把用户日常那个浏览器拉起来（不带任何地址，就是它自己的新标签页）。"""
     exe = chromium_exe()
     if not exe:
         return False, "没找到 Chrome 或 Edge，装一个再来"
@@ -574,12 +574,44 @@ def open_new_tab():
         if sys.platform == "darwin" and "/Contents/" in exe:
             app = exe.split("/Contents/")[0]
             if os.path.isdir(app):
-                subprocess.Popen(["open", "-a", app, "about:blank"])
+                subprocess.Popen(["open", "-a", app])
                 return True, ""
-        subprocess.Popen([exe, "about:blank"])
+        subprocess.Popen([exe])
         return True, ""
     except Exception as e:
         return False, "打不开浏览器：%s" % str(e)[:100]
+
+
+def browser_running():
+    """用户那个浏览器现在是不是开着窗口 —— 开着就别再给他弹新标签页。"""
+    exe = chromium_exe()
+    if not exe:
+        return False
+    name = os.path.basename(exe).lower()
+    if sys.platform == "win32":
+        proc = "msedge.exe" if "edge" in name else "chrome.exe"
+        try:
+            out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq " + proc, "/NH"],
+                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                 timeout=6,
+                                 creationflags=0x08000000).stdout
+            return proc.encode() in (out or b"").lower()
+        except Exception:
+            return False
+    if sys.platform == "darwin":
+        pat = "Microsoft Edge" if "edge" in name else "Google Chrome"
+        try:
+            r = subprocess.run(["pgrep", "-f", pat], stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL, timeout=6)
+            return r.returncode == 0
+        except Exception:
+            return False
+    try:
+        r = subprocess.run(["pgrep", "-f", name], stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, timeout=6)
+        return r.returncode == 0
+    except Exception:
+        return False
 
 
 def launch_options():
@@ -634,29 +666,48 @@ def open_ext_dir():
         return False, "打不开文件夹：%s" % str(e)[:100]
 
 
-def open_ext_page():
-    """准备扩展安装页：复制地址 + 开一个空白标签页。
+def ext_page_url():
+    """扩展管理页地址 + 粘贴快捷键；没装 Chromium 就返回空。"""
+    exe = chromium_exe()
+    if not exe:
+        return "", ""
+    base = os.path.basename(exe).lower()
+    url = "edge://extensions/" if "edge" in base else "chrome://extensions/"
+    return url, paste_key()
 
-    Chrome 的 chrome:// 是特权内部页，三条路实测都不通：
-      · os.startfile("chrome://extensions/") → 弹「去应用商店找应用」
-      · chrome.exe chrome://extensions/（有头/无头/--new-window/--app=）
-        → 一律只开新标签页，地址被丢掉
-      · 网页里 window.open → 无权限
-    所以唯一稳的做法是把地址放进剪贴板，给用户开好空白标签页，
-    按一次粘贴 + 回车就到扩展页。
+
+def open_ext_page():
+    """准备扩展安装页：复制地址；只有浏览器没开时才拉起来。
+
+    Chrome 把 chrome:// 当特权内部页，**外部程序打不开**：命令行传
+    chrome://extensions/ 会被换成新标签页（有头 / 无头 / --new-window /
+    --app= 实测都一样），os.startfile 只会弹「去商店找应用」，网页里
+    window.open 也没权限。所以老版本「开个空白页给你粘贴」其实就是它换出来
+    的，看着像点坏了；现在干脆不开，只把地址放进剪贴板，一步粘贴到位。
     """
     exe = chromium_exe()
     if not exe:
         return False, "没找到 Chrome 或 Edge，装一个再来"
-    base = os.path.basename(exe).lower()
-    url = "edge://extensions/" if "edge" in base else "chrome://extensions/"
+    url, key = ext_page_url()
     copied = copy_to_clipboard(url)
-    ok_tab, _ = open_new_tab()
+    note = ""
     if not copied:
         return True, "在浏览器地址栏输入 %s 再回车" % url
-    if not ok_tab:
-        return True, "地址已复制，在浏览器按 %s 再回车" % paste_key()
-    return True, "地址已复制，按 %s 再回车" % paste_key()
+    if not browser_running():
+        ok, _ = open_browser()
+        if ok:
+            note = "浏览器已打开，"
+    return True, note + "地址已复制，按 %s 再回车" % key
+
+
+def copy_ext_url():
+    """「再复制一次」：只动剪贴板，不弹任何窗口。"""
+    url, _ = ext_page_url()
+    if not url:
+        return False, "没找到 Chrome 或 Edge，装一个再来"
+    if copy_to_clipboard(url):
+        return True, "地址已复制"
+    return False, "复制不了，手动输入 %s" % url
 
 
 def setup_ext():
@@ -664,7 +715,7 @@ def setup_ext():
     ok_dir, msg_dir = open_ext_dir()
     ok_page, msg_page = open_ext_page()
     if ok_dir and ok_page:
-        return True, "文件夹已选中、" + msg_page
+        return True, "文件夹已选中；" + msg_page
     if ok_dir or ok_page:
         return True, "只做成了一半：%s" % (msg_page if ok_dir else msg_dir)
     return False, "没打开：%s / %s" % (msg_dir, msg_page)

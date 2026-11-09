@@ -93,6 +93,12 @@ def main():
             assert not pg.locator("#shotBox").is_visible(), "Esc 没关掉大图"
             log("  OK 点图放大：弹的是整页标注图，Esc 能关")
 
+            # Esc 是两级的：关完大图再按一次会关面板，所以这里重新打开
+            pg.evaluate("() => document.querySelector('#openAcct').click()")
+            pg.wait_for_timeout(500)
+            assert pg.locator("#acctDrawer").evaluate("e => e.classList.contains('on')"), \
+                "账号面板没重新打开"
+
             # 卡片不能横向溢出抽屉（330px），文字也不能被图挤没
             drawer = pg.locator("#acctDrawer").bounding_box()
             right = drawer["x"] + drawer["width"]
@@ -118,6 +124,21 @@ def main():
                 and "回车" in pg.inner_text("#toast"), \
                 "一键按钮反馈文案不对"
             log("  OK 一键装小助手：接口通、自动展开、反馈是动作")
+
+            # 复制完得有一条常驻提示（toast 会消失），把「粘什么、按什么」留在眼前
+            bar = pg.locator("#extPaste")
+            assert bar.is_visible(), "复制完没有常驻的粘贴提示条"
+            bartxt = bar.inner_text()
+            assert "地址已复制" in bartxt and "回车" in bartxt, "提示条没说清下一步"
+            assert pg.locator("#extK1").inner_text() in ("Ctrl", "Cmd"), "按键提示没填"
+            assert pg.locator("#extK2").inner_text() == "V", "按键提示没填全"
+            box = bar.bounding_box()
+            assert box["width"] <= drawer["width"] - 20, "提示条把卡片撑宽了"
+            assert pg.locator("#btnCopyExt").is_visible(), "没有「再复制」的补手"
+            pg.locator("#btnCopyExt").click()
+            pg.wait_for_timeout(600)
+            assert "地址已复制" in pg.inner_text("#toast"), "再复制没反馈"
+            log("  OK 复制提示条：常驻、按得到、能再复制一次")
             b.close()
     finally:
         srv.terminate()

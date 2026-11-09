@@ -74,14 +74,16 @@ js = read("web/app.js")
 check("toast(r.msg" in js, "一键按钮原样显示服务端给的动作（Mac 会说 Cmd+V）")
 check('$("#extPage")' not in js and '$("#extFolder")' not in js,
       "前端不再绑定那两个点不开的按钮")
-check("地址栏粘上" in how and "文件夹会选中" in how,
+check("粘到地址栏" in how and "文件夹会选中" in how,
       "图文说清了粘贴地址这一步")
+check("不让软件替你打开" in how, "顺手说清为什么不能让软件直接开扩展页")
 
 log("=== 2. 选中文件夹 + 备好扩展页地址 ===")
 tmp = tempfile.mkdtemp(prefix="extguide_")
 real_ext, real_popen, real_platform = login.EXT_DIR, login.subprocess.Popen, sys.platform
 real_chromium = login.chromium_exe
 real_copy = login.copy_to_clipboard
+real_running = login.browser_running
 real_startfile = getattr(login.os, "startfile", None)
 saved_noopen = os.environ.pop("VDL_NO_OPEN", None)
 calls, startfiles, copied = [], [], []
@@ -90,6 +92,7 @@ try:
     login.subprocess.Popen = lambda args, *a, **k: calls.append(list(args))
     login.copy_to_clipboard = lambda text: (copied.append(text), True)[1]
     login.chromium_exe = lambda: "C:/Fake/Chrome/chrome.exe"
+    login.browser_running = lambda: True
     if real_startfile is not None:
         login.os.startfile = lambda url: startfiles.append(url)
 
@@ -99,14 +102,26 @@ try:
           and calls[-1][1].startswith("/select,"),
           "Windows 用 explorer /select, 选中文件夹本身")
 
+    n0 = len(calls)
     okp, msgp = login.open_ext_page()
     check(okp and copied[-1] == "chrome://extensions/",
           "扩展页地址进了剪贴板")
-    check(calls[-1] == ["C:/Fake/Chrome/chrome.exe", "about:blank"],
-          "只开空白标签页，不再把 chrome:// 硬塞给 Chrome")
+    check(len(calls) == n0,
+          "浏览器本来就开着，不再弹一个空白页出来")
+    check(not any("about:blank" in c for c in calls),
+          "不再开 about:blank（那个空白页就是 chrome:// 被换掉的）")
     check(not startfiles,
           "不再走 os.startfile（会弹「去应用商店找应用」）")
-    check("Ctrl+V" in msgp, "Windows 提示按 Ctrl+V")
+    check("Ctrl+V" in msgp and "空白" not in msgp, "Windows 提示按 Ctrl+V，不提空白页")
+
+    login.browser_running = lambda: False
+    n1 = len(calls)
+    okf, msgf = login.open_ext_page()
+    check(okf and calls[-1] == ["C:/Fake/Chrome/chrome.exe"],
+          "浏览器没开时只把它拉起来，不带任何地址参数")
+    check("浏览器已打开" in msgf and "Ctrl+V" in msgf,
+          "顺手告诉用户浏览器已打开，接着按 Ctrl+V")
+    login.browser_running = lambda: True
     check(not login.open_in_default_browser("chrome://extensions/")[0],
           "系统关联入口已挡住内部页地址")
 
@@ -127,6 +142,11 @@ try:
           "剪贴板不可用时直接把地址写出来")
     login.copy_to_clipboard = lambda text: (copied.append(text), True)[1]
 
+    n2 = len(calls)
+    okcp, msgcp = login.copy_ext_url()
+    check(okcp and copied[-1] == "chrome://extensions/" and len(calls) == n2,
+          "「再复制」只动剪贴板，不弹窗口")
+
     sys.platform = "darwin"
     okm, _ = login.open_ext_dir()
     check(okm and calls[-1][0] == "open" and calls[-1][1] == "-R",
@@ -139,26 +159,30 @@ try:
         f.write("")
     login.chromium_exe = lambda: fake
     okmp, msgmp = login.open_ext_page()
-    check(okmp and calls[-1][0] == "open" and calls[-1][1] == "-a"
-          and calls[-1][2] == app and calls[-1][3] == "about:blank",
-          "Mac 用 open -a 开空白标签页")
-    check("Cmd+V" in msgmp, "Mac 提示按 Cmd+V")
+    check(okmp and "Cmd+V" in msgmp and not [c for c in calls if "about:blank" in c],
+          "Mac 提示按 Cmd+V，也不开空白页")
+    login.browser_running = lambda: False
+    calls.clear()
+    login.open_ext_page()
+    check([c for c in calls] == [["open", "-a", app]],
+          "Mac 没开浏览器时用 open -a 拉起来（不带 about:blank）")
+    login.browser_running = lambda: True
     login.chromium_exe = lambda: "C:/Fake/Chrome/chrome.exe"
 
     sys.platform = "linux"
     okl, _ = login.open_ext_dir()
     check(okl and calls[-1][0] == "xdg-open", "Linux 退回打开上级目录，不报错")
     oklp, _ = login.open_ext_page()
-    check(oklp and calls[-1][1] == "about:blank",
-          "Linux 同样只开空白标签页")
+    check(oklp and not [c for c in calls if "about:blank" in c],
+          "Linux 同样不再开空白标签页")
 
     sys.platform = "darwin"
+    login.chromium_exe = lambda: fake
     oks, msgs = login.setup_ext()
     check(oks and "回车" in msgs, "一键装小助手的返回语说清下一步动作")
     check("文件夹已选中" in msgs, "顺便告诉用户文件夹也选好了")
     check("crx" not in msgs.lower(), "没有推荐会装不上的 crx")
-    check(copied[-1] == "chrome://extensions/" and calls[-1][1] == "about:blank",
-          "主按钮真的备好了地址和标签页")
+    check(copied[-1] == "chrome://extensions/", "主按钮真的备好了地址")
 
     os.environ["VDL_NO_OPEN"] = "1"
     n = len(calls)
@@ -169,6 +193,7 @@ finally:
     login.EXT_DIR, login.subprocess.Popen = real_ext, real_popen
     login.chromium_exe = real_chromium
     login.copy_to_clipboard = real_copy
+    login.browser_running = real_running
     if real_startfile is not None:
         login.os.startfile = real_startfile
     sys.platform = real_platform

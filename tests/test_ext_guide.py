@@ -34,21 +34,25 @@ def read(rel):
 log("=== 1. 图文三步 ===")
 html = read("web/index.html")
 panel = html[html.index('id="acctDrawer"'):html.index('id="histDrawer"')]
-how = panel[panel.index('id="extHow"'):panel.index('</details>')]
-check(how.count('class="gstep"') == 4, "四步各有一张卡片")
-check(how.count('class="gpic"') == 4, "四步各有一张图")
+how = panel[panel.index('id="extHow"'):panel.index('id="logins"')]
+check(how.count('class="gstep"') == 3, "三步各有一张卡片")
+check(how.count('class="gpic"') == 3, "三步各有一张图")
 check(how.count("<svg") == 0, "图换成了真实截图，不再是手画示意图")
-for _n in ("ext-step1", "ext-step2", "ext-step3", "ext-step4"):
+for _n in ("ext-step2", "ext-step3", "ext-step4"):
     check(_n + ".png" in how, "第 %s 步指向自己的截图" % _n[-1])
+check("ext-step1" not in how, "「点按钮」不再是第一步（按钮就在上面，点了才看到这页）")
 check('data-full="/img/ext-page.png"' in how and 'data-full="/img/ext-page-menu.png"' in how,
       "点开能看整页大图（知道目标在页面哪个角落）")
-for _n in ("ext-step1", "ext-step2", "ext-step3", "ext-step4",
-           "ext-page", "ext-page-menu"):
+for _n in ("ext-step2", "ext-step3", "ext-step4", "ext-page", "ext-page-menu"):
     _p = os.path.join(ROOT, "web", "img", _n + ".png")
-    # 门槛只用于确认「不是空白图」；step1 只裁了那颗按钮，几 KB 是正常的
     check(os.path.isfile(_p) and os.path.getsize(_p) > 1500,
           "截图 %s 在包里（%d 字节）" % (_n, os.path.getsize(_p) if os.path.isfile(_p) else 0))
-check('class="gq"' in how, "「怎么装」是个带 ? 的小按钮")
+check("details" not in how and "<summary" not in how,
+      "不再折叠：装扩展就三步，展开多看一步都嫌多")
+check("点开看" not in how, "没有「点开看四步」这种已经点开还让人点的字")
+check(how.index("打开浏览器扩展页") < how.index("开发者模式") < how.index("加载未打包"),
+      "顺序是：进扩展页 → 开发者模式 → 加载文件夹")
+check("地址栏粘" in how.split("开发者模式")[0], "第一步就是往浏览器地址栏粘地址")
 check("加载未打包的扩展程序" in how, "按钮名用新版 Chrome 的叫法")
 check("旧版叫" in how and "加载已解压" in how, "老版本叫法也给了，免得找不到")
 check("开发者模式" in how and "右上角" in how, "说清了开发者模式在右上角")
@@ -56,7 +60,7 @@ check("管理扩展程序" in how or "扩展程序" in how, "给了从浏览器�
 check("左上角" in how, "说清了加载按钮在左上角")
 check(".crx" not in how and "zip" not in how.lower() and "改后缀" not in how,
       "没让人去拖 Chrome 已拒收的 crx / 压缩包")
-check("选中那个文件夹" in how, "说的是刚被选中的那个文件夹，不用记英文目录名")
+check("选中刚才那个文件夹" in how, "说的是刚选中的那个文件夹，不用记英文目录名")
 check('id="extFolder"' not in how and 'id="extPage"' not in how,
       "点不开的「只开文件夹 / 只开安装页」已删掉")
 check("ext-acts small" not in how, "没有残留的次要按钮行")
@@ -67,16 +71,15 @@ check(not [w for w in FLUFF if w in panel], "账号面板没混进废话")
 
 css = read("web/style.css")
 check(".gsteps" in css and ".gpic" in css and ".gt" in css, "图文样式已落地")
-check(".ext-card .qbox > summary" in css, "小按钮样式只作用于扩展卡，不动别处")
-check(".qbox[hidden]" in css, "CSS 的 [hidden] 兜底还在（flex 元素会失效）")
+check(".ext-guide" in css and ".eg-h" in css, "常驻的「怎么装」标题有自己的样式")
+check(".ext-guide[hidden]" in css, "装好后整块能藏起来（flex 会吃掉 [hidden]）")
 
 js = read("web/app.js")
 check("toast(r.msg" in js, "一键按钮原样显示服务端给的动作（Mac 会说 Cmd+V）")
 check('$("#extPage")' not in js and '$("#extFolder")' not in js,
       "前端不再绑定那两个点不开的按钮")
-check("粘到地址栏" in how and "文件夹会选中" in how,
+check("地址栏粘上刚才复制的地址" in how,
       "图文说清了粘贴地址这一步")
-check("不让软件替你打开" in how, "顺手说清为什么不能让软件直接开扩展页")
 
 log("=== 2. 选中文件夹 + 备好扩展页地址 ===")
 tmp = tempfile.mkdtemp(prefix="extguide_")

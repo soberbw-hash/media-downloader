@@ -41,7 +41,7 @@ def site(pid, name, required, logged, acc=None):
             "logged_in": logged, "account": acc or {}, "tip": ""}
 
 
-def payload(port):
+def payload(port, synced=True):
     return {
         "sites": [
             site("xiaohongshu", "小红书", True, True, {"ok": True, "name": "小尤同学"}),
@@ -57,7 +57,7 @@ def payload(port):
         ],
         "status": {"state": "idle", "platform": "", "msg": ""},
         "default_browser": {"name": "Google Chrome", "exe": "x", "chromium": True},
-        "extension": {"exists": True, "synced": False},
+        "extension": {"exists": True, "synced": synced},
         "cookie_dir": "", "port": port,
     }
 
@@ -169,7 +169,9 @@ def main():
             assert ob["c"] == "rgb(168, 162, 158)", "「退出」颜色不对: %s" % ob["c"]
             log("  OK 「退出」是纯文字按钮，不抢「打开」")
 
-            # 一屏放得下：最后一行完整在卡片里，没被切半
+            # 装好扩展以后，教程自动收起，9 个平台回到一屏
+            assert not pg.locator("#extHow").is_visible(), \
+                "扩展已连上，「怎么装」还占着地方"
             card = pg.locator("#acctDrawer .mcard").bounding_box()
             last = rows.last.bounding_box()
             assert last["y"] + last["height"] <= card["y"] + card["height"] + 1, \
@@ -190,6 +192,28 @@ def main():
             log("  OK 700px 窄窗不溢出")
 
             assert not errs, "界面脚本报错: %s" % errs[:2]
+
+            # 没装扩展时：三步直接摊开（不用先点一下），第一步就是进扩展页
+            pg2 = b.new_page(viewport={"width": 1204, "height": 841},
+                             device_scale_factor=2)
+            pg2.route("**/api/login/state",
+                      lambda r: r.fulfill(status=200, content_type="application/json",
+                                          body=json.dumps(payload(port, synced=False),
+                                                          ensure_ascii=False)))
+            pg2.goto("http://127.0.0.1:%d/" % port, wait_until="networkidle",
+                     timeout=30000)
+            pg2.evaluate("() => document.querySelector('#openAcct').click()")
+            pg2.wait_for_timeout(700)
+            guide = pg2.locator("#extHow")
+            assert guide.is_visible(), "没装扩展时「怎么装」没显示"
+            assert pg2.locator("#extHow details").count() == 0, "「怎么装」又套回折叠了"
+            assert pg2.locator("#extHow .gstep").count() == 3, "步骤不是三步"
+            first = pg2.locator("#extHow .gstep").first.inner_text()
+            assert "打开浏览器扩展页" in first and "地址栏" in first, \
+                "第一步不是进扩展页/粘地址：%s" % first
+            assert "点上面的「一键装小助手」" not in pg2.inner_text("#extHow"), \
+                "还在让用户点一次已经点过的按钮"
+            log("  OK 没装时三步摊着：先开扩展页 → 开发者模式 → 加载文件夹")
             b.close()
     finally:
         srv.terminate()

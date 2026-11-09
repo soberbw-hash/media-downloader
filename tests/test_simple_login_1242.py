@@ -9,7 +9,7 @@
   1. 账号面板可见文字里没有 F12 / Application / DevTools / 任何 cookie 键名
   2. 每行只剩「打开」，旧「粘贴」按钮和旧弹窗都不在了
   3. 手动贴 Cookie 兜底已整个删除，面板上不留入口
-  4. 安装只留一个大按钮，三步说明默认收起，点一下接口通并自动展开
+  4. 安装只留一个大按钮，三步说明直接摊着（不折叠），点一下接口通并给出动作
   5. 扩展一送登录态进来，界面自己变「已连上」并提示一声
 """
 import json
@@ -102,16 +102,15 @@ def main():
             btn = pg.locator("#btnExtSetup")
             assert btn.count() == 1 and "一键装小助手" in btn.inner_text(), \
                 "安装主按钮不对: %s" % btn.inner_text()
-            assert not pg.locator("#extHow").evaluate("e => e.open"), \
-                "三步说明没默认收起"
+            assert pg.locator("#extHow details").count() == 0, "三步又套回折叠了"
+            assert pg.locator("#extHow .gstep").count() == 3, "三步没显示出来"
             btn.click()
             pg.wait_for_timeout(700)
-            assert pg.locator("#extHow").evaluate("e => e.open"), \
-                "点完没自动展开三步说明"
+            assert pg.locator("#extHow .gstep").count() == 3, "点完三步没了"
             assert "地址已复制" in pg.inner_text("#toast") \
                 and "回车" in pg.inner_text("#toast"), \
                 "一键装小助手没给反馈"
-            log("  ✓ 一键装小助手：接口通、自动展开三步")
+            log("  ✓ 一键装小助手：接口通、三步常驻、反馈是动作")
 
             # ---- 5. 扩展一同步，界面自己变，还主动提示一声 ----
             pg.evaluate("""() => {

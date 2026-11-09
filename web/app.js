@@ -1054,8 +1054,6 @@ async function setupExt() {
   if (!r.ok) { toast(r.error || "没打开，稍后再试一次"); return; }
   showPasteHint(r.key);
   toast(r.msg || "地址已复制");
-  const how = $("#extHow");
-  if (how) how.open = true;
   setTimeout(() => loadLogins(true), 3000);
 }
 

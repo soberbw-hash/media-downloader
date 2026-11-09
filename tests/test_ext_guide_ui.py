@@ -63,16 +63,15 @@ def main():
             assert pg.locator("#extHow button").count() == 0, "图文里不该再有按钮"
             log("  OK 点不开的次要按钮已清干净")
 
-            sm = pg.locator("#extHow summary")
-            assert sm.is_visible(), "「怎么装」小按钮没显示"
-            assert not pg.locator("#extHow").evaluate("e => e.open"), "默认没折叠"
-            sm.click()
-            pg.wait_for_timeout(350)
+            # 不再折叠：一进来三步就摊在那儿，不用先点一下
+            assert pg.locator("#extHow details").count() == 0, "又套回折叠了"
+            assert pg.locator("#extHow").is_visible(), "「怎么装」没显示"
+            assert pg.locator("#extHow .gstep").first.is_visible(), "三步默认没露出来"
 
             steps = pg.locator("#extHow .gstep")
             pics = pg.locator("#extHow img.gpic")
-            assert steps.count() == 4 and pics.count() == 4, "图文四步不齐"
-            for i in range(4):
+            assert steps.count() == 3 and pics.count() == 3, "图文三步不齐"
+            for i in range(3):
                 assert pics.nth(i).is_visible(), "第 %d 张图没显示" % (i + 1)
                 nw = pics.nth(i).evaluate("e => e.naturalWidth")
                 assert nw > 0, "第 %d 张图没真正加载出来" % (i + 1)
@@ -80,10 +79,10 @@ def main():
                 shown = pics.nth(i).evaluate("e => e.getBoundingClientRect().width")
                 assert shown <= nw + 2, \
                     "第 %d 张图被拉伸了（%dpx 拉到 %dpx），会糊" % (i + 1, nw, shown)
-            log("  OK 小按钮点开后四步图文都在，截图都加载了且没被拉伸")
+            log("  OK 三步图文默认展开，截图都加载了且没被拉伸")
 
             # 点图看大图能弹出、Esc 能关
-            pics.nth(1).evaluate("e => e.click()")   # 弹窗内滚动，直接派发点击更稳
+            pics.nth(0).evaluate("e => e.click()")   # 第一步那张就是菜单图
             pg.wait_for_timeout(400)
             assert pg.locator("#shotBox").is_visible(), "点了图没弹出大图"
             src = pg.locator("#shotImg").get_attribute("src")
@@ -102,28 +101,27 @@ def main():
             # 卡片不能横向溢出抽屉（330px），文字也不能被图挤没
             drawer = pg.locator("#acctDrawer").bounding_box()
             right = drawer["x"] + drawer["width"]
-            for i in range(4):
+            for i in range(3):
                 box = steps.nth(i).bounding_box()
                 assert box["x"] >= drawer["x"] - 1, "第 %d 步跑出抽屉左边" % (i + 1)
                 assert box["x"] + box["width"] <= right + 1, \
                     "第 %d 步横向溢出抽屉" % (i + 1)
                 txt = steps.nth(i).locator(".gt").bounding_box()
                 assert txt and txt["width"] >= 90, "第 %d 步文字被挤没了" % (i + 1)
-            log("  OK 四步在弹窗里没溢出、文字没被挤掉")
+            log("  OK 三步在弹窗里没溢出、文字没被挤掉")
 
             steps.first.scroll_into_view_if_needed()
             pg.locator("#extHow").screenshot(path=SHOT)
             log("  截图:", SHOT)
 
-            # 「一键装小助手」仍会自动展开图文，且反馈是新动作文案
-            pg.locator("#extHow").evaluate("e => e.open = false")
+            # 「一键装小助手」点了就看得到下一步动作（三步本来就摊着，不用再展开）
             pg.locator("#btnExtSetup").evaluate("e => e.click()")
             pg.wait_for_timeout(700)
-            assert pg.locator("#extHow").evaluate("e => e.open"), "点一键后没展开"
+            assert pg.locator("#extHow .gstep").count() == 3, "点一键后三步不见了"
             assert "地址已复制" in pg.inner_text("#toast") \
                 and "回车" in pg.inner_text("#toast"), \
                 "一键按钮反馈文案不对"
-            log("  OK 一键装小助手：接口通、自动展开、反馈是动作")
+            log("  OK 一键装小助手：接口通、三步在旁边、反馈是动作")
 
             # 复制完得有一条常驻提示（toast 会消失），把「粘什么、按什么」留在眼前
             bar = pg.locator("#extPaste")

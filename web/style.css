@@ -1306,7 +1306,6 @@ body.playing .toast { bottom: 84px; }
 .ext-card .primary:hover { background: #000; border-color: #000; }
 .ext-card .primary:disabled { opacity: .5; cursor: default; }
 .ext-card.missing { opacity: .6; }
-.ext-card .qbox { margin-top: 10px; }
 .qbox[hidden] { display: none; }
 
 /* 地址已经复制好了：给一条绿色确认条，别只靠会消失的 toast */
@@ -1331,19 +1330,18 @@ body.playing .toast { bottom: 84px; }
 }
 .ep-copy:hover { border-color: #a7d8b9; background: #fff; }
 
-/* 「怎么装」做成一个小按钮，点开才是图文三步；默认不占位置 */
-.ext-card .qbox > summary {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 5px 10px; border: 1px solid #e7e5e4; border-radius: 20px;
-  background: #faf9f7; color: #57534e; font-size: 11px;
+/* 「怎么装」直接摊在卡片里，不用点开：装扩展本来就三步，折叠反而多一步 */
+.ext-guide {
+  margin-top: 12px; padding-top: 11px;
+  border-top: 1px solid var(--line-soft);
 }
-.ext-card .qbox > summary:hover { border-color: #d6d3d1; background: #fff; color: var(--text); }
-.ext-card .qbox > summary::before { display: none; }
-.gq {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 14px; height: 14px; border-radius: 50%;
-  background: #e7e5e4; color: #57534e; font-size: 10px; font-weight: 600;
+.ext-guide[hidden] { display: none; }
+.eg-h {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 10px;
+  font-size: 11px; letter-spacing: .04em; color: #a8a29e;
 }
+.eg-h::after { content: ""; flex: 1 1 auto; height: 1px; background: var(--line-soft); }
 .gsteps { display: flex; flex-direction: column; gap: 16px; }
 .gstep { display: flex; flex-direction: column; gap: 6px; }
 .gn {

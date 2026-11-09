@@ -10,7 +10,7 @@ import sys
 
 from playwright.sync_api import sync_playwright
 
-URL = "http://127.0.0.1:8765/"
+URL = (os.environ.get("VDL_TEST_URL") or "http://127.0.0.1:8765").rstrip("/") + "/"
 OUT = "D:/Projects/视频下载器/tests/rtest"
 
 

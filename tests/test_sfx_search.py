@@ -156,8 +156,7 @@ def main():
             assert "音效" in pg.get_attribute("#mQuery", "placeholder"), "输入框没提示音效"
             assert pg.eval_on_selector("#mVPlats", "e => e.hidden"), \
                 "音效页还摆着「Mixkit 音效 / Freesound」这排源按钮"
-            assert pg.eval_on_selector("#vSites", "e => e.hidden"), "音效页还摆着「更多资源站」"
-            assert pg.locator("#vSiteChips .site-chip").count() == 0, "音效页还在铺站点按钮"
+            assert pg.locator("#vSites").count() == 0, "「更多资源站」那一排不该在界面上"
             log("  OK 音效就是一个大类：源按钮、站点入口都不出现")
 
             pg.fill("#mQuery", "雨声")
@@ -201,9 +200,9 @@ def main():
             pg.wait_for_timeout(600)
             assert not pg.eval_on_selector("#mVPlats", "e => e.hidden"), \
                 "切回视频后来源按钮没回来"
-            assert not pg.eval_on_selector("#vSites", "e => e.hidden"), \
-                "切回视频后资源站入口没回来"
-            log("  OK 切回视频：源按钮和资源站都还在")
+            assert pg.locator("#mVPlats .plat").count() >= 2, "视频页的源按钮没生成"
+            assert pg.locator("#vSites").count() == 0, "「更多资源站」不该再出现"
+            log("  OK 切回视频：源按钮回来了，网站名那一排不再铺")
 
             pg.screenshot(path=SHOT)
             b.close()

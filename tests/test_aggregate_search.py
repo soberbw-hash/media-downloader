@@ -15,7 +15,7 @@ import sys
 import time
 import urllib.request
 
-URL = "http://127.0.0.1:8765"
+URL = os.environ.get("VDL_TEST_URL") or "http://127.0.0.1:8765"
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rtest")
 _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
@@ -160,11 +160,12 @@ def test_ui():
         pg.wait_for_timeout(500)
 
         n_src = pg.evaluate("() => document.querySelectorAll('#mVPlats .plat').length")
-        n_site = pg.evaluate("() => document.querySelectorAll('#vSiteChips .site-chip').length")
         src_names = pg.eval_on_selector_all("#mVPlats .plat", "els => els.map(e => e.textContent)")
-        log("界面来源按钮:", n_src, "资源站入口:", n_site)
+        # 搜索框下面不再铺一排网站名：用户要的是「搜到东西」，不是「去哪个站搜」
+        assert pg.locator("#vSites").count() == 0, "「更多资源站」那一排又回来了"
+        assert pg.locator("#siteBar").count() == 0, "自定义站点表单还挂在界面上"
+        log("界面来源按钮:", n_src, "（资源站一排已撤）")
         assert n_src >= 4, "来源按钮没动态生成"
-        assert n_site >= 10, "资源站入口没生成"
         # 音效源和音效站归「音效」那一档，视频页不该冒出来
         assert "Freesound" not in src_names and "Mixkit 音效" not in src_names, \
             "视频页混进了音效源：%s" % src_names
@@ -212,7 +213,7 @@ def test_ui():
         pg.click('#mSrc .plat[data-s="music"]')
         pg.wait_for_timeout(400)
         hidden = pg.evaluate("""() => ({
-            sites: document.querySelector('#vSites').hidden,
+            sites: !document.querySelector('#vSites'),
             plats: document.querySelector('#mVPlats').hidden,
             hint: document.querySelector('#vSrcHint').hidden,
             rows: document.querySelectorAll('#mResults .msong').length,

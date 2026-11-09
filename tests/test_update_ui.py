@@ -56,11 +56,14 @@ def main():
             pg.goto("http://127.0.0.1:%d/" % port, wait_until="networkidle", timeout=30000)
             pg.evaluate("() => document.querySelector('#openSet').click()")
             pg.wait_for_timeout(600)
-            # 停掉轮询，别让真实 idle 状态把注入的状态刷掉
+            # 停掉轮询，别让真实 idle 状态把注入的状态刷掉。
+            # 轮询走的是 setTimeout（不是 setInterval），光清 interval id 清不干净，
+            # 而且注入那一刻可能正有一次请求在飞；直接把 poll 换成空函数并等它落地。
             pg.evaluate("""() => {
-                let id = setInterval(() => {}, 999999);
-                for (let i = 0; i <= id; i++) clearInterval(i);
+                clearTimeout(pollTimer);
+                window.poll = async () => {};
             }""")
+            pg.wait_for_timeout(300)
 
             downloading = {
                 "state": "downloading", "percent": 42.0, "current": "1.24.3",

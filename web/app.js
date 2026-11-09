@@ -1649,6 +1649,8 @@ document.querySelectorAll("#tabs .tab").forEach((b) => {
 /* ================= 搜歌：一次问三个平台 ================= */
 let mPlat = localStorage.getItem("mPlat") || "all";
 let mItems = [];
+// 空列表时说什么：平常是「换个关键词」，单源连不上时换成具体原因
+let mEmptyText = "";
 let mSel = new Set();
 let searching = false;
 
@@ -1719,6 +1721,7 @@ const SOURCE_GUIDE = {
 // 或者列表里还是别的来源的东西。
 function resetResults() {
   mItems = [];
+  mEmptyText = "";
   mSel.clear();
   syncMusicSel();
   const box = $("#mResults");
@@ -1890,6 +1893,8 @@ function renderSourceHint(r) {
   if (!box) return;
   // 音效不分站，也就没必要报「哪家搜到几条」
   if (!isAggMode() || mMode === "sfx") { box.hidden = true; return; }
+  // 只挑了一家时，这条统计没有意义（下面只会是这一家的东西）
+  if (vPlat !== "all") { box.hidden = true; box.innerHTML = ""; return; }
   const known = new Map((r.sources || []).map((s) => [s.id, s]));
   const ids = (r.sources || []).map((s) => s.id).concat(r.pending || []);
   const parts = [];
@@ -1915,12 +1920,19 @@ function scheduleMore(r) {
 
 async function pullMore() {
   if (!vToken || !isAggMode()) return;
+  // 记住这一次是替哪一轮搜索补结果。等网络回来的时候，用户可能已经
+  // 换了来源、换了档（音效/视频/电影），或者又搜了一次——那时 vToken
+  // 早换了，这份旧结果必须丢掉，否则会把上一批 B站 / Mixkit 的东西
+  // 画到「YouTube」「电影」的列表里，看着就像分类乱了。
+  const tok = vToken;
   vPulls++;
   try {
-    const r = await fetch("/api/search/more?token=" + encodeURIComponent(vToken))
+    const r = await fetch("/api/search/more?token=" + encodeURIComponent(tok))
       .then((x) => x.json());
+    if (tok !== vToken || !isAggMode()) return;
     if (!r.ok) { vToken = ""; return; }
     mItems = r.items || [];
+    mEmptyText = "";
     renderMusic();
     renderSourceHint(r);
     if (mMode === "sfx") {
@@ -1934,7 +1946,9 @@ async function pullMore() {
     }
     if (!r.done && vPulls < 8) vPullTimer = setTimeout(pullMore, 2200);
     else vToken = "";
-  } catch (e) { vToken = ""; }
+  } catch (e) {
+    if (tok === vToken) vToken = "";
+  }
 }
 
 async function initAggregate() {
@@ -2075,11 +2089,13 @@ function syncMusicSel() {
 }
 
 function renderMusic() {
+  // 电影有自己的卡片，别让迟到的聚合结果把它盖成「视频列表」
+  if (mMode === "movie") return;
   const box = $("#mResults");
   if (!mItems.length) {
-    box.innerHTML = '<div class="mempty">' + (mMode === "sfx"
+    box.innerHTML = '<div class="mempty">' + (mEmptyText || (mMode === "sfx"
       ? SFX_EMPTY
-      : "没搜到，换个关键词试试") + "</div>";
+      : "没搜到，换个关键词试试")) + "</div>";
     syncMusicSel();
     return;
   }
@@ -2862,6 +2878,19 @@ function videoSourceIds() {
   return ids.length ? ids : null;      // 拿不到清单就交给后端按默认来
 }
 
+// 只挑了一个来源、又一条都没出来时，说清是「这个源没连上」，
+// 别让用户以为关键词写错了（点了 YouTube 却看到「换个关键词」很离谱）。
+function singleSourceProblem(r) {
+  if (!isAggMode() || vPlat === "all" || (r.items || []).length) return "";
+  const s = (r.sources || []).find((x) => x.id === vPlat);
+  if (!s || (s.state !== "fail" && s.state !== "skip")) return "";
+  const name = s.name || sourceName(vPlat);
+  if (vPlat === "youtube") {
+    return `${name} 连不上。这个站在境外，先在电脑上开梯子（VPN）再搜`;
+  }
+  return `${name} 这会儿没回应，过一会儿再试一次`;
+}
+
 async function musicSearch(q) {
   q = (q || $("#mQuery").value || "").trim();
   if (!q) { $("#mQuery").focus(); return; }
@@ -2893,6 +2922,7 @@ async function musicSearch(q) {
       : await post("/api/music/search", { platform: mPlat, q, limit: 24 });
     if (!r.ok) { $("#mHint").textContent = r.error || "搜索失败"; return; }
     mItems = r.items || [];
+    mEmptyText = singleSourceProblem(r);
     renderMusic();
     // 各来源搜到几条、谁没连上，单独一行说清楚
     if (agg) { renderSourceHint(r); scheduleMore(r); }
@@ -2903,7 +2933,9 @@ async function musicSearch(q) {
         ? `找到 ${mItems.length} 条` + ((r.pending || []).length ? "，还在补…" : "")
         : SFX_EMPTY;
     } else {
-      $("#mHint").textContent = mItems.length ? errs : (errs || "没搜到，换个关键词或换个来源");
+      const bad = singleSourceProblem(r);
+      $("#mHint").textContent = mItems.length ? errs
+        : (bad || errs || "没搜到，换个关键词或换个来源");
     }
   } catch (e) {
     $("#mHint").textContent = "没连上，稍等一下再搜一次";

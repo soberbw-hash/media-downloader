@@ -165,7 +165,8 @@ function fmtDur(s) {
   if (!s) return "";
   const m = Math.floor(s / 60);
   const r = s % 60;
-  return m ? `${m}分${r}秒` : `${r}秒`;
+  // 整分钟就别写成「6分0秒」了
+  return m ? (r ? `${m}分${r}秒` : `${m}分`) : `${r}秒`;
 }
 
 function esc(s) {
@@ -1683,7 +1684,7 @@ const MUSIC_PLATS = ["netease", "qqmusic", "kugou"];   // 能搜歌、也能试�
 // 记住上次在搜歌 / 找素材 / 找电影，别每次进来都先点一下「视频」
 let mMode = (() => {
   const v = localStorage.getItem("mMode");
-  return (v === "music" || v === "video" || v === "movie") ? v : "music";
+  return (v === "music" || v === "sfx" || v === "video" || v === "movie") ? v : "music";
 })();
 let vPlat = "all";        // all 或某个来源 id
 
@@ -1706,9 +1707,10 @@ function applyPlat(p) {
   });
 }
 
-// 三个来源的引导语：没关键词时告诉用户该搜什么
+// 几个来源的引导语：没关键词时告诉用户该搜什么
 const SOURCE_GUIDE = {
   music: "输入歌名或歌手开始搜",
+  sfx: "输入音效名字：雨声、脚步、关门、转场…",
   video: "输入关键词找视频素材（解说、运镜、混剪…）",
   movie: "输入片名开始搜",
 };
@@ -1749,9 +1751,13 @@ function syncModeUI() {
   const plats = $("#mPlats");
   if (plats) plats.hidden = mMode !== "music";
   applySourceUI();
+  // 源按钮和「去这些站搜」都跟模式走：音效页只该看到音效站
+  renderSources(vSources);
+  renderSites();
   const q = $("#mQuery");
   if (q) {
-    q.placeholder = mMode === "video" ? "视频关键词：电影解说、运镜、猫咪…"
+    q.placeholder = mMode === "sfx" ? "音效名：雨声、脚步、关门、转场…"
+      : mMode === "video" ? "视频关键词：电影解说、运镜、猫咪…"
       : mMode === "movie" ? "片名：哪吒、流浪地球、三体…"
       : "歌名、歌手";
   }
@@ -1777,15 +1783,21 @@ document.querySelectorAll("#mSrc .plat").forEach((b) => {
 syncModeUI();   // 启动时按上次用的模式摆好界面
 
 /* ---------------- 多来源聚合 ---------------- */
+// 音效和视频都是「多来源聚合」，很多地方要一起判断
+function isAggMode() {
+  return mMode === "video" || mMode === "sfx";
+}
+
 function applySourceUI() {
-  const isVideo = mMode === "video";
+  // 视频和音效都是「聚合来源」的玩法：一排放源按钮 + 一排「去这些站搜」
+  const agg = isAggMode();
   ["#mVPlats", "#vSites"].forEach((sel) => {
     const el = $(sel);
-    if (el) el.hidden = !isVideo;
+    if (el) el.hidden = !agg;
   });
   const sh = $("#vSrcHint");
-  if (sh && !isVideo) sh.hidden = true;
-  if (!isVideo) {
+  if (sh && !agg) sh.hidden = true;
+  if (!agg) {
     const bar = $("#siteBar");
     if (bar) bar.hidden = true;
   }
@@ -1800,10 +1812,13 @@ function renderSources(list) {
   vSources = list || [];
   const box = $("#mVPlats");
   if (!box) return;
-  if (vPlat !== "all" && !vSources.some((x) => x.id === vPlat)) vPlat = "all";
+  // 音效页只摆音效源，视频页只摆视频源，免得在音效页点出个 YouTube 来
+  const want = mMode === "sfx" ? "audio" : "video";
+  const mine = vSources.filter((x) => (x.kind || "video") === want);
+  if (vPlat !== "all" && !mine.some((x) => x.id === vPlat)) vPlat = "all";
   box.innerHTML = '<button class="plat' + (vPlat === "all" ? " on" : "") +
     '" data-p="all">全部</button>' +
-    vSources.map((s) => '<button class="plat' + (vPlat === s.id ? " on" : "") +
+    mine.map((s) => '<button class="plat' + (vPlat === s.id ? " on" : "") +
       '" data-p="' + esc(s.id) + '" title="' +
       esc((s.note || "") + (s.slow ? "（点它才单独搜）" : "")) + '">' +
       esc(s.name) + "</button>").join("");
@@ -1826,7 +1841,9 @@ function renderSites() {
     id: "src:" + s.name, name: s.name + " · 接口",
     tip: "自己接的第三方接口，点一下直接用它搜", custom: true, isSource: true,
   }));
-  const all = vSites.concat(extras);
+  // 音效页摆音效站，视频页摆视频站；自己接的接口不分家，两边都留
+  const wantSite = mMode === "sfx" ? "audio" : "video";
+  const all = vSites.filter((s) => (s.kind || "video") === wantSite).concat(extras);
   box.innerHTML = all.map((s) =>
     '<button class="site-chip" data-id="' + esc(s.id) + '" data-name="' + esc(s.name) +
     '" data-src="' + (s.isSource ? "1" : "0") + '" title="' + esc(s.tip || "") + '">' +
@@ -1870,7 +1887,7 @@ function renderSites() {
 function renderSourceHint(r) {
   const box = $("#vSrcHint");
   if (!box) return;
-  if (mMode !== "video") { box.hidden = true; return; }
+  if (!isAggMode()) { box.hidden = true; return; }
   const known = new Map((r.sources || []).map((s) => [s.id, s]));
   const ids = (r.sources || []).map((s) => s.id).concat(r.pending || []);
   const parts = [];
@@ -1895,7 +1912,7 @@ function scheduleMore(r) {
 }
 
 async function pullMore() {
-  if (!vToken || mMode !== "video") return;
+  if (!vToken || !isAggMode()) return;
   vPulls++;
   try {
     const r = await fetch("/api/search/more?token=" + encodeURIComponent(vToken))
@@ -1981,18 +1998,24 @@ function musicRow(s, i) {
     + (s.cover ? '<img src="' + esc(imgUrl(s.cover)) + '" alt="" loading="lazy"'
       + ' onerror="this.remove()">' : "")
     + "</span>";
-  const sub = esc(s.artist || s.author || "未知歌手") +
-    (s.album ? " · " + esc(s.album) : "") +
-    (s.hq ? " · 1080p" : "") +
-    (s.kind === "audio" ? " · 预览音频" : "");
+  // 音效没有歌手、专辑，也没有「1080p」这种东西；副标题写授权更要紧
+  const isSfx = s.kind === "audio" && MUSIC_PLATS.indexOf(s.platform || "") < 0;
+  const sub = isSfx
+    ? esc(s.desc || s.author || "")
+    : esc(s.artist || s.author || "未知歌手") +
+      (s.album ? " · " + esc(s.album) : "") +
+      (s.hq ? " · 1080p" : "") +
+      (s.kind === "audio" ? " · 预览音频" : "");
   // 来源由后端下发，加一个源不用回来改这张映射表
   const sid = s.source || s.platform || "";
   const src = sid
     ? '<span class="psrc" data-p="' + esc(sid) + '">' +
       esc(s.source_name || PLAT_NAME[sid] || sid) + "</span>"
     : "";
-  // 试听按钮：只有这三个音乐平台的歌才有（视频结果不给听）
-  const canPlay = MUSIC_PLATS.indexOf(s.platform || "") >= 0 && s.kind !== "video";
+  // 试听按钮：音乐平台的歌走服务端解析；音效本身是直链，浏览器直接放
+  const directAudio = s.kind === "audio" && /^https?:\/\//.test(s.download || "");
+  const canPlay = directAudio ||
+    (MUSIC_PLATS.indexOf(s.platform || "") >= 0 && s.kind !== "video");
   const pv = canPlay
     ? '<button class="pv" data-i="' + i + '" title="试听" aria-label="试听这首歌">' +
       '<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true">' +
@@ -2025,7 +2048,7 @@ function syncMusicSel() {
     all.indeterminate = n > 0 && n < total;
   }
   const cnt = $("#mCount");
-  const unit = mMode === "video" ? "条" : "首";
+  const unit = isAggMode() ? "条" : "首";
   if (cnt) cnt.textContent = n ? `已选 ${n} / ${total} ${unit}` : `共 ${total} ${unit}`;
   const b = $("#mBatch");
   if (b) {
@@ -2163,6 +2186,17 @@ function previewSong(s, btn) {
 
   btn.classList.add("busy");
   btn.disabled = true;
+  // 音效这类直链不用问服务端要地址，直接丢给 <audio>，点下去就出声
+  if (s.kind === "audio" && /^https?:\/\//.test(s.download || "")) {
+    pvKey = key;
+    au.src = s.download;
+    au.play().catch(() => toast("这条播不出来，换一条试试"));
+    showPlayer(s);
+    btn.classList.remove("busy");
+    btn.disabled = false;
+    syncPvButtons();
+    return;
+  }
   post("/api/music/preview", {
     platform: s.platform, id: s.id, title: s.title, artist: s.artist,
   }).then((r) => {
@@ -2798,18 +2832,33 @@ async function movieSearch(q) {
   }
 }
 
+// 音效页要搜哪几个源：按钮里挑出来的音效源；拿不到就用内置那两个兜底
+function sfxSourceIds() {
+  const ids = (vSources || []).filter((x) => (x.kind || "video") === "audio")
+    .map((x) => x.id);
+  return ids.length ? ids : ["mixkit_sfx", "freesound"];
+}
+
+// 视频页同理：音效有自己的入口了，别再混进视频结果里
+function videoSourceIds() {
+  const ids = (vSources || []).filter((x) => (x.kind || "video") === "video")
+    .map((x) => x.id);
+  return ids.length ? ids : null;      // 拿不到清单就交给后端按默认来
+}
+
 async function musicSearch(q) {
   q = (q || $("#mQuery").value || "").trim();
   if (!q) { $("#mQuery").focus(); return; }
   if (mMode === "movie") return movieSearch(q);
+  const agg = isAggMode();
   $("#mResults").innerHTML = "";
   $("#mBar").hidden = true;
-  const where = mMode === "video"
+  const where = agg
     ? (vPlat === "all" ? "所有来源" : sourceName(vPlat))
     : (PLAT_NAME[mPlat] || "全网");
   $("#mHint").textContent = `${where} 搜索「${q}」…`;
   mSel.clear();
-  if (mMode === "video") {
+  if (agg) {
     vLastQuery = q;
     clearTimeout(vPullTimer);
     vToken = "";
@@ -2819,17 +2868,18 @@ async function musicSearch(q) {
   searching = true;
   $("#mGo").disabled = true;
   try {
-    const r = mMode === "video"
+    const r = agg
       ? await post("/api/search", {
           q, limit: 24,
-          sources: vPlat === "all" ? null : [vPlat],
+          sources: vPlat !== "all" ? [vPlat]
+            : (mMode === "sfx" ? sfxSourceIds() : videoSourceIds()),
         })
       : await post("/api/music/search", { platform: mPlat, q, limit: 24 });
     if (!r.ok) { $("#mHint").textContent = r.error || "搜索失败"; return; }
     mItems = r.items || [];
     renderMusic();
     // 各来源搜到几条、谁没连上，单独一行说清楚
-    if (mMode === "video") { renderSourceHint(r); scheduleMore(r); }
+    if (agg) { renderSourceHint(r); scheduleMore(r); }
     const errs = (r.errors || []).join("；");
     $("#mHint").textContent = mItems.length ? errs : (errs || "没搜到，换个关键词或换个来源");
   } catch (e) {
@@ -2842,6 +2892,54 @@ async function musicSearch(q) {
 
 async function addMusic(list, btn) {
   if (!list.length) return;
+  // 音效：直链进队列，但标题得用搜到的名字，
+  // 否则文件名会变成 assets_mixkit_co_2393 这种一串网址
+  const isSfx = list.every((x) => x.kind === "audio" &&
+    MUSIC_PLATS.indexOf(x.platform || "") < 0);
+  if (isSfx) {
+    const oldv = btn ? btn.textContent : "";
+    if (btn) { btn.disabled = true; btn.textContent = "…"; }
+    try {
+      const r = await post("/api/sfx/add", {
+        items: list.map((x) => ({
+          url: x.download || x.url, title: x.title || "", author: x.author || "",
+          platform: x.platform || "", id: x.id || "",
+        })),
+      });
+      if (!r.ok) { toast(r.error || "没加进去"); return; }
+      // 记下「哪条音效对应哪个任务」，行里才能显示进度和「已下好」
+      (r.pairs || []).forEach((p) => {
+        if (!p.song) return;
+        mTask.set(p.platform + "|" + p.song, { tid: String(p.tid) });
+        mNote.delete(p.platform + "|" + p.song);
+      });
+      (r.skipped || []).forEach((s) => {
+        if (!s.song) return;
+        const key = s.platform + "|" + s.song;
+        if (s.tid) {
+          mTask.set(key, { tid: String(s.tid),
+            t: { id: String(s.tid), status: s.status || "", percent: s.status === "done" ? 100 : 0 } });
+        } else {
+          mNote.set(key, { text: "以前下过", kind: "dim" });
+        }
+      });
+      const skipped = r.skipped || [];
+      let msg = r.count ? "已加入 " + r.count + " 条" : "";
+      if (skipped.length) {
+        const done = skipped.filter((s) => s.status === "done").length;
+        msg += (msg ? "，" : "") + (done === skipped.length
+          ? done + " 条早就下好了"
+          : skipped.length + " 条没加：" + (skipped[0].reason || "已经在列表里了"));
+      }
+      toast(msg || "没有可添加的", skipped.length ? 4200 : 2400);
+      if (taskFilter !== "all") setFilter("all");
+    } catch (e) {
+      toast("连接失败，服务可能已经关了");
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = oldv; }
+    }
+    return;
+  }
   // 视频结果：把链接丢回普通下载管线，跟贴链接一个待遇
   if (list.every((x) => x.kind === "video" || x.kind === "audio")) {
     const old = btn ? btn.textContent : "";

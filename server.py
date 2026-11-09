@@ -983,6 +983,46 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": True, "added": added, "count": len(added),
                         "pairs": pairs, "skipped": skipped})
 
+        elif p == "/api/sfx/add":
+            # 音效：素材站给的是 wav / mp3 直链，照样走下载管线，
+            # 只是标题要用搜到的名字，不然文件名会变成一串网址
+            items = data.get("items") or []
+            batch = MANAGER.next_batch()
+            added, pairs, skipped = [], [], []
+            for it in items:
+                if not isinstance(it, dict):
+                    continue
+                url = str(it.get("url") or "").strip()
+                if not url.startswith("http"):
+                    continue
+                t, why = MANAGER.add(url, batch=batch)
+                if t:
+                    title = str(it.get("title") or "").strip()
+                    if title:
+                        # 直链的默认标题是网址拼的，这里锁死搜索到的名字：
+                        # title_hint 管文件名模板，title_locked 挡住解析阶段改名
+                        t.title = title
+                        t.title_hint = title
+                        t.title_locked = True
+                    t.author = str(it.get("author") or "").strip()
+                    t.kind = "audio"
+                    # 文件名模板里的 {platform} 用它：写「直链 / HLS」太吓人
+                    t.platform_name = "音效"
+                    added.append(t.id)
+                    # 前端靠这个在结果行里显示「下载中 / 已下好」
+                    pairs.append({"tid": t.id,
+                                  "platform": str(it.get("platform") or ""),
+                                  "song": str(it.get("id") or "")})
+                elif why:
+                    ex = MANAGER.find_task(url)
+                    skipped.append({"url": url, "reason": why,
+                                    "platform": str(it.get("platform") or ""),
+                                    "song": str(it.get("id") or ""),
+                                    "tid": ex.id if ex else "",
+                                    "status": ex.status if ex else ""})
+            self._json({"ok": True, "added": added, "count": len(added),
+                        "pairs": pairs, "skipped": skipped})
+
         elif p == "/api/music/preview":
             # 试听：先探一条能播的直链，把本地代理地址给前端
             plat = str(data.get("platform") or "")

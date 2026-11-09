@@ -1334,6 +1334,9 @@ class Task(object):
         # 提交时带的片名（电影卡下正片时给的）。解析器给的标题是「正片」那种
         # 没信息量的值时，用它顶上，文件名才不会变成「正片 - 744327」
         self.title_hint = ""
+        # 用户/搜索界面指定的名字（音效那种直链，解析器只会给个网址当标题）。
+        # 锁上之后解析阶段不再改标题，否则文件名会变成 assets_xxx_2393
+        self.title_locked = False
         self.status = "queued"      # queued / running / done / error / canceled
         self.percent = 0.0
         self.speed = 0.0
@@ -1606,7 +1609,7 @@ class Manager(object):
             with self.lock:
                 if t.status == "canceled":
                     raise RuntimeError("已取消")
-                if kw.get("title"):
+                if kw.get("title") and not t.title_locked:
                     t.title = kw["title"]
                 if kw.get("author"):
                     t.author = kw["author"]

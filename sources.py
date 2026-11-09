@@ -36,11 +36,11 @@ BUILTIN = [
     {"id": "mixkit", "name": "Mixkit 视频", "kind": "video", "priority": 2, "timeout": 14,
      "group": "免费素材", "note": "免费可商用视频，直链可下；只认英文关键词"},
     {"id": "mixkit_sfx", "name": "Mixkit 音效", "kind": "audio", "priority": 3, "timeout": 12,
-     "group": "免费音效", "note": "免费可商用音效，wav 直链；只认英文关键词"},
+     "group": "免费音效", "note": "免费可商用，能直接下 wav；中文词会自动翻成英文"},
     {"id": "youtube", "name": "YouTube", "kind": "video", "priority": 4, "timeout": 12,
      "group": "海外视频", "note": "需要网络能到 Google"},
     {"id": "freesound", "name": "Freesound", "kind": "audio", "priority": 6, "timeout": 25,
-     "group": "音效", "note": "公开音效库，响应较慢，建议点它单独搜", "slow": True},
+     "group": "音效", "note": "几十万条环境声，能下预览 mp3（商用要署名）", "slow": True},
 ]
 
 
@@ -63,15 +63,58 @@ EN_WORDS = [
     ("舞蹈", "dance"), ("运动", "sport"), ("婴儿", "baby"), ("家庭", "family"),
 ]
 
+# 音效场景的词。混在同一个表里，因为视频源（Mixkit）和音效源吃的是同一套英文。
+# Mixkit 音效是「分类页」不是关键词搜索，词要尽量是它真有的单数分类词。
+EN_WORDS += [
+    ("雨滴", "raindrops"), ("雨声", "rain"), ("下雨", "rain"), ("暴雨", "rain"),
+    ("雷声", "thunder"), ("打雷", "thunder"), ("雷电", "thunder"),
+    ("海浪", "ocean"), ("浪声", "waves"), ("水声", "water"), ("水流", "water"),
+    ("溪流", "stream"), ("瀑布", "waterfall"), ("泡泡", "bubbles"),
+    ("脚步", "footsteps"), ("走路", "footsteps"), ("跑步声", "footsteps"),
+    ("掌声", "applause"), ("鼓掌", "applause"), ("欢呼", "cheering"),
+    ("笑声", "laughter"), ("大笑", "laughter"), ("哭声", "crying"),
+    ("婴儿哭", "baby"), ("尖叫", "scream"), ("叹气", "sigh"),
+    ("心跳", "heartbeat"), ("呼吸", "breathing"), ("打呼", "snoring"),
+    ("亲吻", "kiss"), ("口哨", "whistle"), ("咳嗽", "cough"),
+    ("键盘", "keyboard"), ("打字", "typing"), ("鼠标", "mouse"),
+    ("点击", "click"), ("快门", "camera"), ("相机", "camera"),
+    ("相机快门", "camera"), ("拍照", "camera"),
+    ("敲门", "knock"), ("关门", "door"), ("开门", "door"), ("门铃", "doorbell"),
+    ("关门声", "door"), ("开门声", "door"),
+    ("汽车", "car"), ("喇叭", "horn"), ("引擎", "engine"), ("发动机", "engine"),
+    ("摩托", "motorcycle"), ("自行车", "bicycle"), ("火车", "train"),
+    ("地铁", "subway"), ("飞机", "airplane"), ("直升机", "helicopter"),
+    ("船", "boat"), ("警笛", "siren"), ("警报", "alarm"), ("救护车", "ambulance"),
+    ("钟声", "clock"), ("铃声", "bell"), ("上课铃", "bell"),
+    ("玻璃", "glass"), ("碎玻璃", "glass"), ("破碎", "crash"), ("摔", "crash"),
+    ("爆炸", "explosion"), ("枪声", "gun"), ("开枪", "gun"), ("拳", "punch"),
+    ("打击", "punch"), ("金属", "metal"), ("木头", "wood"), ("纸张", "paper"),
+    ("翻书", "paper"), ("翻页", "paper"), ("泡泡纸", "bubbles"),
+    ("转场", "whoosh"), ("嗖", "whoosh"), ("风切", "whoosh"),
+    ("上升音", "riser"), ("下降音", "downlifter"), ("重低音", "bass"),
+    ("鼓", "drum"), ("鼓点", "drum"), ("节奏", "beat"),
+    ("提示音", "notification"), ("消息", "message"), ("错误", "error"),
+    ("成功", "success"), ("金币", "coin"), ("升级", "level up"),
+    ("开关", "switch"), ("切换", "switch"), ("开机", "startup"),
+    ("电话", "phone"), ("振动", "vibrate"), ("闹钟", "alarm"),
+    ("烟花", "fireworks"), ("篝火", "fire"), ("火焰", "fire"),
+    ("夜晚", "night"), ("森林", "forest"), ("鸟叫", "birds"), ("虫鸣", "crickets"),
+    ("猫叫", "cat"), ("狗叫", "dog"), ("狼嚎", "wolf"), ("马", "horse"),
+    ("雨林", "jungle"), ("雪", "snow"), ("冰", "ice"),
+]
+
+# 长词先匹配：否则「火车」会被「火」抢先映射成 fire，「城市夜景」会被「城市」吃掉
+_EN_ORDER = sorted(EN_WORDS, key=lambda x: -len(x[0]))
+
 
 def en_keyword(kw):
-    """英文原样用；中文挑第一个能映射的词；认不出返回 None。"""
+    """英文原样用；中文挑最长的能映射的词；认不出返回 None。"""
     kw = (kw or "").strip()
     if not kw:
         return None
     if all(ord(c) < 128 for c in kw):
         return kw
-    for zh, en in EN_WORDS:
+    for zh, en in _EN_ORDER:
         if zh in kw:
             return en
     return None
@@ -93,7 +136,7 @@ SITE_LINKS = [
     {"id": "vimeo", "name": "Vimeo", "url": "https://vimeo.com/search?q={q}",
      "tip": "创作者视频"},
     {"id": "freesound_site", "name": "Freesound", "url": "https://freesound.org/search/?q={q}",
-     "tip": "音效 / 环境声"},
+     "tip": "音效 / 环境声", "kind": "audio"},
     {"id": "archive_site", "name": "Internet Archive", "url": "https://archive.org/search?query={q}",
      "tip": "公共领域影像"},
     {"id": "douban_site", "name": "豆瓣", "url": "https://movie.douban.com/subject_search?search_text={q}",
@@ -104,6 +147,18 @@ SITE_LINKS = [
      "tip": "站内搜索"},
     {"id": "bing_site", "name": "必应", "url": "https://cn.bing.com/search?q={q}",
      "tip": "全网找"},
+    # —— 音效站直搜：这些站要么要登录才给下载、要么上了反爬，抓不了内容；
+    #    按名字点开在浏览器里搜，比自己记住网址强。 ——
+    {"id": "aigei_sfx", "name": "爱给网", "url": "https://www.aigei.com/s?q={q}&type=sound",
+     "tip": "国内最大音效库，下载要登录", "kind": "audio"},
+    {"id": "ear0_sfx", "name": "耳聆网", "url": "https://www.ear0.com/search?keyword={q}",
+     "tip": "中文音效社区，下载要登录", "kind": "audio"},
+    {"id": "chinaz_sfx", "name": "站长素材", "url": "https://sc.chinaz.com/yinxiao/?keyword={q}",
+     "tip": "国内老牌音效站", "kind": "audio"},
+    {"id": "pixabay_sfx", "name": "Pixabay", "url": "https://pixabay.com/zh/audio/search/{slug}/",
+     "tip": "免费可商用音效", "kind": "audio"},
+    {"id": "mixkit_sfx_site", "name": "Mixkit", "url": "https://mixkit.co/free-sound-effects/{slug}/",
+     "tip": "免费可商用音效", "kind": "audio"},
 ]
 
 
@@ -329,7 +384,7 @@ def _mixkit_sfx(kw, limit, cfg, proxy):
             platform="mixkit_sfx", id="ms" + vid, kind="audio",
             title=_txt(mt.group(1)) if mt else "音效 " + vid,
             author="Mixkit", cover="", duration=0,
-            desc="免费可商用音效 · 可下 wav 原文件",
+            desc="可商用 · wav 原文件",
             url=page, page=page, download=preview,
             source="mixkit_sfx", source_name="Mixkit 音效"))
         if len(cards) >= limit:
@@ -368,7 +423,7 @@ def _freesound(kw, limit, cfg, proxy):
             platform="freesound", id="fs" + sid, kind="audio",
             title=_attr(b, "title") or "音效 " + sid,
             author=user, cover=_attr(b, "waveform"),
-            duration=dur, desc="公开预览音频 · 完整文件请到原站下载",
+            duration=dur, desc="需署名 · mp3 预览",
             url=page, page=page, download=mp3,
             source="freesound", source_name="Freesound"))
         if len(out) >= limit:

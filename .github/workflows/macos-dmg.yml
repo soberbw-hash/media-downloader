@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: '发布用的版本号标签（如 v1.24.0）'
+        description: '发布用的版本号标签（如 v1.24.1）'
         required: false
-        default: 'v1.24.0'
+        default: 'v1.24.1'
   push:
     tags:
       - 'v*'
@@ -63,10 +63,17 @@ jobs:
           set -e
           ls -lh dmgs/
           cat > notes.md <<'EOF'
-          ## 音视频下载器 · macOS 版
+          ## 音视频下载器 · Mac 版
 
-          - **Apple 芯片（M1/M2/M3/M4）** → 下 `arm64` 那个 DMG
-          - **Intel 芯片** → 下 `x86_64` 那个 DMG
+          **两个包长得不一样，只下一个就行：**
+
+          | 你的 Mac | 下这个 |
+          |---|---|
+          | 关于本机里写「芯片 Apple M1 / M2 / M3 / M4」 | **M系列芯片版**.dmg |
+          | 关于本机里写「处理器 Intel」 | **Intel芯片版**.dmg |
+
+          不知道芯片型号：点屏幕左上角  → 「关于本机」，看「芯片」或「处理器」那一行。
+          下错了打不开而已，删掉换另一个重下，不会有别的影响。
 
           双击 DMG，把 App 拖进「应用程序」。第一次打开请**右键 → 打开**，
           或先在终端跑一次：
@@ -81,7 +88,21 @@ jobs:
           EOF
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$TAG" dmgs/*.dmg --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file notes.md
           else
             gh release create "$TAG" dmgs/*.dmg --repo "$GITHUB_REPOSITORY" \
-              --title "音视频下载器 $TAG（macOS）" --notes-file notes.md
+              --title "音视频下载器 $TAG · Mac 版（按芯片选包）" --notes-file notes.md
           fi
+          # 重跑时别让旧命名的包留在页面上：只保留本次打出来的两个 DMG
+          for f in dmgs/*.dmg; do basename "$f"; done > keep.txt
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" \
+            --jq '.assets[] | "\(.id)\t\(.name)"' > assets.tsv
+          while IFS=$'\t' read -r id name; do
+            case "$name" in
+              *.dmg)
+                if ! grep -Fxq "$name" keep.txt; then
+                  echo "删掉旧包: $name"
+                  gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$id" >/dev/null
+                fi ;;
+            esac
+          done < assets.tsv

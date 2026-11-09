@@ -75,12 +75,14 @@ python server.py --server  # 只起服务，不动浏览器
 
 **macOS（推荐：直接下 DMG，什么都不用装）**
 
-去 [Releases](https://github.com/soberbw-hash/media-downloader/releases) 下载对应芯片的包：
+去 [Releases](https://github.com/soberbw-hash/media-downloader/releases) 下载，**两个包只要下一个**，文件名直接写了给谁用：
 
-- Apple 芯片（M1 / M2 / M3 / M4）→ 文件名带 `arm64`
-- Intel → 文件名带 `x86_64`
+- **M 系列芯片版**（关于本机里写「芯片 Apple M1 / M2 / M3 / M4」）→ `音视频下载器-版本号-M系列芯片版.dmg`
+- **Intel 芯片版**（关于本机里写「处理器 Intel」）→ `音视频下载器-版本号-Intel芯片版.dmg`
 
-双击 DMG → 把 App 拖进「应用程序」→ **第一次在图标上点右键 → 打开**。Python、下载内核、ffmpeg 都打进包里了，不用装 Homebrew，也不用装 Python。没有 Apple 开发者签名，Gatekeeper 会先拦一下，右键打开一次就好；DMG 里的「先看我.txt」有完整说明。
+不知道自己芯片：点屏幕左上角  → 「关于本机」，看「芯片」或「处理器」那一行。文件名、DMG 打开后的窗口标题、包里的说明文件名，三处都标了版型，不用记 `arm64` / `x86_64` 这种词。
+
+双击 DMG → 把 App 拖进「应用程序」→ **第一次在图标上点右键 → 打开**。Python、下载内核、ffmpeg 都打进包里了，不用装 Homebrew，也不用装 Python。没有 Apple 开发者签名，Gatekeeper 会先拦一下，右键打开一次就好；DMG 里的「先看我-…版.txt」有完整说明。
 
 想直接跑源码：双击 **`启动.command`**，它会自动在用户目录建虚拟环境装依赖（第一次约 1 分钟），不往程序目录写东西。
 

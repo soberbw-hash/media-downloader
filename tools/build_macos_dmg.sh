@@ -8,15 +8,17 @@ ROOT="$PWD"
 VER="$(tr -d '[:space:]' < version.txt)"
 ARCH="$(uname -m)"
 if [ "$ARCH" = "arm64" ]; then
-    SUFFIX="arm64"
-    LABEL="Apple 芯片"
+    EDITION="M系列芯片版"
+    VOLNAME="音视频下载器 M系列版"
 else
-    SUFFIX="x86_64"
-    LABEL="Intel 芯片"
+    EDITION="Intel芯片版"
+    VOLNAME="音视频下载器 Intel版"
 fi
-OUT="$ROOT/VideoDL-${VER}-macOS-${SUFFIX}.dmg"
+# 文件名用中文说人话：拿到两个 DMG 的人不用懂 arm64 / x86_64，
+# 看「M系列芯片版」还是「Intel芯片版」就知道该下哪个。
+OUT="$ROOT/音视频下载器-${VER}-${EDITION}.dmg"
 
-echo "==> 版本 $VER / $ARCH ($LABEL)"
+echo "==> 版本 $VER / $ARCH ($EDITION)"
 
 python3 -m pip install --quiet --upgrade pip
 python3 -m pip install --quiet -r requirements.txt pyinstaller imageio-ffmpeg
@@ -112,6 +114,7 @@ STAGE="$ROOT/dmgstage"
 mkdir -p "$STAGE"
 cp -R "$APP" "$STAGE/"
 ln -s /Applications "$STAGE/Applications"
-cp "$ROOT/Mac使用说明.txt" "$STAGE/先看我.txt"
-hdiutil create -volname "音视频下载器" -srcfolder "$STAGE" -ov -format UDZO "$OUT"
+cp "$ROOT/Mac使用说明.txt" "$STAGE/先看我-${EDITION}.txt"
+# 卷标也带版型：双击挂载后 Finder 里两个 DMG 不会都显示「音视频下载器」
+hdiutil create -volname "$VOLNAME" -srcfolder "$STAGE" -ov -format UDZO "$OUT"
 echo "==> 完成: $OUT ($(du -h "$OUT" | cut -f1))"

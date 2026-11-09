@@ -412,6 +412,18 @@ body.tab-music .tasks-block {
 
 .task.done .bar i { background: var(--ok); }
 
+/* 下完字节、正在合并音视频时，条子别定住得像死机 */
+.bar.wrapping i {
+  background: linear-gradient(90deg, var(--run) 0%, #a9c6ff 50%, var(--run) 100%);
+  background-size: 200% 100%;
+  animation: barFlow 1.2s linear infinite;
+}
+
+@keyframes barFlow {
+  from { background-position: 200% 0; }
+  to   { background-position: 0 0; }
+}
+
 .status {
   font-size: 11.5px;
   color: var(--muted);

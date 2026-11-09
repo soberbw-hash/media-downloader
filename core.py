@@ -1137,6 +1137,18 @@ def ensure_mac_playable(path, progress=None):
         return path, "QuickTime 可能播不了，用 IINA 打开"
 
 
+def _seg_percent(seg, raw):
+    """DASH 是「视频流 + 音频流」一段一段下的，给后面几段留点位置。
+
+    以前第一段下完就 100%，第二段还在下时进度条和文案都定住，
+    看着像卡死。这里按段压缩：第一段 0~95，第二段 95~99.5，
+    第三段 99.5~99.95……永远走不到 100，100 留给真正完成的那一刻。
+    """
+    lo = 0.0 if seg == 0 else 100.0 - 5.0 * (0.1 ** (seg - 1))
+    hi = 100.0 - 5.0 * (0.1 ** seg)
+    return lo + max(0.0, min(100.0, raw)) / 100.0 * (hi - lo)
+
+
 def ytdlp_download(url, out_dir, progress, quality="best", proxy=None, cookies_file=None,
                    subs=False, title_hint=""):
     if yt_dlp is None:
@@ -1145,7 +1157,7 @@ def ytdlp_download(url, out_dir, progress, quality="best", proxy=None, cookies_f
     # Windows 保持原来的 best，编导那边的播放器不挑格式，画质优先。
     fmt = format_for(quality, mac=(sys.platform == "darwin"))
 
-    state = {"path": "", "last": 0.0}
+    state = {"path": "", "last": 0.0, "seg": 0}
 
     def hook(d):
         if d.get("filename"):
@@ -1153,17 +1165,19 @@ def ytdlp_download(url, out_dir, progress, quality="best", proxy=None, cookies_f
         if d.get("status") == "downloading":
             total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
             done = d.get("downloaded_bytes") or 0
-            p = (done * 100.0 / total) if total else 0
-            # DASH 是「视频流 + 音频流」两段，第二段会从 0 重新开始，
-            # 这里做单调处理，避免进度条从 99% 掉回 5%
-            p = max(p, state["last"])
+            raw = (done * 100.0 / total) if total else 0
+            # 按「第几段」压缩，段与段之间不倒退，也不会提前冲到 100%
+            p = max(_seg_percent(state["seg"], raw), state["last"])
             state["last"] = p
             progress(done=done, total=total,
                      speed=(d.get("speed") or 0) / 1048576.0,
                      percent=p)
         elif d.get("status") == "finished":
             state["path"] = d.get("filename") or ""
-            progress(speed=0, stage="正在合并音视频…")
+            state["seg"] += 1
+            # 只有真的下过两段才说「合并」；单段文件只是收尾
+            progress(speed=0, stage="正在合并音视频…" if state["seg"] >= 2
+                     else "正在处理…")
         elif d.get("status") == "error":
             progress(stage="下载出错")
 

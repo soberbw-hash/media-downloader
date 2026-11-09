@@ -281,6 +281,11 @@ function updateCard(el, t) {
   const pct = t.status === "error" ? 100 : t.percent || 0;
   bar.style.width = pct + "%";
   if (t.status === "done") bar.style.width = "100%";
+  // 字节下完、正在合并 / 收尾：别再挂个不动的「100.0%」像卡死，
+  // 只留一句在做什么，进度条换成流动状态。
+  const wrapping = t.status === "running" &&
+    (pct >= 99.5 || /处理|合并|整理|收尾/.test(t.stage || ""));
+  bar.parentElement.classList.toggle("wrapping", wrapping);
 
   const st = el.querySelector(".status");
   let line = "";
@@ -303,8 +308,8 @@ function updateCard(el, t) {
   } else if (t.status === "done") {
     line = `已完成${t.size ? " · " + fmtSize(t.size) : ""}`;
   } else {
-    line = `${t.stage || STATUS_TEXT[t.status]}${t.percent ? " " + t.percent.toFixed(1) + "%" : ""}`;
-    if (t.speed) line += ` · ${t.speed.toFixed(1)} MB/s`;
+    line = `${t.stage || STATUS_TEXT[t.status]}${t.percent && !wrapping ? " " + t.percent.toFixed(1) + "%" : ""}`;
+    if (t.speed && !wrapping) line += ` · ${t.speed.toFixed(1)} MB/s`;
     if (t.size) line += ` · ${fmtSize(t.size)}`;
   }
   if (st.innerHTML !== line) st.innerHTML = line;

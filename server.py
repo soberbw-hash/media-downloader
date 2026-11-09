@@ -870,22 +870,10 @@ class Handler(BaseHTTPRequestHandler):
             ok, msg = login_mod.open_ext_dir()
             self._json({"ok": ok, "msg": msg, "error": "" if ok else msg})
 
-        elif p == "/api/login/open_ext_page":
-            ok, msg = login_mod.open_ext_page()
-            self._json({"ok": ok, "msg": msg, "error": "" if ok else msg})
-
         elif p == "/api/login/setup_ext":
-            # 一个按钮同时打开扩展文件夹、把扩展页地址放进剪贴板
+            # 一个按钮把扩展文件夹选中；扩展页让用户自己从浏览器菜单点进去
             ok, msg = login_mod.setup_ext()
-            url, key = login_mod.ext_page_url()
-            self._json({"ok": ok, "msg": msg, "error": "" if ok else msg,
-                        "url": url, "key": key})
-
-        elif p == "/api/login/copy_ext_url":
-            ok, msg = login_mod.copy_ext_url()
-            url, key = login_mod.ext_page_url()
-            self._json({"ok": ok, "msg": msg, "error": "" if ok else msg,
-                        "url": url, "key": key})
+            self._json({"ok": ok, "msg": msg, "error": "" if ok else msg})
 
         elif p == "/api/login/cancel":
             login_mod.cancel()

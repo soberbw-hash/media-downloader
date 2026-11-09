@@ -478,7 +478,7 @@ def open_in_default_browser(url):
 
     只接 http(s)：chrome:// / edge:// 是浏览器内部页，不是系统注册的协议，
     Windows 上 os.startfile 只会弹「获取打开此 'chrome' 链接的应用」，让用户
-    去 Microsoft Store 找兼容程序。内部页一律走 open_ext_page()。
+    去 Microsoft Store 找兼容程序。扩展页只能从浏览器菜单自己点进去（见 setup_ext）。
     """
     if not (url or "").startswith(("http://", "https://")):
         return False, "地址不合法"
@@ -526,92 +526,6 @@ def chromium_exe():
         if os.path.isfile(path):
             return path
     return ""
-
-
-def paste_key():
-    return "Cmd+V" if sys.platform == "darwin" else "Ctrl+V"
-
-
-def copy_to_clipboard(text):
-    """把一段纯文本放进系统剪贴板；自测环境不动用户的剪贴板。"""
-    data = (text or "").encode("utf-8")
-    if os.environ.get("VDL_NO_OPEN") == "1":
-        return True
-    try:
-        if sys.platform == "win32":
-            r = subprocess.run(["clip.exe"], input=data, timeout=5,
-                               stdout=subprocess.DEVNULL,
-                               stderr=subprocess.DEVNULL,
-                               creationflags=0x08000000)  # 不闪黑框
-            return r.returncode == 0
-        if sys.platform == "darwin":
-            r = subprocess.run(["pbcopy"], input=data, timeout=5,
-                               stdout=subprocess.DEVNULL,
-                               stderr=subprocess.DEVNULL)
-            return r.returncode == 0
-        for cmd in (["wl-copy"], ["xclip", "-selection", "clipboard"]):
-            try:
-                r = subprocess.run(cmd, input=data, timeout=5,
-                                   stdout=subprocess.DEVNULL,
-                                   stderr=subprocess.DEVNULL)
-                if r.returncode == 0:
-                    return True
-            except Exception:
-                continue
-    except Exception:
-        pass
-    return False
-
-
-def open_browser():
-    """把用户日常那个浏览器拉起来（不带任何地址，就是它自己的新标签页）。"""
-    exe = chromium_exe()
-    if not exe:
-        return False, "没找到 Chrome 或 Edge，装一个再来"
-    if os.environ.get("VDL_NO_OPEN") == "1":
-        return True, ""
-    try:
-        if sys.platform == "darwin" and "/Contents/" in exe:
-            app = exe.split("/Contents/")[0]
-            if os.path.isdir(app):
-                subprocess.Popen(["open", "-a", app])
-                return True, ""
-        subprocess.Popen([exe])
-        return True, ""
-    except Exception as e:
-        return False, "打不开浏览器：%s" % str(e)[:100]
-
-
-def browser_running():
-    """用户那个浏览器现在是不是开着窗口 —— 开着就别再给他弹新标签页。"""
-    exe = chromium_exe()
-    if not exe:
-        return False
-    name = os.path.basename(exe).lower()
-    if sys.platform == "win32":
-        proc = "msedge.exe" if "edge" in name else "chrome.exe"
-        try:
-            out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq " + proc, "/NH"],
-                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                 timeout=6,
-                                 creationflags=0x08000000).stdout
-            return proc.encode() in (out or b"").lower()
-        except Exception:
-            return False
-    if sys.platform == "darwin":
-        pat = "Microsoft Edge" if "edge" in name else "Google Chrome"
-        try:
-            r = subprocess.run(["pgrep", "-f", pat], stdout=subprocess.DEVNULL,
-                               stderr=subprocess.DEVNULL, timeout=6)
-            return r.returncode == 0
-        except Exception:
-            return False
-    try:
-        r = subprocess.run(["pgrep", "-f", name], stdout=subprocess.DEVNULL,
-                           stderr=subprocess.DEVNULL, timeout=6)
-        return r.returncode == 0
-    except Exception:
-        return False
 
 
 def launch_options():
@@ -666,59 +580,17 @@ def open_ext_dir():
         return False, "打不开文件夹：%s" % str(e)[:100]
 
 
-def ext_page_url():
-    """扩展管理页地址 + 粘贴快捷键；没装 Chromium 就返回空。"""
-    exe = chromium_exe()
-    if not exe:
-        return "", ""
-    base = os.path.basename(exe).lower()
-    url = "edge://extensions/" if "edge" in base else "chrome://extensions/"
-    return url, paste_key()
-
-
-def open_ext_page():
-    """准备扩展安装页：复制地址；只有浏览器没开时才拉起来。
-
-    Chrome 把 chrome:// 当特权内部页，**外部程序打不开**：命令行传
-    chrome://extensions/ 会被换成新标签页（有头 / 无头 / --new-window /
-    --app= 实测都一样），os.startfile 只会弹「去商店找应用」，网页里
-    window.open 也没权限。所以老版本「开个空白页给你粘贴」其实就是它换出来
-    的，看着像点坏了；现在干脆不开，只把地址放进剪贴板，一步粘贴到位。
-    """
-    exe = chromium_exe()
-    if not exe:
-        return False, "没找到 Chrome 或 Edge，装一个再来"
-    url, key = ext_page_url()
-    copied = copy_to_clipboard(url)
-    note = ""
-    if not copied:
-        return True, "在浏览器地址栏输入 %s 再回车" % url
-    if not browser_running():
-        ok, _ = open_browser()
-        if ok:
-            note = "浏览器已打开，"
-    return True, note + "地址已复制，按 %s 再回车" % key
-
-
-def copy_ext_url():
-    """「再复制一次」：只动剪贴板，不弹任何窗口。"""
-    url, _ = ext_page_url()
-    if not url:
-        return False, "没找到 Chrome 或 Edge，装一个再来"
-    if copy_to_clipboard(url):
-        return True, "地址已复制"
-    return False, "复制不了，手动输入 %s" % url
-
-
 def setup_ext():
-    """「一键装小助手」：选中文件夹 + 备好扩展页地址，剩下粘一下就完事。"""
+    """「选中扩展文件夹」：选中文件夹，剩下三下点浏览器菜单就完事。
+
+    chrome:// 是特权内部页，外部程序打不开（命令行传进去只会被换成新标签页），
+    而浏览器菜单里本来就有「扩展程序 → 管理扩展程序」这条路。既然反正要手动
+    点进去，再让人复制地址、切过去粘贴就是多一道手 —— 所以只选中文件夹。
+    """
     ok_dir, msg_dir = open_ext_dir()
-    ok_page, msg_page = open_ext_page()
-    if ok_dir and ok_page:
-        return True, "文件夹已选中；" + msg_page
-    if ok_dir or ok_page:
-        return True, "只做成了一半：%s" % (msg_page if ok_dir else msg_dir)
-    return False, "没打开：%s / %s" % (msg_dir, msg_page)
+    if not ok_dir:
+        return False, msg_dir
+    return True, "文件夹已选中；去浏览器右上角 ⋮ →「扩展程序」→「管理扩展程序」"
 
 
 def start(pid, proxy=None):

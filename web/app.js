@@ -1052,31 +1052,9 @@ async function setupExt() {
   const r = await post("/api/login/setup_ext", {});
   if (btn) btn.disabled = false;
   if (!r.ok) { toast(r.error || "没打开，稍后再试一次"); return; }
-  showPasteHint(r.key);
-  toast(r.msg || "地址已复制");
+  toast(r.msg || "文件夹已选中");
   setTimeout(() => loadLogins(true), 3000);
 }
-
-/* 地址复制好了就常驻一条确认条：toast 会消失，这条留着给用户照着按 */
-function showPasteHint(key) {
-  const row = $("#extPaste");
-  if (!row) return;
-  const parts = String(key || "Ctrl+V").split("+");
-  const k1 = $("#extK1"), k2 = $("#extK2");
-  if (k1) k1.textContent = parts[0] || "Ctrl";
-  if (k2) k2.textContent = parts[1] || "V";
-  row.hidden = false;
-}
-
-async function copyExtUrl(btn) {
-  const r = await post("/api/login/copy_ext_url", {});
-  toast(r.ok ? "地址已复制" : (r.error || "复制不了，手动输入吧"));
-  if (r.ok && btn) {
-    btn.textContent = "已复制";
-    setTimeout(() => { btn.textContent = "再复制"; }, 1400);
-  }
-}
-$("#btnCopyExt").onclick = (e) => copyExtUrl(e.currentTarget);
 
 function renderExt() {
   const card = $("#extCard");
@@ -1089,13 +1067,11 @@ function renderExt() {
   }
   const btn = $("#btnExtSetup");
   if (btn) {
-    btn.textContent = on ? "重新检查" : "一键装小助手";
+    btn.textContent = on ? "重新检查" : "选中扩展文件夹";
     btn.onclick = on ? () => { loadLogins(true); toast("已重新检查"); } : setupExt;
   }
   const how = $("#extHow");
   if (how) how.hidden = on;      // 装好就别再占着位置
-  const paste = $("#extPaste");
-  if (on && paste) paste.hidden = true;   // 装好了就别再喊粘贴
   card.classList.toggle("missing", !!(extInfo && !extInfo.exists));
 }
 
@@ -2322,13 +2298,28 @@ function initPreview() {
 const REC_SECONDS = 10;      // 录多久。10 秒足够认，再长只是白等
 const REC_MAX_MB = 20;       // 上传上限，跟后端对齐
 
-let recStream = null;        // 麦克风流
+let recStream = null;        // 麦克风流 / 电脑声音流
 let recMr = null;            // MediaRecorder
 let recChunks = [];
 let recTimer = null;
 let recLeft = 0;
 let recBusy = false;         // 正在识别，别让人连点
 let recAbort = false;        // 半路取消：录下的那段别拿去识别
+
+// 从哪儿录：mic = 麦克风对着外放，sys = 直接抓电脑里正在放的声音。
+// 记住上回的选择：常录电脑声音的人不用每次再点一下。
+function recSavedSource() {
+  try {
+    return localStorage.getItem("vdl.rec.src") === "sys" ? "sys" : "mic";
+  } catch (e) {
+    return "mic";
+  }
+}
+let recSource = recSavedSource();
+
+function recListenTip() {
+  return (recSource === "sys" ? "正在听电脑的声音… " : "正在听… ") + recLeft + " 秒";
+}
 
 function recOpen(on) {
   const bar = $("#recBar");
@@ -2345,8 +2336,22 @@ function recOpen(on) {
 
 // 平时：提示 + 两个入口
 function recIdle() {
+  document.querySelectorAll("#recSrc .rs").forEach((b) =>
+    b.classList.toggle("on", b.dataset.r === recSource));
   recSetButtons({ act: "录一段", pick: true, x: "取消" });
-  recSetTip("对着音箱录一段，或者选个视频/音频文件进来", "");
+  recSetTip(recSource === "sys"
+    ? "录电脑里正在放的声音：点「录一段」，在弹窗里选「整个屏幕」，把「分享音频」勾上"
+    : "对着手机或音箱录一段，也可以选个视频/音频文件", "");
+}
+
+// 换录哪儿的来源；录着的时候不让换，免得半路换源录出半截
+function recPickSource(v) {
+  if (recStream) return;
+  recSource = v === "sys" ? "sys" : "mic";
+  try { localStorage.setItem("vdl.rec.src", recSource); } catch (e) {}
+  document.querySelectorAll("#recSrc .rs").forEach((b) =>
+    b.classList.toggle("on", b.dataset.r === recSource));
+  recIdle();
 }
 
 function recSetTip(text, kind) {
@@ -2367,6 +2372,15 @@ function recSetButtons(o) {
     x.hidden = !o.x;
     if (o.x) x.textContent = o.x;
   }
+  // 录着的时候锁住来源，但别把它藏起来（藏了布局会跳）
+  recLockSource(!!recStream);
+}
+
+function recLockSource(locked) {
+  const src = $("#recSrc");
+  if (!src) return;
+  src.classList.toggle("busy", locked);
+  src.querySelectorAll("button").forEach((b) => { b.disabled = locked; });
 }
 
 function recCleanup() {
@@ -2380,6 +2394,7 @@ function recCleanup() {
   recMr = null;
   recChunks = [];
   recBusy = false;
+  recLockSource(false);        // 收工了把来源解锁，别让它一直灰着
 }
 
 async function recStart() {
@@ -2388,12 +2403,9 @@ async function recStart() {
     recSetTip("这个浏览器录不了音，用「选文件」吧", "err");
     return;
   }
-  try {
-    recStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  } catch (e) {
-    recSetTip("没拿到麦克风。点地址栏左边的图标允许一下，或者直接用「选文件」", "err");
-    return;
-  }
+  const stream = await recOpenStream();
+  if (!stream) { recIdle2(); return; }          // 失败原因已经在 recOpenStream 里说了
+  recStream = stream;
   recChunks = [];
   recAbort = false;
   const canOpus = window.MediaRecorder.isTypeSupported
@@ -2420,12 +2432,57 @@ async function recStart() {
   recMr.start();
   recLeft = REC_SECONDS;
   recSetButtons({ act: "停止", pick: false, x: "取消" });
-  recSetTip("正在听… " + recLeft + " 秒", "rec");
+  recSetTip(recListenTip(), "rec");
   recTimer = setInterval(() => {
     recLeft -= 1;
     if (recLeft <= 0) { recStop(); return; }
-    recSetTip("正在听… " + recLeft + " 秒", "rec");
+    recSetTip(recListenTip(), "rec");
   }, 1000);
+}
+
+// 按来源取流：麦克风直接要；电脑声音得先让用户选共享哪一个窗口/屏幕。
+// 系统内录在浏览器里只有这一条路（getDisplayMedia 的音频轨道），
+// Windows 上选「整个屏幕」并勾「分享音频」就能录到全系统声音。
+async function recOpenStream() {
+  if (recSource !== "sys") {
+    try {
+      return await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e) {
+      recSetTip("没拿到麦克风。点地址栏左边的图标允许一下，或者换「系统声音」/「选文件」", "err");
+      return null;
+    }
+  }
+  if (!navigator.mediaDevices.getDisplayMedia) {
+    recSetTip("这个浏览器录不了电脑的声音，换「麦克风」或「选文件」", "err");
+    return null;
+  }
+  let cap = null;
+  try {
+    // 必须连视频一起要：Chrome 的分享选择器只有在带了画面时才弹，
+    // 拿到手立刻把画面轨道扔掉，只留声音。
+    cap = await navigator.mediaDevices.getDisplayMedia({
+      video: true,
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+    });
+  } catch (e) {
+    // 用户自己关掉选择器不算出错，别拿红字吓人：回到「可以再来一次」
+    if (e && e.name === "NotAllowedError") { recIdle(); return null; }
+    recSetTip("没能开始录电脑的声音，再点一次试试", "err");
+    return null;
+  }
+  const audios = cap.getAudioTracks();
+  cap.getVideoTracks().forEach((t) => { t.stop(); cap.removeTrack(t); });
+  if (!audios.length) {
+    cap.getTracks().forEach((t) => t.stop());
+    recSetTip("刚才选的那个没带声音。再点一次，选「整个屏幕」并勾上「分享音频」；"
+      + "Mac 上只能连标签页的声音，要选正在放歌的那个标签页", "err");
+    return null;
+  }
+  // 用户在分享条上按「停止共享」时，也跟着把录音收尾
+  audios[0].onended = () => {
+    if (recMr && recMr.state !== "inactive") recStop();
+  };
+  return new MediaStream(audios);
 }
 
 function recStop() {
@@ -2511,6 +2568,9 @@ function initRecognize() {
   };
   const act = $("#recAct");
   if (act) act.onclick = () => { recStart(); };
+  document.querySelectorAll("#recSrc .rs").forEach((b) => {
+    b.onclick = () => recPickSource(b.dataset.r);
+  });
   const pick = $("#recPick");
   if (pick) pick.onclick = recPickFile;
   const x = $("#recX");

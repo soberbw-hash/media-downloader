@@ -65,11 +65,20 @@
     </div>
     <!-- 识曲条：点麦克风才出现，不占平时的地方 -->
     <div class="recbar" id="recBar" hidden>
-      <span class="rcdot" id="recDot"></span>
-      <span class="rctip" id="recTip"></span>
-      <button id="recAct">录一段</button>
-      <button id="recPick">选文件</button>
-      <button id="recX" class="ghost">取消</button>
+      <div class="rc-top">
+        <span class="rcdot" id="recDot"></span>
+        <span class="rctip" id="recTip"></span>
+      </div>
+      <div class="rc-bot">
+        <!-- 录哪儿：对着外放录，还是直接抓电脑里的声音 -->
+        <div class="rsrc" id="recSrc" role="group" aria-label="录音来源">
+          <button type="button" class="rs on" data-r="mic">麦克风</button>
+          <button type="button" class="rs" data-r="sys">系统声音</button>
+        </div>
+        <button id="recAct">录一段</button>
+        <button id="recPick">选文件</button>
+        <button id="recX" class="ghost">取消</button>
+      </div>
       <input type="file" id="recFile" accept="audio/*,video/*" hidden>
     </div>
     <div class="mplats" id="mSrc">
@@ -405,21 +414,13 @@
         </span>
         <b>装一次，以后自动登录</b>
         <span class="ext-badge" id="extBadge">第一次要装</span>
-        <button type="button" class="primary" id="btnExtSetup">一键装小助手</button>
-      </div>
-      <div class="ext-paste" id="extPaste" hidden>
-        <span>地址已复制</span>
-        <span class="ep-k" id="extK1">Ctrl</span>
-        <span class="ep-plus">+</span>
-        <span class="ep-k" id="extK2">V</span>
-        <span>后回车</span>
-        <button type="button" class="ep-copy" id="btnCopyExt">再复制</button>
+        <button type="button" class="primary" id="btnExtSetup">选中扩展文件夹</button>
       </div>
       <div class="ext-guide" id="extHow">
         <div class="eg-h">怎么装</div>
         <div class="gsteps">
           <div class="gstep">
-            <div class="gt"><span class="gn">1</span><span>打开浏览器扩展页：地址栏粘上刚才复制的地址、回车。不想粘就走右上角 ⋮ →「扩展程序」→「管理扩展程序」。</span></div>
+            <div class="gt"><span class="gn">1</span><span>在浏览器右上角点 ⋮ →「扩展程序」→「管理扩展程序」，打开扩展页。</span></div>
             <img class="gpic" src="/img/ext-step2.png" data-full="/img/ext-page-menu.png" alt="从浏览器右上角菜单进扩展程序" loading="lazy">
           </div>
           <div class="gstep">
@@ -427,7 +428,7 @@
             <img class="gpic" src="/img/ext-step3.png" data-full="/img/ext-page.png" alt="打开右上角的开发者模式" loading="lazy">
           </div>
           <div class="gstep">
-            <div class="gt"><span class="gn">3</span><span>点左上角「加载未打包的扩展程序」（旧版叫「加载已解压」），选中刚才那个文件夹。装好后会出现在列表里。</span></div>
+            <div class="gt"><span class="gn">3</span><span>点左上角「加载未打包的扩展程序」（旧版叫「加载已解压」），选中刚才那个扩展文件夹。装好后会出现在列表里。</span></div>
             <img class="gpic" src="/img/ext-step4.png" data-full="/img/ext-page.png" alt="加载未打包的扩展程序" loading="lazy">
           </div>
         </div>

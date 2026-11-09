@@ -100,17 +100,16 @@ def main():
 
             # ---- 4. 装小助手只留一个按钮 ----
             btn = pg.locator("#btnExtSetup")
-            assert btn.count() == 1 and "一键装小助手" in btn.inner_text(), \
+            assert btn.count() == 1 and "选中扩展文件夹" in btn.inner_text(), \
                 "安装主按钮不对: %s" % btn.inner_text()
             assert pg.locator("#extHow details").count() == 0, "三步又套回折叠了"
             assert pg.locator("#extHow .gstep").count() == 3, "三步没显示出来"
             btn.click()
             pg.wait_for_timeout(700)
             assert pg.locator("#extHow .gstep").count() == 3, "点完三步没了"
-            assert "地址已复制" in pg.inner_text("#toast") \
-                and "回车" in pg.inner_text("#toast"), \
-                "一键装小助手没给反馈"
-            log("  ✓ 一键装小助手：接口通、三步常驻、反馈是动作")
+            assert "扩展程序" in pg.inner_text("#toast"), \
+                "选中文件夹没给下一步"
+            log("  ✓ 选中扩展文件夹：接口通、三步常驻、反馈指路到浏览器菜单")
 
             # ---- 5. 扩展一同步，界面自己变，还主动提示一声 ----
             pg.evaluate("""() => {

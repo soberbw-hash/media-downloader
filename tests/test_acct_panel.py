@@ -209,8 +209,10 @@ def main():
             assert pg2.locator("#extHow details").count() == 0, "「怎么装」又套回折叠了"
             assert pg2.locator("#extHow .gstep").count() == 3, "步骤不是三步"
             first = pg2.locator("#extHow .gstep").first.inner_text()
-            assert "打开浏览器扩展页" in first and "地址栏" in first, \
-                "第一步不是进扩展页/粘地址：%s" % first
+            assert "扩展程序" in first and "管理扩展程序" in first, \
+                "第一步不是从浏览器菜单进扩展页：%s" % first
+            assert "地址栏" not in first and "粘贴" not in first, \
+                "第一步还在教复制粘贴：%s" % first
             assert "点上面的「一键装小助手」" not in pg2.inner_text("#extHow"), \
                 "还在让用户点一次已经点过的按钮"
             log("  OK 没装时三步摊着：先开扩展页 → 开发者模式 → 加载文件夹")

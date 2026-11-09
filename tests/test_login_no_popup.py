@@ -132,7 +132,11 @@ def test_extension_endpoint():
     # 从 /api/login/state 拿到真实目录再备份，别只备份测试进程的源码目录。
     d0 = get("/api/login/state")
     cdir = d0.get("cookie_dir") or ""
-    assert cdir and os.path.isdir(cdir), "服务端没给 cookie 目录，没法安全还原"
+    assert cdir, "服务端没给 cookie 目录，没法安全还原"
+    # 隔离环境里这个目录还没被创建（真实用户是登录/导入时建），
+    # 测试要往里写再还原，先补上
+    os.makedirs(cdir, exist_ok=True)
+    assert os.path.isdir(cdir), "cookie 目录建不出来"
     files = [os.path.join(cdir, "%s.txt" % p) for p in ("suno", "bilibili")]
     backup = [(p, open(p, "rb").read() if os.path.isfile(p) else None)
               for p in files]

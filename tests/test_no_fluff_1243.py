@@ -99,7 +99,7 @@ def ui_checks():
         assert not how.evaluate("e => e.open"), "三步说明没默认收起"
         # 别的回归可能先同步过扩展，这时按钮会变成「重新检查」，都算正常
         label = pg.locator("#btnExtSetup").inner_text()
-        assert label in ("一键装小助手", "重新检查"), "主按钮文案不对: %s" % label
+        assert label in ("选中扩展文件夹", "重新检查"), "主按钮文案不对: %s" % label
         log("  ✓ 扩展卡只有标题 + 一个按钮 + 摊着的三步")
 
         # 三步展开后是纯动作，不该夹带效果说明；已连上时它会自动隐藏

@@ -8,6 +8,7 @@
 import os
 import subprocess
 import sys
+import urllib.error
 import urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -34,11 +35,18 @@ def find_token():
 
 
 def net_ok():
-    # 先花 3 秒问个路，别在断网时把提交卡在几分钟的重试上
+    # 先花几秒问个路，别在断网时把提交卡在几分钟的重试上。
+    # api.github.com 根路径对不带 UA / 不带 token 的请求会回 403，
+    # 那是「连上了」，不是断网；以前把它当失败，害得整轮提交没推上去。
     try:
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-        with opener.open("https://api.github.com", timeout=3) as r:
-            return True
+        req = urllib.request.Request("https://api.github.com",
+                                     headers={"User-Agent": "VideoDL"})
+        try:
+            with opener.open(req, timeout=4) as r:
+                return True
+        except urllib.error.HTTPError as e:
+            return 400 <= e.code < 500
     except Exception:
         return False
 

@@ -1617,18 +1617,14 @@ class Manager(object):
             res = douyin_download(t.url, out_dir, progress, quality)
         elif t.platform in ("netease", "qqmusic", "kugou"):
             import music as music_mod       # 延迟导入，避免循环依赖
-            music_out = (self.cfg.get("music_dir") or "").strip() or out_dir
-            os.makedirs(music_out, exist_ok=True)
             with self.lock:
                 t.kind = "audio"
-            res = music_mod.download(t.url, music_out, progress, quality, cookies)
+            res = music_mod.download(t.url, out_dir, progress, quality, cookies)
         elif t.platform == "suno":
             import suno  # 延迟导入，避免循环依赖
-            suno_out = (self.cfg.get("music_dir") or "").strip() or out_dir
-            os.makedirs(suno_out, exist_ok=True)
             with self.lock:
                 t.kind = "audio"
-            res = suno.download(t.url, suno_out, progress, quality, proxy)
+            res = suno.download(t.url, out_dir, progress, quality, proxy)
         elif t.platform == "direct":
             import hls  # 延迟导入，避免循环依赖
             if hls.is_audio_name(t.url):

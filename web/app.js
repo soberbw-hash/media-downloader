@@ -1187,7 +1187,6 @@ function openDrawer() {
   $("#cfgConc").value = String(cfg.concurrency || 3);
   $("#cfgNameTpl").value = cfg.name_tpl || "";
   syncNameUI();
-  $("#cfgMusicDir").value = cfg.music_dir || "";
   $("#cfgCover").checked = !!cfg.save_cover;
   $("#cfgSubs").checked = !!cfg.down_subs;
   $("#cfgDanmaku").checked = !!cfg.save_danmaku;   // 默认关
@@ -1403,7 +1402,6 @@ function collectCfg() {
     sph_token: $("#cfgSphToken").value.trim(),
     concurrency: parseInt($("#cfgConc").value, 10) || 3,
     name_tpl: ($("#cfgNamePre").value === "" ? "" : $("#cfgNameTpl").value.trim()),
-    music_dir: $("#cfgMusicDir").value.trim(),
     save_cover: $("#cfgCover").checked,
     down_subs: $("#cfgSubs").checked,
     save_danmaku: $("#cfgDanmaku").checked,
@@ -1441,11 +1439,11 @@ function nameTplNow() {
 });
 
 // 文本框：停手一会儿再存，别把打了一半的路径建成文件夹
-["#cfgProxy", "#cfgCookies", "#cfgSph", "#cfgSphToken", "#cfgMusicDir"].forEach((sel) => {
+["#cfgProxy", "#cfgCookies", "#cfgSph", "#cfgSphToken"].forEach((sel) => {
   const el = $(sel);
   if (!el) return;
   const key = { "#cfgProxy": "proxy", "#cfgCookies": "cookies_file", "#cfgSph": "sph_api",
-                "#cfgSphToken": "sph_token", "#cfgMusicDir": "music_dir" }[sel];
+                "#cfgSphToken": "sph_token" }[sel];
   el.addEventListener("input", () => cfgLater(key, { [key]: el.value.trim() }, 600));
 });
 const outEl = $("#cfgOut");
@@ -2828,12 +2826,3 @@ if (tabMode === "music") {
   if (h && !h.textContent) h.textContent = SOURCE_GUIDE[mMode] || "";
 }
 
-if ($("#pickMusic")) {
-  $("#pickMusic").onclick = async () => {
-    const p = await openPicker($("#pickMusic"), "浏览");
-    if (!p) return;
-    $("#cfgMusicDir").value = p;
-    await pushCfg({ music_dir: p });
-    toast("音乐目录已改成 " + p, 3200);
-  };
-}

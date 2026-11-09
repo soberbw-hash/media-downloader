@@ -57,7 +57,6 @@ DEFAULT_CFG = {
     "push_key": "",     # 「一键收网页」书签的钥匙，存住免得重启后书签失效
     "name_tpl": "{date}_{platform}_{author}_{title}",   # 默认按日期_平台_作者_标题命名，空 = 沿用解析器自己的命名
     "save_cover": False,     # 下载完顺手存一张封面
-    "music_dir": "",         # 音乐单独放一个目录，空 = 跟视频同目录
     "down_subs": False,      # 顺便把字幕存成 .srt
     "save_danmaku": False,   # B站弹幕存成同名 .xml（附件都收进同名文件夹）
     "save_desc": False,      # 简介/元信息存成同名 .txt（附件都收进同名文件夹）
@@ -112,6 +111,9 @@ def load_cfg():
             if d and not os.path.isabs(d):
                 cfg["out_dir"] = os.path.abspath(
                     os.path.join(paths_mod.APP_DIR, "..", d))
+            # 老版本能单独设「音乐目录」，现在只留一个下载目录；
+            # 旧配置里那个键直接丢掉，免得音乐还偷偷下到别处去。
+            cfg.pop("music_dir", None)
             return cfg
         except Exception:
             pass
@@ -943,7 +945,7 @@ class Handler(BaseHTTPRequestHandler):
                 if data.get("quality") in ("best", "1080", "720", "audio"):
                     CFG["quality"] = data["quality"]
                 for k in ("proxy", "cookies_file", "sph_api", "sph_token",
-                          "name_tpl", "music_dir"):
+                          "name_tpl"):
                     if k in data:
                         CFG[k] = str(data[k]).strip()
                 if "save_cover" in data:

@@ -96,7 +96,7 @@ def clean(dst):
             data = {}
     data["out_dir"] = "下载的文件"
     data["out_dir_set"] = True
-    data["music_dir"] = ""
+    data.pop("music_dir", None)
     data["cookies_file"] = ""
     os.makedirs(os.path.join(dst, "下载的文件"), exist_ok=True)
     tmp = cfg + ".tmp"

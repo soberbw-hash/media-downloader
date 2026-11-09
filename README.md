@@ -195,8 +195,7 @@ DMG 由 GitHub Actions 在 `macos-15`（Apple 芯片）上编译，只发一个�
 
 | 字段 | 说明 |
 |---|---|
-| `out_dir` | 视频下载目录 |
-| `music_dir` | 音乐单独存放目录，留空则跟视频同目录 |
+| `out_dir` | 下载目录，视频和音乐都放这里 |
 | `quality` | `best` / `1080` / `720` / `audio` |
 | `name_tpl` | 命名模板，支持 `{date}` `{platform}` `{author}` `{title}` `{id}` 等 |
 | `save_cover` | 是否同时保存封面图 |

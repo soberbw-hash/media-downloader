@@ -54,13 +54,13 @@ FAKE = {
     "items": [
         {"platform": "mixkit_sfx", "id": "ms2393", "kind": "audio",
          "title": "Light rain loop", "author": "Mixkit", "cover": "", "duration": 0,
-         "desc": "免费可商用 · wav 原文件",
+         "desc": "可商用 · wav 原文件",
          "url": "https://mixkit.co/free-sound-effects/rain/",
          "download": "https://assets.mixkit.co/active_storage/sfx/2393/2393.wav",
          "source": "mixkit_sfx", "source_name": "Mixkit 音效"},
         {"platform": "freesound", "id": "fs856405", "kind": "audio",
          "title": "Raining in Bangkok", "author": "someone", "cover": "",
-         "duration": 36, "desc": "CC 授权，商用要署名 · mp3 预览",
+         "duration": 36, "desc": "需署名 · mp3 预览",
          "url": "https://freesound.org/people/someone/sounds/856405/",
          "download": "https://cdn.freesound.org/previews/856/856405_26950-lq.mp3",
          "source": "freesound", "source_name": "Freesound"},
@@ -87,7 +87,14 @@ def main():
         assert got == en, "「%s」应该翻成 %s，实际 %s" % (zh, en, got)
     assert sources.en_keyword("rain") == "rain", "英文原样透传坏了"
     assert sources.en_keyword("乱七八糟") is None, "认不出就该返回 None"
-    log("  OK 8 个常用词都对，「火车」不再被「火」抢走")
+    # 一个中文词给出多个英文候选，头一个搜空还能试下一个
+    assert sources.search_terms("风扇") == ["fan", "wind"], \
+        "「风扇」应该给多个候选：%s" % sources.search_terms("风扇")
+    assert sources.search_terms("door slam") == ["door slam", "door"], \
+        "英文短语没保留原词：%s" % sources.search_terms("door slam")
+    assert sources.search_terms("雨声 rain")[0] == "rain", \
+        "中英混写时该先用手写的英文"
+    log("  OK 8 个常用词都对，「火车」不再被「火」抢走；中文给多候选、英文原样")
 
     log("=== 2. 源和站点清单分得开 ===")
     ui = sources.sources_for_ui({})
@@ -147,11 +154,11 @@ def main():
             pg.click('#mSrc .plat[data-s="sfx"]')
             pg.wait_for_timeout(300)
             assert "音效" in pg.get_attribute("#mQuery", "placeholder"), "输入框没提示音效"
-            srcs = pg.eval_on_selector_all("#mVPlats .plat", "els => els.map(e => e.textContent)")
-            assert "Mixkit 音效" in srcs and "B站" not in srcs, "音效页串进了视频源：%s" % srcs
-            sites = pg.eval_on_selector_all("#vSiteChips .site-chip", "els => els.map(e => e.textContent)")
-            assert "爱给网" in sites and "Pexels" not in sites, "站点没按音效过滤：%s" % sites
-            log("  OK 多出「音效」档；源只剩音效源，站点只剩音效站")
+            assert pg.eval_on_selector("#mVPlats", "e => e.hidden"), \
+                "音效页还摆着「Mixkit 音效 / Freesound」这排源按钮"
+            assert pg.eval_on_selector("#vSites", "e => e.hidden"), "音效页还摆着「更多资源站」"
+            assert pg.locator("#vSiteChips .site-chip").count() == 0, "音效页还在铺站点按钮"
+            log("  OK 音效就是一个大类：源按钮、站点入口都不出现")
 
             pg.fill("#mQuery", "雨声")
             pg.click("#mGo")
@@ -164,7 +171,11 @@ def main():
             sub = first.locator(".a").inner_text()
             assert "wav 原文件" in sub and "1080p" not in sub, "副标题不对：%s" % sub
             assert pg.locator("#mResults .msong .pv").count() == 2, "音效没有试听按钮"
-            log("  OK 两条结果、来源只听音效源、没有「1080p」这种视频味")
+            assert pg.locator("#mResults .psrc").count() == 0, "音效行还标着来源站名"
+            assert pg.locator("#mResults .cov").count() == 0, "音效行还空着封面框"
+            hint = pg.inner_text("#mHint")
+            assert "找到 2 条" in hint, "音效结果没报条数：%s" % hint
+            log("  OK 两条结果混排、不标站名、不摆空封面，只说「找到 2 条」")
 
             # 试听：直链直接塞进 <audio>
             pg.locator("#mResults .msong .pv").first.click()
@@ -184,6 +195,15 @@ def main():
             assert it[0].get("url", "").endswith("2393.wav"), "下载地址不对"
             assert not errs, "JS 报错：%s" % errs
             log("  OK 下载走 /api/sfx/add，带上了音效名")
+
+            # 视频页那套入口不能被连坐删掉
+            pg.click('#mSrc .plat[data-s="video"]')
+            pg.wait_for_timeout(600)
+            assert not pg.eval_on_selector("#mVPlats", "e => e.hidden"), \
+                "切回视频后来源按钮没回来"
+            assert not pg.eval_on_selector("#vSites", "e => e.hidden"), \
+                "切回视频后资源站入口没回来"
+            log("  OK 切回视频：源按钮和资源站都还在")
 
             pg.screenshot(path=SHOT)
             b.close()

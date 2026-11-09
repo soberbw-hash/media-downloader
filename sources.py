@@ -103,21 +103,109 @@ EN_WORDS += [
     ("雨林", "jungle"), ("雪", "snow"), ("冰", "ice"),
 ]
 
+# 日常剪辑真会用到的词，再补一轮。
+# 宗旨是「中文随手打，英文音效也能搜到」，所以宁可多收，认错一次总比搜不到强。
+EN_WORDS += [
+    # 天气 / 自然
+    ("小雨", "rain"), ("大雨", "rain"), ("毛毛雨", "rain"), ("滴答", "raindrops"),
+    ("水滴", "water drop"), ("河流", "river"), ("海浪声", "waves"), ("涨潮", "waves"),
+    ("风吹", "wind"), ("刮风", "wind"), ("龙卷风", "wind"), ("沙尘", "wind"),
+    ("蝉鸣", "cicada"), ("蟋蟀", "crickets"), ("蛙叫", "frog"), ("海浪拍打", "waves"),
+    # 人声 / 情绪
+    ("吵架", "arguing"), ("打架", "fight"), ("人群嘈杂", "crowd"), ("交谈", "talking"),
+    ("低语", "whisper"), ("耳语", "whisper"), ("喊叫", "scream"), ("怒吼", "scream"),
+    ("打喷嚏", "sneeze"), ("打嗝", "burp"), ("咀嚼", "chewing"), ("喝水", "drinking"),
+    ("掌声雷动", "applause"), ("嘘声", "crowd"), ("叹气声", "sigh"), ("笑声一片", "laughter"),
+    ("小孩", "kids"), ("儿童", "kids"), ("男人", "man"), ("女人", "woman"),
+    # 家居 / 日常
+    ("水龙头", "faucet"), ("流水声", "water"), ("冲水", "toilet"), ("马桶", "toilet"),
+    ("洗衣机", "washing machine"), ("微波炉", "microwave"), ("吸尘器", "vacuum"),
+    ("冰箱", "fridge"), ("空调", "air conditioner"), ("电风扇", "fan"), ("风扇", "fan"),
+    ("钟表", "clock"), ("秒针", "clock"), ("挂钟", "clock"), ("闹铃声", "alarm"),
+    ("倒水", "pouring water"), ("倒茶", "pouring water"), ("洗碗", "dishes"),
+    ("切菜", "chopping"), ("炒菜", "cooking"), ("煮", "boiling"), ("油炸", "frying"),
+    ("开门声", "door"), ("锁门", "lock"), ("钥匙", "keys"), ("拉门", "door"),
+    ("推门", "door"), ("铁门", "door"), ("柜门", "drawer"), ("抽屉", "drawer"),
+    ("拉链", "zipper"), ("剪刀", "scissors"), ("绳子", "rope"), ("布料", "cloth"),
+    # 电子 / 办公
+    ("键盘声", "keyboard"), ("机械键盘", "keyboard"), ("敲键盘", "typing"),
+    ("鼠标点击", "mouse click"), ("按钮", "button"), ("提示", "notification"),
+    ("叮", "ding"), ("叮咚", "ding dong"), ("解锁", "unlock"), ("密码", "password"),
+    ("开机声", "startup"), ("关机声", "shutdown"), ("充电", "charging"),
+    ("服务器", "server"), ("硬盘", "hard disk"), ("风扇转", "fan"),
+    ("打印", "printer"), ("复印", "printer"), ("扫描仪", "scanner"),
+    ("相机声", "camera"), ("录像", "camera"), ("拍照声", "camera"),
+    # 交通 / 机械
+    ("轮胎", "tire"), ("刹车", "brake"), ("加速", "engine"), ("排气管", "engine"),
+    ("卡车", "truck"), ("公交", "bus"), ("大巴", "bus"), ("货车", "truck"),
+    ("电动车", "scooter"), ("滑板", "skateboard"), ("轮子", "wheel"),
+    ("电梯", "elevator"), ("扶梯", "escalator"), ("机器", "machine"),
+    ("齿轮", "gear"), ("机械", "machine"), ("液压", "hydraulic"),
+    ("火车鸣笛", "train"), ("轮船", "boat"), ("汽笛", "whistle"),
+    # 打斗 / 特效
+    ("巴掌", "slap"), ("扇耳光", "slap"), ("揍", "punch"), ("踢", "kick"),
+    ("摔倒", "fall"), ("撞击", "impact"), ("碰撞", "impact"), ("砸", "impact"),
+    ("碎裂", "crash"), ("裂开", "crack"), ("折断", "crack"), ("木头断裂", "wood"),
+    ("剑", "sword"), ("刀", "knife"), ("弓箭", "arrow"), ("魔法", "magic"),
+    ("施法", "magic"), ("闪光", "sparkle"), ("粒子", "sparkle"), ("能量", "energy"),
+    ("科幻", "sci-fi"), ("太空", "space"), ("飞船", "spaceship"), ("机器人", "robot"),
+    ("悬疑", "suspense"), ("紧张", "tense"), ("恐怖", "horror"), ("惊悚", "horror"),
+    ("史诗", "epic"), ("悲壮", "epic"), ("温馨", "warm"), ("搞笑", "funny"),
+    ("卡通", "cartoon"), ("弹跳", "boing"), ("弹簧", "boing"), ("泡泡破", "bubbles"),
+    # 转场 / UI 音
+    ("嗖一下", "whoosh"), ("嗖嗖", "whoosh"), ("滑过", "swish"), ("擦过", "swish"),
+    ("冲击", "impact"), ("重击", "impact"), ("低频", "bass"), ("低音", "bass"),
+    ("上升", "riser"), ("下降", "downlifter"), ("气氛", "ambience"), ("氛围", "ambience"),
+    ("环境声", "ambience"), ("背景音", "background"), ("白噪音", "white noise"),
+    ("噪音", "noise"), ("静电", "static"), ("干扰", "glitch"), ("故障", "glitch"),
+    ("故障音", "glitch"), ("数据", "data"), ("加载", "loading"), ("进度", "loading"),
+    ("得分", "score"), ("胜利", "victory"), ("失败", "fail"), ("游戏", "game"),
+    ("按钮声", "button"), ("确认", "confirm"), ("取消", "cancel"), ("警告", "warning"),
+    # 动物 / 其他
+    ("公鸡", "rooster"), ("母鸡", "chicken"), ("鸭子", "duck"), ("牛叫", "cow"),
+    ("羊叫", "sheep"), ("猪叫", "pig"), ("狮子", "lion"), ("老虎", "tiger"),
+    ("大象", "elephant"), ("猴子", "monkey"), ("海鸥", "seagull"), ("蜜蜂", "bee"),
+    ("蚊子", "mosquito"), ("苍蝇", "fly"), ("老鼠", "mouse"), ("蛇", "snake"),
+    ("恐龙", "dinosaur"), ("鲸鱼", "whale"), ("海豚", "dolphin"),
+    ("足球", "football"), ("篮球", "basketball"), ("球", "ball"), ("球场", "stadium"),
+    ("水花", "splash"), ("跳水", "splash"), ("游泳", "swimming"), ("划水", "splash"),
+]
+
 # 长词先匹配：否则「火车」会被「火」抢先映射成 fire，「城市夜景」会被「城市」吃掉
 _EN_ORDER = sorted(EN_WORDS, key=lambda x: -len(x[0]))
 
 
-def en_keyword(kw):
-    """英文原样用；中文挑最长的能映射的词；认不出返回 None。"""
+def search_terms(kw):
+    """把用户输入拆成几个能拿去搜的英文词，按可信度排。
+
+    英文原样排第一（用户自己写的英文最准）；中文按最长匹配收集所有命中的词，
+    一次给几个候选——音效库的分类词很死，「掌声」映射成 applause 没搜到时，
+    还能拿 clapping 之类的下一个候选再试一遍，比一次定生死强。
+    """
     kw = (kw or "").strip()
     if not kw:
-        return None
+        return []
     if all(ord(c) < 128 for c in kw):
-        return kw
+        out = [kw]
+        first = kw.split()[0]
+        if len(kw.split()) > 1 and first not in out:
+            out.append(first)
+        return out
+    out = []
+    # 「雨声 rain」这种混着写的，英文部分是用户自己挑的词，优先
+    for w in re.findall(r"[A-Za-z][A-Za-z\-']+", kw):
+        if w.lower() not in out:
+            out.append(w.lower())
     for zh, en in _EN_ORDER:
-        if zh in kw:
-            return en
-    return None
+        if zh in kw and en not in out:
+            out.append(en)
+    return out[:4]
+
+
+def en_keyword(kw):
+    """给站点直达用的单值版：英文原样；中文取最长的那个映射；认不出返回 None。"""
+    terms = search_terms(kw)
+    return terms[0] if terms else None
 
 
 # ---------- 站点直达（不抓内容，只帮你一键在各站搜同一个词） ----------
@@ -363,34 +451,48 @@ def _mixkit_sfx_hq(vid, timeout=8):
 
 
 def _mixkit_sfx(kw, limit, cfg, proxy):
-    en = en_keyword(kw)
-    if not en:
-        raise SkipSource("Mixkit 音效只认英文关键词，试试 rain / wind / whoosh（已跳过）")
-    url = "https://mixkit.co/free-sound-effects/%s/" % _mixkit_slug(en)
-    t = _fetch(url, 12, referer="https://mixkit.co/")
-    cards = []
-    # 只按卡片开头切，别把卡片里的 item-grid-card__meta / __title 也切碎
-    for b in re.split(r'class="item-grid-card(?=[\s"])', t)[1:limit + 8]:
-        m = re.search(r'data-audio-player-preview-url-value="([^"]+)"', b)
-        preview = html_mod.unescape(m.group(1)) if m else ""
-        mid = re.search(r'data-audio-player-item-id-value="(\d+)"', b)
-        if not preview or not mid:
+    terms = search_terms(kw)
+    if not terms:
+        raise SkipSource("这个词还没收进词库，换英文更快（rain / whoosh / applause）")
+    cards, seen, errs = [], set(), []
+    for en in terms:
+        url = "https://mixkit.co/free-sound-effects/%s/" % _mixkit_slug(en)
+        try:
+            t = _fetch(url, 12, referer="https://mixkit.co/")
+        except Exception as e:
+            errs.append(e)
             continue
-        vid = mid.group(1)
-        mt = re.search(r'class="item-grid-card__title">\s*(.*?)\s*</h2>', b, re.S)
-        mh = re.search(r'href="(/free-sound-effects/[^"]*-%s/)"' % re.escape(vid), b)
-        page = "https://mixkit.co" + mh.group(1) if mh else url
-        cards.append(_card(
-            platform="mixkit_sfx", id="ms" + vid, kind="audio",
-            title=_txt(mt.group(1)) if mt else "音效 " + vid,
-            author="Mixkit", cover="", duration=0,
-            desc="可商用 · wav 原文件",
-            url=page, page=page, download=preview,
-            source="mixkit_sfx", source_name="Mixkit 音效"))
-        if len(cards) >= limit:
+        # 只按卡片开头切，别把卡片里的 item-grid-card__meta / __title 也切碎
+        for b in re.split(r'class="item-grid-card(?=[\s"])', t)[1:limit + 8]:
+            m = re.search(r'data-audio-player-preview-url-value="([^"]+)"', b)
+            preview = html_mod.unescape(m.group(1)) if m else ""
+            mid = re.search(r'data-audio-player-item-id-value="(\d+)"', b)
+            if not preview or not mid:
+                continue
+            vid = mid.group(1)
+            if vid in seen:
+                continue
+            seen.add(vid)
+            mt = re.search(r'class="item-grid-card__title">\s*(.*?)\s*</h2>', b, re.S)
+            mh = re.search(r'href="(/free-sound-effects/[^"]*-%s/)"' % re.escape(vid), b)
+            page = "https://mixkit.co" + mh.group(1) if mh else url
+            cards.append(_card(
+                platform="mixkit_sfx", id="ms" + vid, kind="audio",
+                title=_txt(mt.group(1)) if mt else "音效 " + vid,
+                author="Mixkit", cover="", duration=0,
+                desc="可商用 · wav 原文件",
+                url=page, page=page, download=preview,
+                source="mixkit_sfx", source_name="Mixkit 音效"))
+            if len(cards) >= limit:
+                break
+        # 第一个候选就够吃了就别再多打一个请求
+        if len(cards) >= min(limit, 8):
             break
     if not cards:
-        raise SkipSource("Mixkit 没找到「%s」相关音效，换个英文词试试" % en)
+        # 全都被拒（多半是 429 限流）：别报成「没找到」，那会让人以为词写错了
+        if errs and len(errs) == len(terms):
+            raise RuntimeError(str(errs[0]) or type(errs[0]).__name__)
+        raise SkipSource("没找到「%s」的音效，换个说法试试" % kw)
     with cf.ThreadPoolExecutor(max_workers=8) as ex:
         hqs = list(ex.map(lambda c: _mixkit_sfx_hq(c["id"][2:]), cards[:10]))
     for c, hq in zip(cards[:10], hqs):
@@ -402,32 +504,41 @@ def _mixkit_sfx(kw, limit, cfg, proxy):
 
 # ---------- 适配器 4：Freesound（音效 / 环境声，比较慢） ----------
 def _freesound(kw, limit, cfg, proxy):
-    # 这站的内容基本是英文标题，中文词先映射成英文，命中率高得多
-    q = en_keyword(kw) or kw
-    u = "https://freesound.org/search/?q=" + urllib.parse.quote(q)
-    t = _fetch(u, 12, referer="https://freesound.org/")
-    out = []
-    for m in re.finditer(r'<div\s+class="bw-player"(.*?)>', t, re.S):
-        b = m.group(1)
-        sid = _attr(b, "sound-id")
-        mp3 = _attr(b, "mp3")
-        if not sid or not mp3:
-            continue
-        user = _attr(b, "username") or "Freesound"
+    # 这站的内容基本是英文标题，中文词先映射成英文，命中率高得多。
+    # 一个候选词搜空了就换下一个，别让一次映射失误把整站废掉。
+    terms = search_terms(kw) or [kw]
+    out, seen, errs = [], set(), []
+    for q in terms[:2]:
+        u = "https://freesound.org/search/?q=" + urllib.parse.quote(q)
         try:
-            dur = int(float(_attr(b, "duration") or 0))
-        except (TypeError, ValueError):
-            dur = 0
-        page = "https://freesound.org/people/%s/sounds/%s/" % (user, sid)
-        out.append(_card(
-            platform="freesound", id="fs" + sid, kind="audio",
-            title=_attr(b, "title") or "音效 " + sid,
-            author=user, cover=_attr(b, "waveform"),
-            duration=dur, desc="需署名 · mp3 预览",
-            url=page, page=page, download=mp3,
-            source="freesound", source_name="Freesound"))
-        if len(out) >= limit:
-            break
+            t = _fetch(u, 12, referer="https://freesound.org/")
+        except Exception as e:
+            errs.append(e)
+            continue
+        for m in re.finditer(r'<div\s+class="bw-player"(.*?)>', t, re.S):
+            b = m.group(1)
+            sid = _attr(b, "sound-id")
+            mp3 = _attr(b, "mp3")
+            if not sid or not mp3 or sid in seen:
+                continue
+            seen.add(sid)
+            user = _attr(b, "username") or "Freesound"
+            try:
+                dur = int(float(_attr(b, "duration") or 0))
+            except (TypeError, ValueError):
+                dur = 0
+            page = "https://freesound.org/people/%s/sounds/%s/" % (user, sid)
+            out.append(_card(
+                platform="freesound", id="fs" + sid, kind="audio",
+                title=_attr(b, "title") or "音效 " + sid,
+                author=user, cover=_attr(b, "waveform"),
+                duration=dur, desc="需署名 · mp3 预览",
+                url=page, page=page, download=mp3,
+                source="freesound", source_name="Freesound"))
+            if len(out) >= limit:
+                return out
+    if not out and errs and len(errs) == len(terms[:2]):
+        raise RuntimeError(str(errs[0]) or type(errs[0]).__name__)
     return out
 
 

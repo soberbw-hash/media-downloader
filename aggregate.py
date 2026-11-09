@@ -172,6 +172,8 @@ def _run(state, src, kw, per, cfg, proxy):
             "timeout", "unreachable", "handshake", "握手", "name or service not known"))
         if net_bad:
             msg = "网络到不了这个站（或代理连不上），已跳过"
+        elif "429" in msg:
+            msg = "对方嫌问得太勤，先歇一会儿再搜"
         elif "403" in msg:
             msg = "对方网站拒绝了访问，已跳过"
         elif "401" in msg or "402" in msg:

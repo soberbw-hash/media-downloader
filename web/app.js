@@ -1707,10 +1707,13 @@ function applyPlat(p) {
   });
 }
 
+// 音效搜空了该说什么：既别猜"你词写错了"，也别把站名抛给用户
+const SFX_EMPTY = "没搜到。换个说法：雨声 / rain / 掌声 / applause";
+
 // 几个来源的引导语：没关键词时告诉用户该搜什么
 const SOURCE_GUIDE = {
   music: "输入歌名或歌手开始搜",
-  sfx: "输入音效名字：雨声、脚步、关门、转场…",
+  sfx: "输入音效名：雨声、掌声、关门、转场…中英文都行",
   video: "输入关键词找视频素材（解说、运镜、混剪…）",
   movie: "输入片名开始搜",
 };
@@ -1756,7 +1759,7 @@ function syncModeUI() {
   renderSites();
   const q = $("#mQuery");
   if (q) {
-    q.placeholder = mMode === "sfx" ? "音效名：雨声、脚步、关门、转场…"
+    q.placeholder = mMode === "sfx" ? "音效名：雨声 / rain / whoosh"
       : mMode === "video" ? "视频关键词：电影解说、运镜、猫咪…"
       : mMode === "movie" ? "片名：哪吒、流浪地球、三体…"
       : "歌名、歌手";
@@ -1789,15 +1792,17 @@ function isAggMode() {
 }
 
 function applySourceUI() {
-  // 视频和音效都是「聚合来源」的玩法：一排放源按钮 + 一排「去这些站搜」
+  // 视频：一排放源按钮 + 一排「去这些站搜」。
+  // 音效：就是一个大类，不摆站名——用户要的是"找到这个声音"，不是"去哪个站找"。
   const agg = isAggMode();
+  const showSrc = agg && mMode !== "sfx";
   ["#mVPlats", "#vSites"].forEach((sel) => {
     const el = $(sel);
-    if (el) el.hidden = !agg;
+    if (el) el.hidden = !showSrc;
   });
   const sh = $("#vSrcHint");
-  if (sh && !agg) sh.hidden = true;
-  if (!agg) {
+  if (sh && !showSrc) sh.hidden = true;
+  if (!showSrc) {
     const bar = $("#siteBar");
     if (bar) bar.hidden = true;
   }
@@ -1812,9 +1817,10 @@ function renderSources(list) {
   vSources = list || [];
   const box = $("#mVPlats");
   if (!box) return;
-  // 音效页只摆音效源，视频页只摆视频源，免得在音效页点出个 YouTube 来
-  const want = mMode === "sfx" ? "audio" : "video";
-  const mine = vSources.filter((x) => (x.kind || "video") === want);
+  // 音效不分站：按钮区整个不生成，搜索时把所有音效源一起问
+  if (mMode === "sfx") { box.innerHTML = ""; vPlat = "all"; return; }
+  // 视频页只摆视频源，免得点出个音效库来
+  const mine = vSources.filter((x) => (x.kind || "video") === "video");
   if (vPlat !== "all" && !mine.some((x) => x.id === vPlat)) vPlat = "all";
   box.innerHTML = '<button class="plat' + (vPlat === "all" ? " on" : "") +
     '" data-p="all">全部</button>' +
@@ -1836,14 +1842,14 @@ function renderSources(list) {
 function renderSites() {
   const box = $("#vSiteChips");
   if (!box) return;
+  // 音效页不摆站：想搜什么直接打名字，后台一起问
+  if (mMode === "sfx") { box.innerHTML = ""; return; }
   // 自己接的 JSON 接口也列在这儿，一个地方管增删
   const extras = vCustomSources.map((s) => ({
     id: "src:" + s.name, name: s.name + " · 接口",
     tip: "自己接的第三方接口，点一下直接用它搜", custom: true, isSource: true,
   }));
-  // 音效页摆音效站，视频页摆视频站；自己接的接口不分家，两边都留
-  const wantSite = mMode === "sfx" ? "audio" : "video";
-  const all = vSites.filter((s) => (s.kind || "video") === wantSite).concat(extras);
+  const all = vSites.filter((s) => (s.kind || "video") !== "audio").concat(extras);
   box.innerHTML = all.map((s) =>
     '<button class="site-chip" data-id="' + esc(s.id) + '" data-name="' + esc(s.name) +
     '" data-src="' + (s.isSource ? "1" : "0") + '" title="' + esc(s.tip || "") + '">' +
@@ -1887,7 +1893,8 @@ function renderSites() {
 function renderSourceHint(r) {
   const box = $("#vSrcHint");
   if (!box) return;
-  if (!isAggMode()) { box.hidden = true; return; }
+  // 音效不分站，也就没必要报「哪家搜到几条」
+  if (!isAggMode() || mMode === "sfx") { box.hidden = true; return; }
   const known = new Map((r.sources || []).map((s) => [s.id, s]));
   const ids = (r.sources || []).map((s) => s.id).concat(r.pending || []);
   const parts = [];
@@ -1921,7 +1928,15 @@ async function pullMore() {
     mItems = r.items || [];
     renderMusic();
     renderSourceHint(r);
-    if (!mItems.length) $("#mHint").textContent = "没搜到，换个关键词或换个来源";
+    if (mMode === "sfx") {
+      if (mItems.length) {
+        $("#mHint").textContent = `找到 ${mItems.length} 条` + (r.done ? "" : "，还在补…");
+      } else if (r.done) {
+        $("#mHint").textContent = SFX_EMPTY;
+      }
+    } else if (!mItems.length) {
+      $("#mHint").textContent = "没搜到，换个关键词或换个来源";
+    }
     if (!r.done && vPulls < 8) vPullTimer = setTimeout(pullMore, 2200);
     else vToken = "";
   } catch (e) { vToken = ""; }
@@ -1991,24 +2006,28 @@ initSiteBar();
 
 function musicRow(s, i) {
   const on = mSel.has(i);
-  // 封面统一用 span 装着 img：图没出来时占位还在，不会塌成一个空白
-  // 视频封面是横图，用宽一点的框，不然 16:9 被裁成正方形只剩中间一小块
-  const wide = s.kind === "video";
-  const cov = '<span class="cov' + (wide ? " w" : "") + '" data-p="' + esc(s.platform || "") + '">'
-    + (s.cover ? '<img src="' + esc(imgUrl(s.cover)) + '" alt="" loading="lazy"'
-      + ' onerror="this.remove()">' : "")
-    + "</span>";
   // 音效没有歌手、专辑，也没有「1080p」这种东西；副标题写授权更要紧
   const isSfx = s.kind === "audio" && MUSIC_PLATS.indexOf(s.platform || "") < 0;
+  // 封面统一用 span 装着 img：图没出来时占位还在，不会塌成一个空白
+  // 视频封面是横图，用宽一点的框，不然 16:9 被裁成正方形只剩中间一小块
+  // 音效没有像样的封面（波形图十张有八张空），与其摆一排灰框，
+  // 不如让标题直接站到左边，一列排齐更利落
+  const wide = s.kind === "video";
+  const cov = isSfx ? ""
+    : '<span class="cov' + (wide ? " w" : "") + '" data-p="' + esc(s.platform || "") + '">'
+      + (s.cover ? '<img src="' + esc(imgUrl(s.cover)) + '" alt="" loading="lazy"'
+        + ' onerror="this.remove()">' : "")
+      + "</span>";
   const sub = isSfx
     ? esc(s.desc || s.author || "")
     : esc(s.artist || s.author || "未知歌手") +
       (s.album ? " · " + esc(s.album) : "") +
       (s.hq ? " · 1080p" : "") +
       (s.kind === "audio" ? " · 预览音频" : "");
-  // 来源由后端下发，加一个源不用回来改这张映射表
+  // 来源由后端下发，加一个源不用回来改这张映射表。
+  // 音效页不标「这声音来自哪个站」——一行一个声音就够了，站名是噪音。
   const sid = s.source || s.platform || "";
-  const src = sid
+  const src = (sid && mMode !== "sfx")
     ? '<span class="psrc" data-p="' + esc(sid) + '">' +
       esc(s.source_name || PLAT_NAME[sid] || sid) + "</span>"
     : "";
@@ -2063,7 +2082,9 @@ function syncMusicSel() {
 function renderMusic() {
   const box = $("#mResults");
   if (!mItems.length) {
-    box.innerHTML = '<div class="mempty">没搜到，换个关键词试试</div>';
+    box.innerHTML = '<div class="mempty">' + (mMode === "sfx"
+      ? SFX_EMPTY
+      : "没搜到，换个关键词试试") + "</div>";
     syncMusicSel();
     return;
   }
@@ -2853,10 +2874,10 @@ async function musicSearch(q) {
   const agg = isAggMode();
   $("#mResults").innerHTML = "";
   $("#mBar").hidden = true;
-  const where = agg
-    ? (vPlat === "all" ? "所有来源" : sourceName(vPlat))
-    : (PLAT_NAME[mPlat] || "全网");
-  $("#mHint").textContent = `${where} 搜索「${q}」…`;
+  const where = mMode === "sfx" ? ""
+    : agg ? (vPlat === "all" ? "所有来源" : sourceName(vPlat))
+      : (PLAT_NAME[mPlat] || "全网");
+  $("#mHint").textContent = where ? `${where} 搜索「${q}」…` : `正在找「${q}」的音效…`;
   mSel.clear();
   if (agg) {
     vLastQuery = q;
@@ -2881,7 +2902,14 @@ async function musicSearch(q) {
     // 各来源搜到几条、谁没连上，单独一行说清楚
     if (agg) { renderSourceHint(r); scheduleMore(r); }
     const errs = (r.errors || []).join("；");
-    $("#mHint").textContent = mItems.length ? errs : (errs || "没搜到，换个关键词或换个来源");
+    if (mMode === "sfx") {
+      // 音效只说"找到几条"：不报站名，也不让用户去挑站
+      $("#mHint").textContent = mItems.length
+        ? `找到 ${mItems.length} 条` + ((r.pending || []).length ? "，还在补…" : "")
+        : SFX_EMPTY;
+    } else {
+      $("#mHint").textContent = mItems.length ? errs : (errs || "没搜到，换个关键词或换个来源");
+    }
   } catch (e) {
     $("#mHint").textContent = "没连上，稍等一下再搜一次";
   } finally {

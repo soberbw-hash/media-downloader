@@ -48,6 +48,8 @@ def static_checks():
     left = [w for w in FLUFF if w in panel]
     assert not left, "账号面板源码里还有废话: %s" % left
     assert panel.count("<p ") == 0, "账号面板里还留着说明段 <p>"
+    for i in ("manualBox", "ckSite", "ckInput", "ckSave"):
+        assert 'id="%s"' % i not in panel, "手动贴 Cookie 的入口 %s 又回来了" % i
     log("  ✓ 账号面板源码：解释性 DOM 与文案为零")
 
     popup = read("browser-extension/popup.html")

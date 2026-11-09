@@ -8,7 +8,7 @@
 验证点：
   1. 账号面板可见文字里没有 F12 / Application / DevTools / 任何 cookie 键名
   2. 每行只剩「打开」，旧「粘贴」按钮和旧弹窗都不在了
-  3. 手动兜底默认折叠，展开后站点下拉齐全，仍能保存
+  3. 手动贴 Cookie 兜底已整个删除，面板上不留入口
   4. 安装只留一个大按钮，三步说明默认收起，点一下接口通并自动展开
   5. 扩展一送登录态进来，界面自己变「已连上」并提示一声
 """
@@ -90,17 +90,13 @@ def main():
             assert n >= 8, "打开按钮少了: %d" % n
             log("  ✓ 每行只剩「打开」（%d 个），粘贴弹窗已删" % n)
 
-            # ---- 3. 手动兜底默认收起，但还能用 ----
-            mb = pg.locator("#manualBox")
-            assert mb.count() == 1 and not mb.evaluate("e => e.open"), \
-                "手动兜底没默认收起"
-            mb.evaluate("e => e.open = true")
-            pg.wait_for_timeout(200)
-            assert pg.locator("#ckSite").is_visible(), "展开后看不到站点下拉"
-            opts = pg.locator("#ckSite option").count()
-            assert opts == 9, "站点下拉少了: %d" % opts
-            log("  ✓ 手动兜底默认收起，展开后 %d 个站点" % opts)
-            mb.evaluate("e => e.open = false")
+            # ---- 3. 手动贴 Cookie 兜底整个删掉 ----
+            for i in ("manualBox", "ckSite", "ckInput", "ckSave"):
+                assert pg.locator("#" + i).count() == 0, \
+                    "手动贴 Cookie 的入口 %s 还在" % i
+            assert "手动贴" not in pg.inner_text("#acctDrawer"), \
+                "面板上还留着手动贴的文案"
+            log("  ✓ 手动贴 Cookie 入口已删干净")
 
             # ---- 4. 装小助手只留一个按钮 ----
             btn = pg.locator("#btnExtSetup")
@@ -141,16 +137,6 @@ def main():
             assert any("已登录，可以下了" in t for t in toasts), \
                 "没主动提示登录成功: %s" % toasts
             log("  ✓ 扩展一同步就自动变「已连上」+ 提示，toast:", toasts[:2])
-
-            # ---- 3b. 手动兜底保存一次（放最后，免得影响上面的新增检测） ----
-            mb.evaluate("e => e.open = true")
-            pg.wait_for_timeout(150)
-            pg.select_option("#ckSite", "bilibili")
-            pg.fill("#ckInput", "SESSDATA=fake_manual_1242; other=1")
-            pg.click("#ckSave")
-            pg.wait_for_timeout(800)
-            assert pg.locator("#ckInput").input_value() == "", "手动保存没清掉输入"
-            log("  ✓ 手动兜底仍能保存")
 
             assert not errs, "界面脚本报错: %s" % errs[:2]
             b.close()

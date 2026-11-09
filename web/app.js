@@ -1005,14 +1005,6 @@ function renderLogins(sites, status) {
   }
   const num = $("#acctNum");
   if (num) num.innerHTML = `${on}<span>/${sites.length}</span>`;
-  // 手动兜底区的站点下拉跟着最新状态走，别让用户自己记平台 id
-  const ckSel = $("#ckSite");
-  if (ckSel) {
-    const cur = ckSel.value;
-    ckSel.innerHTML = sites.map((s) =>
-      `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join("");
-    if (cur && sites.some((s) => s.id === cur)) ckSel.value = cur;
-  }
   renderExt();
   renderLoginBar(status, busy);
 }
@@ -1127,24 +1119,6 @@ async function startLogin(pid) {
   loadLogins(true);
 }
 
-/* 手动贴：装不了扩展的电脑留的兜底，默认折叠在账号面板最下面。
-   文案不出现开发者工具、键名这类词 —— 看不懂的人本来就不该点进来。 */
-async function saveCookie() {
-  const pid = ($("#ckSite") || {}).value || "";
-  const raw = ($("#ckInput") || {}).value.trim();
-  if (!pid) { $("#ckErr").textContent = "先选一个网站"; return; }
-  if (!raw) { $("#ckErr").textContent = "还没贴内容"; return; }
-  const btn = $("#ckSave");
-  btn.disabled = true;
-  const r = await post("/api/login/import", { platform: pid, cookie: raw });
-  btn.disabled = false;
-  if (!r.ok) { $("#ckErr").textContent = r.error || "保存失败"; return; }
-  $("#ckInput").value = "";
-  $("#ckErr").textContent = "";
-  toast(r.msg || "已保存");
-  loadLogins(true);
-}
-
 async function logoutSite(s) {
   const r = await post("/api/login/logout", { platform: s.id });
   toast(r.ok ? `已退出 ${s.name}` : (r.msg || "退出失败"));
@@ -1153,12 +1127,6 @@ async function logoutSite(s) {
 
 /* 脚本在 body 末尾加载，DOM 已经就绪，直接绑 */
 if (typeof document !== "undefined") {
-  const _cs = $("#ckSave");
-  if (_cs) _cs.onclick = saveCookie;
-  const _ci = $("#ckInput");
-  if (_ci) _ci.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) saveCookie();
-  });
   const _es = $("#btnExtSetup");
   if (_es) _es.onclick = setupExt;
 }

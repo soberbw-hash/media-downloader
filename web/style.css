@@ -1145,18 +1145,6 @@ body.playing .toast { bottom: 84px; }
 .ext-card .qbox-body ol li { margin-bottom: 4px; }
 .ext-card .qbox-body b { color: var(--text); font-weight: 600; }
 
-/* 手动兜底：默认收起，别占主流程的位置 */
-.manual-box { margin-top: 20px; }
-.manual-box .field { margin-bottom: 10px; }
-.manual-box .field label { display: block; margin-bottom: 5px; font-size: 11px; color: var(--muted); }
-.manual-box select {
-  width: 100%; height: 32px; padding: 0 8px;
-  border: 1px solid var(--line); border-radius: 8px;
-  background: #fff; color: var(--text); font: inherit; font-size: 11.5px; outline: none;
-}
-.manual-box #ckInput { height: 76px; }
-.manual-box .s-btn { margin-top: 4px; }
-
 .lg-grp + .lg-grp { margin-top: 22px; }
 
 .lg-t {
@@ -2643,49 +2631,6 @@ body.playing .wrap { padding-bottom: 78px; }
   font-size: 13.5px;
   font-weight: 600;
   color: var(--text);
-}
-
-.ck-tip {
-  margin: 0 0 10px;
-  font-size: 11.5px;
-  line-height: 1.7;
-  color: var(--muted);
-}
-
-.ck-tip code {
-  padding: 1px 4px;
-  border-radius: 4px;
-  background: var(--line-soft);
-  font-family: ui-monospace, Consolas, monospace;
-  font-size: 10.5px;
-  color: var(--text-2);
-}
-
-#ckInput {
-  display: block;
-  width: 100%;
-  height: 96px;
-  padding: 9px 10px;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  background: #fdfcfb;
-  color: var(--text);
-  font-family: ui-monospace, Consolas, monospace;
-  font-size: 11.5px;
-  line-height: 1.6;
-  resize: vertical;
-  outline: none;
-}
-
-#ckInput:focus { border-color: #d6d3d1; background: #fff; }
-#ckInput::placeholder { color: var(--hint); }
-
-.ck-err {
-  min-height: 16px;
-  margin-top: 6px;
-  font-size: 11px;
-  line-height: 1.5;
-  color: var(--err);
 }
 
 .modal-foot {

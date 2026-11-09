@@ -37,7 +37,7 @@ panel = html[html.index('id="acctDrawer"'):html.index('id="histDrawer"')]
 how = panel[panel.index('id="extHow"'):panel.index('id="logins"')]
 check(how.count('class="gstep"') == 3, "三步各有一张卡片")
 check(how.count('class="gpic"') == 3, "三步各有一张图")
-check(how.count("<svg") == 0, "图换成了真实截图，不再是手画示意图")
+check(how.count("<svg") <= 1, "图换成了真实截图，不再是手画示意图（只剩一个折叠箭头）")
 for _n in ("ext-step2", "ext-step3", "ext-step4"):
     check(_n + ".png" in how, "第 %s 步指向自己的截图" % _n[-1])
 check("ext-step1" not in how, "「点按钮」不再是第一步（按钮就在上面，点了才看到这页）")
@@ -47,8 +47,9 @@ for _n in ("ext-step2", "ext-step3", "ext-step4", "ext-page", "ext-page-menu"):
     _p = os.path.join(ROOT, "web", "img", _n + ".png")
     check(os.path.isfile(_p) and os.path.getsize(_p) > 1500,
           "截图 %s 在包里（%d 字节）" % (_n, os.path.getsize(_p) if os.path.isfile(_p) else 0))
-check("details" not in how and "<summary" not in how,
-      "不再折叠：装扩展就三步，展开多看一步都嫌多")
+check("egToggle" in how and "egBody" in how,
+      "怎么装可折叠：默认收起，点一下展开")
+check("aria-expanded" in how, "折叠按钮带 aria-expanded 可达性标记")
 check("点开看" not in how, "没有「点开看四步」这种已经点开还让人点的字")
 check(how.index("管理扩展程序") < how.index("开发者模式") < how.index("加载未打包"),
       "顺序是：进扩展页 → 开发者模式 → 加载文件夹")

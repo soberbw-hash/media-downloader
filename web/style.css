@@ -1353,10 +1353,18 @@ body.playing .toast { bottom: 84px; }
 .ext-guide[hidden] { display: none; }
 .eg-h {
   display: flex; align-items: center; gap: 8px;
-  margin-bottom: 10px;
+  width: 100%; padding: 0; margin-bottom: 0;
+  background: none; border: none; cursor: pointer;
   font-size: 11px; letter-spacing: .04em; color: #a8a29e;
+  font-family: inherit;
 }
 .eg-h::after { content: ""; flex: 1 1 auto; height: 1px; background: var(--line-soft); }
+.eg-arrow {
+  flex-shrink: 0; transition: transform .2s ease; color: #c6c2bd;
+}
+.eg-h[aria-expanded="true"] .eg-arrow { transform: rotate(180deg); }
+.eg-body { margin-top: 10px; }
+.eg-body[hidden] { display: none; }
 .gsteps { display: flex; flex-direction: column; gap: 16px; }
 .gstep { display: flex; flex-direction: column; gap: 6px; }
 .gn {

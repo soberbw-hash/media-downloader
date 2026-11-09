@@ -193,7 +193,7 @@ def main():
 
             assert not errs, "界面脚本报错: %s" % errs[:2]
 
-            # 没装扩展时：三步直接摊开（不用先点一下），第一步就是进扩展页
+            # 没装扩展时：「怎么装」默认收起，点一下才展开三步
             pg2 = b.new_page(viewport={"width": 1204, "height": 841},
                              device_scale_factor=2)
             pg2.route("**/api/login/state",
@@ -206,7 +206,10 @@ def main():
             pg2.wait_for_timeout(700)
             guide = pg2.locator("#extHow")
             assert guide.is_visible(), "没装扩展时「怎么装」没显示"
-            assert pg2.locator("#extHow details").count() == 0, "「怎么装」又套回折叠了"
+            assert pg2.evaluate("() => document.querySelector('#egBody').hidden"), \
+                "「怎么装」默认没收起"
+            pg2.evaluate("() => document.querySelector('#egToggle').click()")
+            pg2.wait_for_timeout(300)
             assert pg2.locator("#extHow .gstep").count() == 3, "步骤不是三步"
             first = pg2.locator("#extHow .gstep").first.inner_text()
             assert "扩展程序" in first and "管理扩展程序" in first, \
@@ -215,7 +218,7 @@ def main():
                 "第一步还在教复制粘贴：%s" % first
             assert "点上面的「一键装小助手」" not in pg2.inner_text("#extHow"), \
                 "还在让用户点一次已经点过的按钮"
-            log("  OK 没装时三步摊着：先开扩展页 → 开发者模式 → 加载文件夹")
+            log("  OK 没装时怎么装默认收起，点开后三步齐全")
             b.close()
     finally:
         srv.terminate()

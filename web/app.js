@@ -1159,6 +1159,16 @@ if (typeof document !== "undefined") {
   const _es = $("#btnExtSetup");
   if (_es) _es.onclick = setupExt;
 
+  // 「怎么装」默认收着，点一下才展开
+  const _tg = $("#egToggle"), _body = $("#egBody");
+  if (_tg && _body) {
+    _tg.addEventListener("click", () => {
+      const open = _body.hidden;
+      _body.hidden = !open;
+      _tg.setAttribute("aria-expanded", open ? "true" : "false");
+    });
+  }
+
   // 教程图在抽屉里太小，点一下铺满屏幕看
   const _box = $("#shotBox"), _img = $("#shotImg");
   if (_box && _img) {

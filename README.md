@@ -357,6 +357,7 @@ python tools/build_portable.py --dst "D:\Desktop\音视频下载器" \
 
 ```
 server.py        本地 HTTP 服务、路由、窗口启动
+paths.py         数据/可执行文件位置：macOS 写用户目录，Windows 写程序目录
 core.py          平台识别、任务队列、抖音解析、yt-dlp 封装
 music.py         网易云 / QQ音乐 / 酷狗，ID3 标签写入
 search.py        视频素材搜索：B站（WBI 签名）/ YouTube（yt-dlp ytsearch）
@@ -374,10 +375,13 @@ picker_win.py    Windows 那份实现（Win32 IFileOpenDialog）
 web/             界面（原生 HTML/CSS/JS，无框架）
 browser-extension/ 一键同步登录态的浏览器扩展（随包分发，用户自行授权安装）
 诊断.bat         Windows 排障入口（自带 Python 探测；web 参数走浏览器）
-启动.command     macOS 的启动入口，双击运行
+启动.command     macOS 源码运行入口，双击后自动建 venv 装依赖
 start.bat        旧的启动逻辑，仓库里留着，便携版不打包
-使用说明.txt      给人看的说明书
+使用说明.txt      给人看的说明书（Windows 便携版）
+Mac使用说明.txt   DMG 里附的中文说明（含首次打开的处理办法）
 tools/           打包用：图标生成、启动器、便携版打包脚本
+tools/macos.spec、mac_entry.py、build_macos_dmg.sh   macOS .app 打包
+.github/workflows/macos-dmg.yml  GitHub Actions 在 macOS 编双架构 DMG 并发 Release
 tests/           回归自测：断点续传、分片拼接、端到端，改下载逻辑后跑一遍
 ```
 

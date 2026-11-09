@@ -435,54 +435,19 @@
         <div class="qbox-body">
           <div class="gsteps">
             <div class="gstep">
-              <span class="gn">1</span>
-              <svg class="gpic" viewBox="0 0 120 62" aria-hidden="true">
-                <rect x="4" y="21" width="46" height="20" rx="5" fill="#1c1917"/>
-                <rect x="12" y="29" width="30" height="4" rx="2" fill="#ffffff" opacity=".9"/>
-                <path d="M55 31h10m0 0l-4-4m4 4l-4 4" fill="none" stroke="#a8a29e"
-                      stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                <rect x="70" y="8" width="46" height="20" rx="3" fill="#ffffff" stroke="#d6d3d1"/>
-                <path d="M70 15h46" stroke="#e7e5e4"/>
-                <circle cx="75" cy="11.5" r="1.2" fill="#d6d3d1"/>
-                <circle cx="80" cy="11.5" r="1.2" fill="#d6d3d1"/>
-                <rect x="70" y="34" width="46" height="20" rx="3" fill="#ffffff" stroke="#d6d3d1"/>
-                <path d="M70 41h46" stroke="#e7e5e4"/>
-                <rect x="75" y="46" width="20" height="4" rx="2" fill="#e7e5e4"/>
-              </svg>
-              <span class="gt">点「一键装小助手」，文件夹会选中、地址会复制好。</span>
+              <img class="gpic" src="/img/ext-step1.png" alt="点一键装小助手" loading="lazy">
+              <div class="gt"><span class="gn">1</span><span>点上面的「一键装小助手」，文件夹会选中、地址会复制好。</span></div>
             </div>
             <div class="gstep">
-              <span class="gn">2</span>
-              <svg class="gpic" viewBox="0 0 120 62" aria-hidden="true">
-                <rect x="6" y="6" width="108" height="50" rx="4" fill="#ffffff" stroke="#d6d3d1"/>
-                <path d="M6 17h108" stroke="#e7e5e4"/>
-                <circle cx="12" cy="11.5" r="1.5" fill="#d6d3d1"/>
-                <circle cx="17" cy="11.5" r="1.5" fill="#d6d3d1"/>
-                <rect x="23" y="9" width="52" height="5" rx="2.5" fill="#f5f4f2"/>
-                <rect x="14" y="27" width="44" height="6" rx="3" fill="#e7e5e4"/>
-                <rect x="14" y="39" width="34" height="6" rx="3" fill="#f5f4f2"/>
-                <rect x="86" y="28" width="22" height="12" rx="6" fill="#15803d"/>
-                <circle cx="102" cy="34" r="4.5" fill="#ffffff"/>
-              </svg>
-              <span class="gt">把复制的地址粘进地址栏回车，再打开右上角的「开发者模式」。</span>
+              <img class="gpic" src="/img/ext-step2.png" data-full="/img/ext-page2.png" alt="打开开发者模式" loading="lazy">
+              <div class="gt"><span class="gn">2</span><span>把地址粘进浏览器地址栏回车，再打开右上角的「开发者模式」。</span></div>
             </div>
             <div class="gstep">
-              <span class="gn">3</span>
-              <svg class="gpic" viewBox="0 0 120 62" aria-hidden="true">
-                <path d="M5 22a3 3 0 013-3h13l4 5h20a3 3 0 013 3v18a3 3 0 01-3 3H8a3 3 0 01-3-3z"
-                      fill="#faf9f7" stroke="#a8a29e" stroke-width="1.2"/>
-                <path d="M55 31h13m0 0l-4-4m4 4l-4 4" fill="none" stroke="#a8a29e"
-                      stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                <rect x="74" y="8" width="42" height="46" rx="4" fill="#ffffff"
-                      stroke="#a8a29e" stroke-width="1.2" stroke-dasharray="4 3"/>
-                <rect x="80" y="20" width="30" height="22" rx="3" fill="#f5f4f2"/>
-                <circle cx="87" cy="29" r="4" fill="#15803d"/>
-                <rect x="94" y="26" width="12" height="3" rx="1.5" fill="#d6d3d1"/>
-                <rect x="94" y="32" width="9" height="3" rx="1.5" fill="#e7e5e4"/>
-              </svg>
-              <span class="gt">把刚选中的文件夹拖进网页；也可以点「加载已解压的扩展程序」选它。</span>
+              <img class="gpic" src="/img/ext-step3.png" data-full="/img/ext-page3.png" alt="加载未打包的扩展程序" loading="lazy">
+              <div class="gt"><span class="gn">3</span><span>点左上角「加载未打包的扩展程序」（旧版叫「加载已解压」），选中那个文件夹。</span></div>
             </div>
           </div>
+          <div class="ghint">点任意一张图可以放大</div>
         </div>
       </details>
     </div>
@@ -515,6 +480,8 @@
 </aside>
 
 <div class="toast" id="toast"></div>
+
+<div class="shotbox" id="shotBox" hidden><img id="shotImg" alt=""></div>
 
 <script src="/icons.js"></script>
 <script src="/app.js"></script>

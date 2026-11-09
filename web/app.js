@@ -1135,6 +1135,23 @@ async function logoutSite(s) {
 if (typeof document !== "undefined") {
   const _es = $("#btnExtSetup");
   if (_es) _es.onclick = setupExt;
+
+  // 教程图在抽屉里太小，点一下铺满屏幕看
+  const _box = $("#shotBox"), _img = $("#shotImg");
+  if (_box && _img) {
+    document.querySelectorAll(".gpic").forEach((el) => {
+      el.addEventListener("click", () => {
+        // 小图是局部特写，点开换成整页，能看出它在页面哪个角落
+        _img.src = el.getAttribute("data-full") || el.getAttribute("src") || "";
+        _box.hidden = false;
+      });
+    });
+    const closeShot = () => { _box.hidden = true; _img.removeAttribute("src"); };
+    _box.addEventListener("click", closeShot);
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !_box.hidden) closeShot();
+    });
+  }
 }
 
 /* ---------- 下载目录 ---------- */

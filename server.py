@@ -417,6 +417,19 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _web_img(self, p):
+        """只放行 web/img/ 下的图片：挡掉 ../ 穿越，也只认图片后缀。"""
+        name = p[len("/img/"):]
+        ext = os.path.splitext(name)[1].lower()
+        ctype = {".png": "image/png", ".jpg": "image/jpeg",
+                 ".jpeg": "image/jpeg", ".webp": "image/webp",
+                 ".svg": "image/svg+xml"}.get(ext)
+        if (not ctype or not name or name.startswith(".")
+                or "/" in name or "\\" in name or ".." in name):
+            self.send_error(404)
+            return
+        self._file(os.path.join(BASE, "web", "img", name), ctype)
+
     def _body(self):
         n = int(self.headers.get("Content-Length") or 0)
         if not n:
@@ -631,6 +644,8 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/icons.js":
             self._file(os.path.join(BASE, "web", "icons.js"),
                        "application/javascript; charset=utf-8")
+        elif p.startswith("/img/"):
+            self._web_img(p)
         elif p == "/push":
             self._push_page()
         elif p == "/api/state":
@@ -1568,6 +1583,15 @@ def main():
 
     _SRV = srv
     blog("bound ok")
+    # 回归测试用：把真正监听的端口写出来。本机 8765 常常被用户正在用的那份占着，
+    # 测试要是靠扫端口，就会连到它身上，跑出来全是假结果。
+    _pf = os.environ.get("VDL_PORT_FILE")
+    if _pf:
+        try:
+            with open(_pf, "w", encoding="utf-8") as _f:
+                _f.write(str(port))
+        except OSError:
+            pass
     url = "http://127.0.0.1:%d/" % port
 
     if mode == "app":

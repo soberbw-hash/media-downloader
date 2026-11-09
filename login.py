@@ -653,18 +653,18 @@ def open_ext_page():
     copied = copy_to_clipboard(url)
     ok_tab, _ = open_new_tab()
     if not copied:
-        return True, "在浏览器地址栏输入 %s 回车" % url
+        return True, "在浏览器地址栏输入 %s 再回车" % url
     if not ok_tab:
-        return True, "地址已复制，在浏览器按 %s 回车" % paste_key()
-    return True, "地址已复制，按 %s 回车" % paste_key()
+        return True, "地址已复制，在浏览器按 %s 再回车" % paste_key()
+    return True, "地址已复制，按 %s 再回车" % paste_key()
 
 
 def setup_ext():
-    """「一键装小助手」：选中文件夹 + 备好扩展页地址，剩下拖一下就完事。"""
+    """「一键装小助手」：选中文件夹 + 备好扩展页地址，剩下粘一下就完事。"""
     ok_dir, msg_dir = open_ext_dir()
     ok_page, msg_page = open_ext_page()
     if ok_dir and ok_page:
-        return True, msg_page
+        return True, "文件夹已选中、" + msg_page
     if ok_dir or ok_page:
         return True, "只做成了一半：%s" % (msg_page if ok_dir else msg_dir)
     return False, "没打开：%s / %s" % (msg_dir, msg_page)

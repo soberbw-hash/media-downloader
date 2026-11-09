@@ -297,25 +297,24 @@ def main():
             "VDL_UPDATE_VERSION_TXT": base + "/content/version.txt",
             "VDL_UPDATE_MANUAL": base + "/manual",
         })
+        # 让服务自己报端口：本机 8765 可能正被用户那份占着，扫端口会连错人
+        pf = os.path.join(tmp, "port.txt")
+        env["VDL_PORT_FILE"] = pf
         logf = open(os.path.join(tmp, "srv.log"), "wb")
         proc = subprocess.Popen([sys.executable, "server.py", "none"], cwd=ROOT,
                                 env=env, stdout=logf, stderr=subprocess.STDOUT)
         local = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         try:
             sport = 0
-            for _ in range(60):
-                for p in range(8765, 8786):
+            for _ in range(120):
+                if os.path.isfile(pf):
                     try:
-                        h = local.open("http://127.0.0.1:%d/" % p, timeout=0.5).read().decode(
-                            "utf-8", "replace")
-                    except Exception:
-                        continue
-                    if 'id="updBar"' in h:
-                        sport = p
-                        break
+                        sport = int(open(pf, encoding="utf-8").read().strip() or 0)
+                    except (OSError, ValueError):
+                        sport = 0
                 if sport:
                     break
-                time.sleep(0.2)
+                time.sleep(0.15)
             check(bool(sport), "带更新界面的隔离服务起来了")
             if sport:
                 u = "http://127.0.0.1:%d" % sport
@@ -334,6 +333,9 @@ def main():
                     if state in ("done", "error"):
                         break
                     time.sleep(0.25)
+                if state != "done":
+                    log("    诊断: state=%r detail=%r error=%r latest=%r"
+                        % (state, st.get("detail"), st.get("error"), st.get("latest")))
                 check(state == "done", "检查→下载→替换全程自动跑完（状态 %s）" % state)
                 check(VER in open(os.path.join(target, "server.py"), encoding="utf-8").read(),
                       "服务端真的把新版换上了")

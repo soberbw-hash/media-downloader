@@ -21,29 +21,32 @@ def log(*a):
     print(*a, flush=True)
 
 
-def find_new_service():
-    for _ in range(40):
-        for port in range(8765, 8786):
+def find_new_service(pf):
+    """只认这次自己起的服务：本机 8765 可能正被用户那份占着。"""
+    for _ in range(120):
+        if os.path.isfile(pf):
             try:
-                html = OP.open("http://127.0.0.1:%d/" % port, timeout=0.6).read().decode(
-                    "utf-8", "replace")
-            except Exception:
-                continue
-            if 'class="gpic"' in html and "拖进网页" in html:
+                port = int(open(pf, encoding="utf-8").read().strip() or 0)
+            except (OSError, ValueError):
+                port = 0
+            if port:
                 return port
-        time.sleep(0.25)
+        time.sleep(0.15)
     return 0
 
 
 def main():
     tmp = tempfile.mkdtemp(prefix="vdl_guide_")
     env = os.environ.copy()
-    env.update({"VDL_FORCE_NEW": "1", "VDL_NO_OPEN": "1", "VDL_DATA_DIR": tmp})
+    env.update({"VDL_FORCE_NEW": "1", "VDL_NO_OPEN": "1",
+                "VDL_NO_AUTO_UPDATE": "1", "VDL_DATA_DIR": tmp})
+    pf = os.path.join(tmp, "port.txt")
+    env["VDL_PORT_FILE"] = pf
     logf = open(os.path.join(tmp, "srv.log"), "wb")
     srv = subprocess.Popen([sys.executable, "server.py", "none"], cwd=ROOT,
                            env=env, stdout=logf, stderr=subprocess.STDOUT)
     try:
-        port = find_new_service()
+        port = find_new_service(pf)
         assert port, "没起带新代码的服务（可能被旧桌面版占了）"
         log("隔离服务端口:", port)
 
@@ -67,11 +70,24 @@ def main():
             pg.wait_for_timeout(350)
 
             steps = pg.locator("#extHow .gstep")
-            pics = pg.locator("#extHow svg.gpic")
+            pics = pg.locator("#extHow img.gpic")
             assert steps.count() == 3 and pics.count() == 3, "图文三步不齐"
             for i in range(3):
                 assert pics.nth(i).is_visible(), "第 %d 张图没显示" % (i + 1)
-            log("  OK 小按钮点开后三步图文都在")
+                nw = pics.nth(i).evaluate("e => e.naturalWidth")
+                assert nw > 0, "第 %d 张图没真正加载出来" % (i + 1)
+            log("  OK 小按钮点开后三步图文都在，三张截图都加载了")
+
+            # 点图看大图能弹出、Esc 能关
+            pics.nth(1).evaluate("e => e.click()")   # 抽屉内滚动，直接派发点击更稳
+            pg.wait_for_timeout(400)
+            assert pg.locator("#shotBox").is_visible(), "点了图没弹出大图"
+            src = pg.locator("#shotImg").get_attribute("src")
+            assert src and "ext-page2.png" in src, "大图不是整页标注图"
+            pg.keyboard.press("Escape")
+            pg.wait_for_timeout(300)
+            assert not pg.locator("#shotBox").is_visible(), "Esc 没关掉大图"
+            log("  OK 点图放大：弹的是整页标注图，Esc 能关")
 
             # 卡片不能横向溢出抽屉（330px），文字也不能被图挤没
             drawer = pg.locator("#acctDrawer").bounding_box()
@@ -91,7 +107,7 @@ def main():
 
             # 「一键装小助手」仍会自动展开图文，且反馈是新动作文案
             pg.locator("#extHow").evaluate("e => e.open = false")
-            pg.locator("#btnExtSetup").click()
+            pg.locator("#btnExtSetup").evaluate("e => e.click()")
             pg.wait_for_timeout(700)
             assert pg.locator("#extHow").evaluate("e => e.open"), "点一键后没展开"
             assert "地址已复制" in pg.inner_text("#toast") \

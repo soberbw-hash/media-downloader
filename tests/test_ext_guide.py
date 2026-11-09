@@ -36,14 +36,24 @@ html = read("web/index.html")
 panel = html[html.index('id="acctDrawer"'):html.index('id="histDrawer"')]
 how = panel[panel.index('id="extHow"'):panel.index('</details>')]
 check(how.count('class="gstep"') == 3, "三步各有一张卡片")
-check(how.count('class="gpic"') == 3, "三步各有一张示意图（内联 SVG，不依赖外部图片）")
-check(how.count("<svg") == 3, "示意图是内联 SVG，打包就带着")
+check(how.count('class="gpic"') == 3, "三步各有一张图")
+check(how.count("<svg") == 0, "图换成了真实截图，不再是手画示意图")
+check("ext-step1.png" in how and "ext-step2.png" in how and "ext-step3.png" in how,
+      "三张图各自指向自己的截图文件")
+check('data-full="/img/ext-page2.png"' in how and 'data-full="/img/ext-page3.png"' in how,
+      "点开能看整页大图（知道目标在页面哪个角落）")
+for _n in ("ext-step1", "ext-step2", "ext-step3", "ext-page2", "ext-page3"):
+    _p = os.path.join(ROOT, "web", "img", _n + ".png")
+    check(os.path.isfile(_p) and os.path.getsize(_p) > 5000,
+          "截图 %s 在包里（%d 字节）" % (_n, os.path.getsize(_p) if os.path.isfile(_p) else 0))
 check('class="gq"' in how, "「怎么装」是个带 ? 的小按钮")
-check("拖进网页" in how, "明确告诉用户拖文件夹")
-check("开发者模式" in how and "加载已解压的扩展程序" in how, "保留了官方两条安装路径")
+check("加载未打包的扩展程序" in how, "按钮名用新版 Chrome 的叫法")
+check("旧版叫" in how and "加载已解压" in how, "老版本叫法也给了，免得找不到")
+check("开发者模式" in how and "右上角" in how, "说清了开发者模式在右上角")
+check("左上角" in how, "说清了加载按钮在左上角")
 check(".crx" not in how and "zip" not in how.lower() and "改后缀" not in how,
       "没让人去拖 Chrome 已拒收的 crx / 压缩包")
-check("选中的文件夹" in how, "说的是刚被选中的那个文件夹，不用记英文目录名")
+check("选中那个文件夹" in how, "说的是刚被选中的那个文件夹，不用记英文目录名")
 check('id="extFolder"' not in how and 'id="extPage"' not in how,
       "点不开的「只开文件夹 / 只开安装页」已删掉")
 check("ext-acts small" not in how, "没有残留的次要按钮行")
@@ -61,7 +71,7 @@ js = read("web/app.js")
 check("toast(r.msg" in js, "一键按钮原样显示服务端给的动作（Mac 会说 Cmd+V）")
 check('$("#extPage")' not in js and '$("#extFolder")' not in js,
       "前端不再绑定那两个点不开的按钮")
-check("粘进地址栏" in how and "文件夹会选中" in how,
+check("粘进浏览器地址栏" in how and "文件夹会选中" in how,
       "图文说清了粘贴地址这一步")
 
 log("=== 2. 选中文件夹 + 备好扩展页地址 ===")
@@ -142,6 +152,7 @@ try:
     sys.platform = "darwin"
     oks, msgs = login.setup_ext()
     check(oks and "回车" in msgs, "一键装小助手的返回语说清下一步动作")
+    check("文件夹已选中" in msgs, "顺便告诉用户文件夹也选好了")
     check("crx" not in msgs.lower(), "没有推荐会装不上的 crx")
     check(copied[-1] == "chrome://extensions/" and calls[-1][1] == "about:blank",
           "主按钮真的备好了地址和标签页")

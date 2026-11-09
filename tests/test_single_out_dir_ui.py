@@ -21,30 +21,32 @@ def log(*a):
     print(*a, flush=True)
 
 
-def find_new_service():
-    """必须认准新代码的服务：桌面便携版常驻在 8765，打错了会看旧界面。"""
-    for _ in range(50):
-        for port in range(8765, 8786):
+def find_new_service(pf):
+    """只认这次自己起的服务：桌面便携版常驻在 8765，扫端口会看错界面。"""
+    for _ in range(120):
+        if os.path.isfile(pf):
             try:
-                html = OP.open("http://127.0.0.1:%d/" % port, timeout=0.6).read().decode(
-                    "utf-8", "replace")
-            except Exception:
-                continue
-            if 'id="cfgOut"' in html and "cfgMusicDir" not in html:
+                port = int(open(pf, encoding="utf-8").read().strip() or 0)
+            except (OSError, ValueError):
+                port = 0
+            if port:
                 return port
-        time.sleep(0.2)
+        time.sleep(0.15)
     return 0
 
 
 def main():
     tmp = tempfile.mkdtemp(prefix="vdl_onedir_ui_")
     env = os.environ.copy()
-    env.update({"VDL_FORCE_NEW": "1", "VDL_NO_OPEN": "1", "VDL_DATA_DIR": tmp})
+    env.update({"VDL_FORCE_NEW": "1", "VDL_NO_OPEN": "1",
+                "VDL_NO_AUTO_UPDATE": "1", "VDL_DATA_DIR": tmp})
+    pf = os.path.join(tmp, "port.txt")
+    env["VDL_PORT_FILE"] = pf
     logf = open(os.path.join(tmp, "srv.log"), "wb")
     srv = subprocess.Popen([sys.executable, "server.py", "none"], cwd=ROOT,
                            env=env, stdout=logf, stderr=subprocess.STDOUT)
     try:
-        port = find_new_service()
+        port = find_new_service(pf)
         assert port, "没起带新代码的服务（可能被旧桌面版占了）"
         log("隔离服务端口:", port)
 

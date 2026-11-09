@@ -26,24 +26,23 @@ def main():
     env = os.environ.copy()
     env.update({"VDL_FORCE_NEW": "1", "VDL_NO_OPEN": "1",
                 "VDL_NO_AUTO_UPDATE": "1", "VDL_DATA_DIR": tmp})
+    # 只认自己起的这个服务：8765 可能正被用户那份占着
+    pf = os.path.join(tmp, "port.txt")
+    env["VDL_PORT_FILE"] = pf
     logf = open(os.path.join(tmp, "srv.log"), "wb")
     srv = subprocess.Popen([sys.executable, "server.py", "none"], cwd=ROOT,
                            env=env, stdout=logf, stderr=subprocess.STDOUT)
     try:
         port = 0
-        for _ in range(50):
-            for p in range(8765, 8786):
+        for _ in range(120):
+            if os.path.isfile(pf):
                 try:
-                    h = OP.open("http://127.0.0.1:%d/" % p, timeout=0.6).read().decode(
-                        "utf-8", "replace")
-                except Exception:
-                    continue
-                if 'id="updBar"' in h:
-                    port = p
-                    break
+                    port = int(open(pf, encoding="utf-8").read().strip() or 0)
+                except (OSError, ValueError):
+                    port = 0
             if port:
                 break
-            time.sleep(0.2)
+            time.sleep(0.15)
         assert port, "没起带新代码的服务"
         log("隔离服务端口:", port)
 

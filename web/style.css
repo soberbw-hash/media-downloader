@@ -570,7 +570,7 @@ body.tab-music .tasks-block {
   left: 0;
   right: 0;
   bottom: 0;
-  height: 26px;
+  height: 32px;
   background: linear-gradient(to top, #fff, rgba(255, 255, 255, 0));
   pointer-events: none;
 }
@@ -1238,12 +1238,12 @@ body.playing .toast { bottom: 84px; }
 .acct-top {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 0 0 16px;
+  gap: 10px;
+  padding: 2px 2px 16px;
 }
 
 .at-num {
-  font-size: 30px;
+  font-size: 26px;
   font-weight: 600;
   line-height: 1;
   letter-spacing: -.02em;
@@ -1252,42 +1252,60 @@ body.playing .toast { bottom: 84px; }
 }
 
 .at-num span {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 400;
   color: var(--hint);
-  margin-left: 2px;
+  margin-left: 1px;
+  letter-spacing: 0;
 }
 
-.at-txt b { font-weight: 400; font-size: 12.5px; color: var(--text-2); }
+.at-txt b { font-weight: 400; font-size: 12px; line-height: 1.3; color: var(--text-2); }
 
-/* 一键同步登录态 */
+/* 一条细进度：几眼看清整体，不占地方也不吵 */
+.at-prog {
+  flex: 1 1 auto;
+  height: 3px;
+  border-radius: 3px;
+  background: #eceae8;
+  overflow: hidden;
+}
+.at-prog i {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: #1c1917;
+  transition: width .32s cubic-bezier(.16,1,.3,1), background .2s ease;
+}
+.at-prog i.full { background: var(--ok); }
+
+/* 一键同步登录态：一行说明 + 一颗小按钮，别拿大黑条抢戏 */
 .ext-card {
-  margin: 14px 0 16px; padding: 13px 14px 12px;
-  border: 1px solid #e7e5e4; border-radius: 10px; background: #fff;
+  margin: 0 0 18px; padding: 10px 12px;
+  border: 1px solid var(--line-soft); border-radius: 11px; background: #fcfbfa;
 }
-.ext-h { display: flex; align-items: center; gap: 7px; }
-.ext-h b { font-size: 12.5px; font-weight: 600; color: var(--text); }
-.ext-ic { display: flex; color: #78716c; }
+.ext-h { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.ext-h b {
+  font-size: 12px; font-weight: 500; color: var(--text-2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ext-ic { display: flex; color: #a8a29e; flex-shrink: 0; }
 .ext-badge {
-  margin-left: auto; padding: 1px 7px; border-radius: 20px;
-  background: #f5f4f2; color: #a8a29e; font-size: 10px; letter-spacing: .2px;
+  padding: 1px 6px; border-radius: 20px; flex-shrink: 0;
+  background: #f2f0ee; color: #a8a29e; font-size: 10px; letter-spacing: .2px;
 }
-.ext-badge.on { background: #e8f5ec; color: #15803d; }
-.ext-acts { display: flex; gap: 6px; }
-.ext-acts button {
-  flex: 1 1 0; min-width: 0; padding: 6px 4px; font-size: 11px;
-  border: 1px solid #e7e5e4; border-radius: 7px; background: #faf9f7;
-  color: #57534e; cursor: pointer; font-family: inherit;
+.ext-badge.on { background: #eaf6ee; color: #15803d; }
+.ext-card .primary {
+  margin-left: auto; flex-shrink: 0;
+  height: 26px; padding: 0 11px;
+  border: 1px solid #1c1917; border-radius: 7px;
+  background: #1c1917; color: #fff;
+  font-family: inherit; font-size: 11.5px; font-weight: 500;
+  cursor: pointer; transition: background .14s ease, border-color .14s ease;
 }
-.ext-acts button:hover { border-color: #d6d3d1; background: #fff; color: var(--text); }
+.ext-card .primary:hover { background: #000; border-color: #000; }
+.ext-card .primary:disabled { opacity: .5; cursor: default; }
 .ext-card.missing { opacity: .6; }
-/* 一个主按钮就够了，别摆两个让人挑 */
-.ext-acts button.primary {
-  border-color: #1c1917; background: #1c1917; color: #fff;
-  padding: 8px 4px; font-size: 11.5px; font-weight: 600;
-}
-.ext-acts button.primary:hover { border-color: #000; background: #000; color: #fff; }
-.ext-acts button.primary:disabled { opacity: .55; cursor: default; }
 .ext-card .qbox { margin-top: 10px; }
 .qbox[hidden] { display: none; }
 
@@ -1370,58 +1388,98 @@ body.playing .toast { bottom: 84px; }
 .ext-card .qbox-body ol li { margin-bottom: 4px; }
 .ext-card .qbox-body b { color: var(--text); font-weight: 600; }
 
-.lg-grp + .lg-grp { margin-top: 22px; }
+.lg-grp + .lg-grp { margin-top: 20px; }
 
+/* 分组标题：一行小字 + 数量 + 一条到边的细线，比纯灰小字有形 */
 .lg-t {
-  margin-bottom: 9px;
-  font-size: 11px;
-  letter-spacing: .04em;
-  color: #a8a29e;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 7px 2px;
+  font-size: 10.5px;
+  letter-spacing: .02em;
+  color: var(--muted);
+}
+.lg-t i {
+  font-style: normal;
+  color: var(--hint);
+  font-variant-numeric: tabular-nums;
+}
+.lg-t::after {
+  content: "";
+  flex: 1 1 auto;
+  height: 1px;
+  margin-left: 3px;
+  background: var(--line-soft);
 }
 
-.lg-list { display: flex; flex-direction: column; gap: 6px; }
+/* 整段一张卡，行与行之间只用细线切 —— 每行都套边框会像张表单 */
+.lg-list {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+}
 
 .login-row {
   display: flex;
   align-items: center;
-  gap: 9px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 8px 9px 8px 10px;
-  background: #fdfcfb;
-  transition: border-color .15s ease;
+  gap: 10px;
+  padding: 9px 12px 9px 11px;
+  transition: background .14s ease;
 }
 
-.login-row:hover { border-color: #dcd8d4; }
+.login-row + .login-row { border-top: 1px solid var(--line-soft); }
+.login-row:hover { background: #fbfaf9; }
 
 .login-row .fav {
-  width: 24px;
-  height: 24px;
-  border: 1px solid var(--line-soft);
-  border-radius: 7px;
-  background: #fff;
+  width: 26px;
+  height: 26px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
 }
 
-.login-row .fav svg { width: 13px; height: 13px; }
+.login-row .fav svg { width: 17px; height: 17px; }
 
 .login-row .nm {
   flex: 1;
   min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
   font-size: 12.5px;
+  font-weight: 500;
   color: var(--text);
   white-space: nowrap;
   overflow: hidden;
+}
+
+.login-row .nm .acc {
+  font-style: normal;
+  font-weight: 400;
+  font-size: 11.5px;
+  color: var(--muted);
+  overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.login-row .nm .vip {
+  flex-shrink: 0;
+  font-style: normal;
+  font-size: 10px;
+  line-height: 1.5;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: #f6f2ea;
+  color: #a08a63;
 }
 
 .login-row .st {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   flex-shrink: 0;
   font-size: 11px;
   color: var(--hint);
@@ -1439,27 +1497,50 @@ body.playing .toast { bottom: 84px; }
 .login-row .st.ok::before { background: var(--ok); }
 .login-row .st.run { color: var(--run); }
 .login-row .st.run::before { background: var(--run); animation: breathe 1.2s ease-in-out infinite; }
+.login-row .st.bad { color: var(--err); }
+.login-row .st.bad::before { background: var(--err); }
 
 @keyframes breathe {
   0%, 100% { opacity: 1; }
   50% { opacity: .2; }
 }
 
+.login-row .acts {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
 .login-row button {
   border: 1px solid var(--line);
-  background: var(--surface);
+  background: #fff;
   color: var(--text-2);
   font-family: inherit;
-  font-size: 11.5px;
-  height: 26px;
-  padding: 0 10px;
-  border-radius: 7px;
+  font-size: 11px;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 6px;
   cursor: pointer;
   flex-shrink: 0;
+  transition: border-color .14s ease, color .14s ease, background .14s ease;
 }
 
 .login-row button:hover { border-color: #d6d3d1; color: var(--text); }
 .login-row button:disabled { opacity: .45; cursor: default; }
+
+/* 「退出」是低频动作，做成纯文字，别跟「打开」抢注意力 */
+.login-row button.ghost {
+  border-color: transparent;
+  background: none;
+  color: #a8a29e;
+  padding: 0 6px;
+}
+.login-row button.ghost:hover {
+  border-color: transparent;
+  background: none;
+  color: var(--err);
+}
 
 .login-bar {
   margin-top: 14px;
@@ -2784,44 +2865,6 @@ body.playing .wrap { padding-bottom: 78px; }
   mask-image: linear-gradient(to bottom, #000 calc(100% - 14px), transparent);
 }
 
-/* ---------- 账号：昵称、会员徽标、多出来的小按钮 ---------- */
-.login-row { flex-wrap: wrap; row-gap: 3px; }
-
-/* 昵称 + 会员徽标独立一行，和上面的名称左对齐 */
-.login-row .sub {
-  flex: 0 0 100%;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  padding-left: 33px;
-  font-size: 10.5px;
-  line-height: 1.5;
-  color: var(--muted);
-}
-
-.login-row .sub b {
-  min-width: 0;
-  font-weight: 400;
-  color: var(--text-2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.login-row .vip {
-  flex-shrink: 0;
-  padding: 1px 5px;
-  border-radius: 4px;
-  border: 1px solid #eddcc0;
-  background: #fdf6e9;
-  color: #9a6b1f;
-  font-size: 9.5px;
-  letter-spacing: .02em;
-}
-
-.login-row .acts { display: flex; gap: 5px; flex-shrink: 0; }
-
 /* ---------- 粘贴 cookie 弹层 ---------- */
 .modal {
   position: fixed;
@@ -2871,9 +2914,6 @@ body.playing .wrap { padding-bottom: 78px; }
   padding: 0 16px;
   white-space: nowrap;
 }
-
-.login-row .st.bad { color: var(--err); }
-.login-row .st.bad::before { background: var(--err); }
 
 /* ---------- 设置里的小按钮（视频号助手之类） ---------- */
 .s-btn {

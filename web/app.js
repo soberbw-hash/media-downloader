@@ -1014,6 +1014,9 @@ function renderLogins(sites, status) {
     const h = document.createElement("div");
     h.className = "lg-t";
     h.textContent = g.t;
+    const n = document.createElement("i");
+    n.textContent = g.list.length;
+    h.appendChild(n);
     sec.appendChild(h);
     const list = document.createElement("div");
     list.className = "lg-list";
@@ -1032,6 +1035,12 @@ function renderLogins(sites, status) {
   }
   const num = $("#acctNum");
   if (num) num.innerHTML = `${on}<span>/${sites.length}</span>`;
+  const prog = $("#acctProg");
+  if (prog) {
+    const pct = sites.length ? Math.round(on * 100 / sites.length) : 0;
+    prog.style.width = pct + "%";
+    prog.classList.toggle("full", on >= sites.length && sites.length > 0);
+  }
   renderExt();
   renderLoginBar(status, busy);
 }
@@ -1102,20 +1111,17 @@ function loginRow(s, status, busy) {
   const on = !dead && (!!s.logged_in || !!acc.ok);
   const stCls = running ? "st run" : (dead ? "st bad" : (on ? "st ok" : "st"));
   const stText = running ? "等待中" : (dead ? "已失效" : (on ? "已登录" : "未登录"));
-  // 昵称和会员徽标单独占一行：抽屉只有 330px，塞在名称后面会把按钮挤出去
-  const sub = acc.ok
-    ? `<span class="sub"><b>${esc(acc.name || "已登录")}</b>`
-      + (acc.vip ? `<span class="vip">${esc(acc.detail || "VIP")}</span>` : "")
-      + `</span>`
-    : "";
-  const out = s.logged_in || acc.ok ? `<button type="button" data-act="out">退出</button>` : "";
+  // 账号名和会员徽标跟在平台名后面：一行读完，不再多占一行把列表撑高
+  const who = on && acc.ok && acc.name ? `<i class="acc">${esc(acc.name)}</i>` : "";
+  const vip = on && acc.ok && acc.vip ? `<em class="vip">${esc(acc.detail || "VIP")}</em>` : "";
+  const out = s.logged_in || acc.ok
+    ? `<button type="button" class="ghost" data-act="out">退出</button>` : "";
   row.innerHTML = iconHTML(s.id)
-    + `<span class="nm">${esc(s.name)}</span>`
+    + `<span class="nm">${esc(s.name)}${who}${vip}</span>`
     + `<span class="${stCls}">${stText}</span>`
-    + `<span class="acts"><button type="button" data-act="login"`
-    + ` title="用${esc(dailyName())}打开">打开</button>`
-    + `${out}</span>`
-    + sub;
+    + `<span class="acts">`
+    + `<button type="button" data-act="login" title="用${esc(dailyName())}打开">打开</button>`
+    + `${out}</span>`;
   row.title = acc.ok && acc.error ? acc.error : (s.tip || "");
 
   const lb = row.querySelector('[data-act="login"]');

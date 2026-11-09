@@ -44,7 +44,8 @@ check('data-full="/img/ext-page2.png"' in how and 'data-full="/img/ext-page3.png
       "点开能看整页大图（知道目标在页面哪个角落）")
 for _n in ("ext-step1", "ext-step2", "ext-step3", "ext-page2", "ext-page3"):
     _p = os.path.join(ROOT, "web", "img", _n + ".png")
-    check(os.path.isfile(_p) and os.path.getsize(_p) > 5000,
+    # 门槛只用于确认「不是空白图」；step1 只裁了那颗按钮，4KB 出头是正常的
+    check(os.path.isfile(_p) and os.path.getsize(_p) > 1500,
           "截图 %s 在包里（%d 字节）" % (_n, os.path.getsize(_p) if os.path.isfile(_p) else 0))
 check('class="gq"' in how, "「怎么装」是个带 ? 的小按钮")
 check("加载未打包的扩展程序" in how, "按钮名用新版 Chrome 的叫法")

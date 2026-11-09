@@ -176,8 +176,9 @@
 
 <div class="mask" id="mask"></div>
 
-<!-- ---------- 设置 ---------- -->
-<aside class="drawer" id="drawer">
+<!-- ---------- 设置：居中弹窗，两栏铺开，不再挤在一条窄边栏里 ---------- -->
+<div class="modal" id="drawer" role="dialog" aria-modal="true" aria-label="设置">
+ <div class="mcard set-card">
   <div class="drawer-head">
     <h3>设置</h3>
     <button class="drawer-x" id="closeSet" title="关闭" aria-label="关闭设置">
@@ -188,7 +189,7 @@
     </button>
   </div>
 
-  <div class="drawer-body">
+  <div class="drawer-body set-body">
 
     <button class="acct-entry" id="openAcct" type="button">
       <span class="ae-ic" aria-hidden="true">
@@ -209,6 +210,9 @@
         </svg>
       </span>
     </button>
+
+    <div class="set-cols">
+    <div class="set-col">
 
     <section class="grp">
       <div class="field">
@@ -305,6 +309,22 @@
       </div>
     </section>
 
+    </div>
+    <div class="set-col">
+
+    <section class="grp">
+      <div class="grp-t">版本与更新</div>
+      <div class="upd-row">
+        <div class="upd-info">
+          <b id="curVer">v—</b>
+          <i id="updMsg">启动时自动检查新版</i>
+        </div>
+        <button class="pick-btn" id="checkUpd">检查更新</button>
+      </div>
+      <div class="upd-bar" id="updBar" hidden><i></i></div>
+      <i class="upd-tip" id="updTip" hidden>GitHub 下载慢？先开 VPN / 代理</i>
+    </section>
+
     <details class="adv" id="advBox">
       <summary>高级设置</summary>
       <div class="adv-body">
@@ -360,19 +380,6 @@
     </details>
 
     <section class="grp">
-      <div class="grp-t">版本与更新</div>
-      <div class="upd-row">
-        <div class="upd-info">
-          <b id="curVer">v—</b>
-          <i id="updMsg">启动时自动检查新版</i>
-        </div>
-        <button class="pick-btn" id="checkUpd">检查更新</button>
-      </div>
-      <div class="upd-bar" id="updBar" hidden><i></i></div>
-      <i class="upd-tip" id="updTip" hidden>GitHub 下载慢？先开 VPN / 代理</i>
-    </section>
-
-    <section class="grp">
       <div class="grp-t">支持平台</div>
       <div class="support" id="support"></div>
     </section>
@@ -388,15 +395,20 @@
       </div>
     </section>
 
+    </div>
+    </div>
+
   </div>
 
   <div class="drawer-foot">
     <button class="save-btn" id="saveCfg">完成</button>
   </div>
-</aside>
+ </div>
+</div>
 
 <!-- ---------- 账号登录 ---------- -->
-<aside class="drawer" id="acctDrawer">
+<div class="modal" id="acctDrawer" role="dialog" aria-modal="true" aria-label="账号登录">
+ <div class="mcard acct-card">
   <div class="drawer-head">
     <h3>账号登录</h3>
     <button class="drawer-x" id="closeAcct" title="关闭" aria-label="关闭账号登录">
@@ -456,10 +468,12 @@
     <div class="login-bar" id="loginBar"></div>
 
   </div>
-</aside>
+ </div>
+</div>
 
 <!-- ---------- 下载历史 ---------- -->
-<aside class="drawer" id="histDrawer">
+<div class="modal" id="histDrawer" role="dialog" aria-modal="true" aria-label="下载历史">
+ <div class="mcard hist-card">
   <div class="drawer-head">
     <h3>下载历史</h3>
     <button class="drawer-x" id="closeHist" title="关闭" aria-label="关闭历史">
@@ -477,7 +491,8 @@
     <button class="ghost-btn" id="exportCsv">导出 CSV</button>
     <button class="ghost-btn" id="clearHist">清空记录</button>
   </div>
-</aside>
+ </div>
+</div>
 
 <div class="toast" id="toast"></div>
 

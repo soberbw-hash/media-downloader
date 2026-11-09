@@ -76,7 +76,11 @@ def main():
                 assert pics.nth(i).is_visible(), "第 %d 张图没显示" % (i + 1)
                 nw = pics.nth(i).evaluate("e => e.naturalWidth")
                 assert nw > 0, "第 %d 张图没真正加载出来" % (i + 1)
-            log("  OK 小按钮点开后三步图文都在，三张截图都加载了")
+                # 图有多少像素就显示多大：拉宽了会糊，字看不清（+2 是两侧 1px 边框）
+                shown = pics.nth(i).evaluate("e => e.getBoundingClientRect().width")
+                assert shown <= nw + 2, \
+                    "第 %d 张图被拉伸了（%dpx 拉到 %dpx），会糊" % (i + 1, nw, shown)
+            log("  OK 小按钮点开后三步图文都在，三张截图都加载了且没被拉伸")
 
             # 点图看大图能弹出、Esc 能关
             pics.nth(1).evaluate("e => e.click()")   # 抽屉内滚动，直接派发点击更稳

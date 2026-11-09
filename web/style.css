@@ -472,43 +472,132 @@ body.tab-music .tasks-block {
 .acts button:hover { background: #f5f4f2; color: var(--text); }
 .acts button.ico { font-size: 14px; line-height: 1; padding: 3px 5px; }
 
-/* ---------- 设置抽屉 ---------- */
+/* ---------- 弹窗（设置 / 账号 / 历史）：居中弹出，内容铺开 ---------- */
 .mask {
   position: fixed;
   inset: 0;
-  background: rgba(28,25,23,.28);
+  background: rgba(28,25,23,.26);
   opacity: 0;
   pointer-events: none;
-  transition: opacity .2s ease;
+  transition: opacity .22s ease;
   z-index: 40;
 }
 
 .mask.on { opacity: 1; pointer-events: auto; }
 
-.drawer {
+.modal {
   position: fixed;
-  top: 0;
-  right: 0;
-  width: 380px;
-  max-width: 92vw;
-  height: 100%;
-  background: var(--surface);
-  border-left: 1px solid var(--line);
-  transform: translateX(100%);
-  transition: transform .26s cubic-bezier(.32,.72,0,1);
+  inset: 0;
   z-index: 41;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 22px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .2s ease;
+}
+
+.modal.on { opacity: 1; pointer-events: auto; }
+
+.mcard {
+  width: 100%;
+  max-height: 100%;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: 0 30px 70px -28px rgba(28,25,23,.34), 0 3px 10px -4px rgba(28,25,23,.10);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  opacity: 0;
+  transform: translateY(12px) scale(.962);
+  /* 弹出用「先快后慢」的缓动，最后一点几乎停住，不是硬撞上去 */
+  transition: transform .36s cubic-bezier(.16,1,.3,1), opacity .26s ease;
 }
 
-.drawer.on { transform: none; }
+.modal.on .mcard { opacity: 1; transform: none; }
+
+/* 弹窗换弹窗时，旧的那个不要做退场动画，省得两个卡片叠在中间 */
+.modal.instant,
+.modal.instant .mcard { transition: none; }
+
+/* 完成按钮贴在右下角，比通栏一条更轻 */
+.set-card .drawer-foot { display: flex; justify-content: flex-end; padding: 14px 26px 18px; }
+.set-card .save-btn { width: auto; min-width: 92px; padding: 0 22px; }
+
+.set-card  { max-width: 800px; }
+.acct-card { max-width: 560px; position: relative; }
+.hist-card { max-width: 640px; }
+
+/* 账号弹窗没有底部按钮条，列表滚到边时也淡一下 */
+.acct-card::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 26px;
+  background: linear-gradient(to top, #fff, rgba(255, 255, 255, 0));
+  pointer-events: none;
+}
+
+/* 两栏：左栏常用项，右栏进阶/信息，窄屏自动叠回一栏 */
+.set-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 32px;
+  align-items: start;
+  margin-top: 22px;
+}
+
+/* 两栏时每栏第一块不要多余的上边距；窄屏叠起来时要恢复分隔线 */
+@media (min-width: 721px) {
+  .set-col > .grp:first-child,
+  .set-col > .adv:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+}
+
+/* 高级设置展开后下面的分组照样要有分隔线（它的前一个兄弟是 details，不是 .grp） */
+.adv + .grp,
+.set-cols + .grp {
+  margin-top: 26px;
+  padding-top: 22px;
+  border-top: 1px solid var(--line-soft);
+}
+
+/* 弹窗里横向留白比抽屉宽一点，两栏之间才有呼吸 */
+.set-body { padding: 16px 26px 24px; }
+.set-body .acct-entry { margin-bottom: 0; }
+
+/* 内容往上滚时，从标题下沿淡出，不要一刀切在半行字上 */
+.set-card .drawer-head { position: relative; z-index: 2; }
+.set-card .drawer-head::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  height: 12px;
+  background: linear-gradient(to bottom, #fff, rgba(255, 255, 255, 0));
+  pointer-events: none;
+}
+
+@media (max-width: 720px) {
+  .modal { padding: 12px; }
+  .set-cols { grid-template-columns: 1fr; gap: 0; }
+  /* 叠成一栏后，第二栏第一块也要有分隔线，不然像连在一起 */
+  .set-col + .set-col > :first-child {
+    margin-top: 26px;
+    padding-top: 22px;
+    border-top: 1px solid var(--line-soft);
+  }
+}
 
 .drawer-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 24px 24px 16px;
+  padding: 24px 24px 8px;
   flex-shrink: 0;
 }
 
@@ -1170,7 +1259,9 @@ body.playing .toast { bottom: 84px; }
   background: #1c1917; color: #fff; font-size: 9.5px;
 }
 .gpic {
-  display: block; width: 100%; height: auto;
+  /* 截图有多少像素就显示多大，别为了撑满栏宽把 258px 的图拉到 400px 变糊 */
+  display: block; width: auto; max-width: 100%; height: auto;
+  margin: 0 auto;
   border: 1px solid #e7e5e4; border-radius: 7px; background: #fff;
   cursor: zoom-in;
 }

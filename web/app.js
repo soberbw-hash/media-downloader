@@ -1198,9 +1198,11 @@ async function ensureDir() {
 
 /* ---------- 设置 ---------- */
 function openDrawer() {
-  closeAllDrawers();
+  closeAllDrawers(true);
   $("#mask").classList.add("on");
   $("#drawer").classList.add("on");
+  const setBody = $("#drawer .drawer-body");
+  if (setBody) setBody.scrollTop = 0;   // 每次打开都从头看，不留上次的滚动位置
   $("#cfgOut").value = cfg.out_dir || "";
   $("#cfgQuality").value = cfg.quality || "best";
   $("#cfgProxy").value = cfg.proxy || "";
@@ -1219,16 +1221,26 @@ function openDrawer() {
 }
 
 function openAcct() {
-  closeAllDrawers();
+  closeAllDrawers(true);
   $("#mask").classList.add("on");
   $("#acctDrawer").classList.add("on");
   loadLogins(true);
 }
 
-function closeAllDrawers() {
+/* instant=true 用在「弹窗换弹窗」时：旧的直接消失，别和新弹窗在同一位置叠一下 */
+function closeAllDrawers(instant) {
+  instant = instant === true;
   ["#drawer", "#acctDrawer", "#histDrawer"].forEach((s) => {
     const el = $(s);
-    if (el) el.classList.remove("on");
+    if (!el) return;
+    if (instant && el.classList.contains("on")) {
+      el.classList.add("instant");
+      el.classList.remove("on");
+      // 等两帧让无动画状态生效，再恢复过渡，下次开合照样有动画
+      requestAnimationFrame(() => requestAnimationFrame(() => el.classList.remove("instant")));
+    } else {
+      el.classList.remove("on");
+    }
   });
   $("#mask").classList.remove("on");
 }
@@ -1243,6 +1255,15 @@ $("#closeSet").onclick = closeAllDrawers;
 $("#openAcct").onclick = openAcct;
 $("#closeAcct").onclick = closeAllDrawers;
 $("#mask").onclick = closeAllDrawers;
+
+// 弹窗满屏铺着，点卡片外面的空白等于点遮罩，一样关掉
+["#drawer", "#acctDrawer", "#histDrawer"].forEach((s) => {
+  const el = $(s);
+  if (!el) return;
+  el.addEventListener("mousedown", (e) => {
+    if (e.target === el) closeAllDrawers();
+  });
+});
 
 // 视频号：微信不给外部播放地址，能下的是自己账号的原片，
 // 直接把人送到官方的视频号助手，那边点「下载视频」就是原片
@@ -1260,12 +1281,9 @@ if (advBox) {
   advBox.open = localStorage.getItem("advOpen") === "1";
   advBox.addEventListener("toggle", () => {
     localStorage.setItem("advOpen", advBox.open ? "1" : "0");
-    // 展开后滚到底，三项高级设置一次看全，不用再手动拖
+    // 展开后把这一块推进视野；两栏布局下别再硬滚到底，会把下面的分组顶出去
     if (advBox.open) {
-      const body = advBox.closest(".drawer-body");
-      if (body) {
-        setTimeout(() => body.scrollTo({ top: body.scrollHeight, behavior: "smooth" }), 60);
-      }
+      setTimeout(() => advBox.scrollIntoView({ block: "nearest", behavior: "smooth" }), 60);
     }
   });
 }
@@ -2860,7 +2878,7 @@ async function loadHistory(q) {
 }
 
 function openHist() {
-  closeAllDrawers();
+  closeAllDrawers(true);
   $("#mask").classList.add("on");
   $("#histDrawer").classList.add("on");
   loadHistory($("#histQ").value.trim());

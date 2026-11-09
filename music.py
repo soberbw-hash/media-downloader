@@ -18,6 +18,8 @@ import time
 import urllib.parse
 import urllib.request
 
+import paths
+
 UA_PC = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
          "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
 
@@ -71,7 +73,7 @@ def _get_json(url, headers=None, data=None, timeout=25, verify=True):
 
 
 def cookie_path(platform):
-    return os.path.join(BASE, "cookies", "music_%s.txt" % platform)
+    return os.path.join(paths.cookie_dir(), "music_%s.txt" % platform)
 
 
 def parse_cookie(raw):

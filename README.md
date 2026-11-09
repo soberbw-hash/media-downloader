@@ -73,26 +73,41 @@ python server.py --web     # 普通浏览器标签
 python server.py --server  # 只起服务，不动浏览器
 ```
 
-**macOS**
+**macOS（推荐：直接下 DMG，什么都不用装）**
 
-1. 装 Python 3.9+：`brew install python@3.12`（或去 python.org 下安装包）
-2. 装下载内核和 ffmpeg：
+去 [Releases](https://github.com/soberbw-hash/media-downloader/releases) 下载对应芯片的包：
 
-```bash
-python3 -m pip install --user yt-dlp
-brew install ffmpeg
-```
+- Apple 芯片（M1 / M2 / M3 / M4）→ 文件名带 `arm64`
+- Intel → 文件名带 `x86_64`
 
-   如果 pip 报 `externally-managed-environment`，加一个 `--break-system-packages`。
-3. 双击 **`启动.command`**
+双击 DMG → 把 App 拖进「应用程序」→ **第一次在图标上点右键 → 打开**。Python、下载内核、ffmpeg 都打进包里了，不用装 Homebrew，也不用装 Python。没有 Apple 开发者签名，Gatekeeper 会先拦一下，右键打开一次就好；DMG 里的「先看我.txt」有完整说明。
 
-首次双击可能提示「无法打开，因为来自身份不明的开发者」——右键点它 → 打开 → 再点一次「打开」就放行了；也可以在终端里 `chmod +x 启动.command`。
+想直接跑源码：双击 **`启动.command`**，它会自动在用户目录建虚拟环境装依赖（第一次约 1 分钟），不往程序目录写东西。
 
 独立窗口靠 Chrome / Edge / Chromium / Brave 的应用模式实现（Safari 不支持）。只装了 Safari 的机器会退化成普通浏览器标签页，功能一样，只是多一条地址栏。系统「选择文件夹」在 mac 上走的是原生面板。
 
 **Linux**
 
 `python3 server.py --web` 就能跑；装了 Chromium 系浏览器的话 `--app` 也能开独立窗口。
+
+### Windows / macOS 有什么不一样
+
+代码是同一套，平台差异都收在 `paths.py`、`login.py`、`core.py`、`server.py` 的几个分支里：
+
+| | Windows | macOS |
+|---|---|---|
+| 分发 | 便携文件夹（自带 runtime + `ffmpeg.exe`），双击 exe | `.app` 打进 DMG（自带 Python + 静态 ffmpeg） |
+| 配置 / 历史 / cookie | 程序目录，拷走就能用 | `~/Library/Application Support/VideoDL`（.app 只读，不能写包里） |
+| 默认下载目录 | 便携包里的「下载的文件」 | `~/Downloads/音视频下载器` |
+| 选文件夹 | Win32 原生对话框 | AppleScript 原生面板 |
+| 认默认浏览器 | 注册表 `UserChoice` | LaunchServices plist |
+| 读系统代理 | 注册表 | `scutil --proxy` |
+| 首次打开 | 可能被 SmartScreen / 终端管控拦，备了 BAT 入口 | 未签名，右键 → 打开 一次 |
+| 公司电脑专用 BAT / 快捷方式 | ✅ | ❌（用不着） |
+
+功能本身没有删减：搜索、下载、断点续传、识曲、账号扩展、视频号解析两边都一样。mac 没有 Apple 公证，所以第一次打开要多点一下右键，这是唯一需要手动的地方。
+
+DMG 由 GitHub Actions 在 macOS runner 上编译（`macos-15` / `macos-15-intel` 双架构），想自己出包就跑「Actions → 打包 macOS DMG」。
 
 ## 怎么用
 

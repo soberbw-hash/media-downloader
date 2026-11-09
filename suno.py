@@ -36,6 +36,7 @@ import urllib.parse
 import urllib.request
 
 from core import BASE, safe_name, unique_path
+import paths
 
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
@@ -78,7 +79,7 @@ def is_suno(url):
 def _cookie_header():
     """有 cookies/suno.txt 就带上（登录态能拿到可下的 audio_url）。
     Netscape cookies.txt 和「一行 key=value; key=value」都认。"""
-    path = os.path.join(BASE, "cookies", "suno.txt")
+    path = os.path.join(paths.cookie_dir(), "suno.txt")
     if not os.path.isfile(path):
         return ""
     try:
@@ -342,19 +343,8 @@ def page_media(page, uid="", proxy="", blocked=None):
 
 # ---------- ffmpeg ----------
 def find_ffmpeg():
-    """找可用的 ffmpeg：先看程序目录（便携版会自带的那个位置），再看 PATH。"""
-    here = os.path.dirname(os.path.abspath(__file__))
-    names = ("ffmpeg.exe", "ffmpeg") if os.name == "nt" else ("ffmpeg",)
-    for d in (here, os.path.join(here, "bin"), os.path.join(here, "runtime")):
-        for n in names:
-            p = os.path.join(d, n)
-            if os.path.isfile(p):
-                return p
-    for n in names:
-        p = shutil.which(n)
-        if p:
-            return p
-    return ""
+    """找可用的 ffmpeg：随包 bin/ → PATH → imageio-ffmpeg 自带的静态版。"""
+    return paths.ffmpeg_path()
 
 
 def _to_mp3(ffmpeg, src, dst):

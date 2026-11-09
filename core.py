@@ -15,6 +15,8 @@ import urllib.parse
 import urllib.request
 import zlib
 
+import paths
+
 try:
     import yt_dlp
 except ImportError:
@@ -1062,6 +1064,12 @@ def ytdlp_download(url, out_dir, progress, quality="best", proxy=None, cookies_f
         # 同上：显式关闭环境变量代理，空字符串即直连
         "proxy": proxy or "",
     }
+    # Mac 版随包带了 ffmpeg（没装 Homebrew 也能合并音视频 / 转 mp3）。
+    # Windows 保持原样，交给 yt-dlp 自己找，免得改坏桌面便携版。
+    if sys.platform == "darwin":
+        ff_dir = paths.ffmpeg_dir()
+        if ff_dir:
+            opts["ffmpeg_location"] = ff_dir
     if quality == "audio":
         opts["postprocessors"] = [{"key": "FFmpegExtractAudio",
                                    "preferredcodec": "mp3", "preferredquality": "192"}]
@@ -1242,7 +1250,8 @@ class Manager(object):
         self.batch_seq = 0
         self.max_workers = 3
         self.running = 0
-        self.history_file = os.path.join(BASE, "history.json")
+        paths.ensure_data_dir()
+        self.history_file = paths.history_path()
         self.history = []
         self._load_history()
         self._apply_cfg()

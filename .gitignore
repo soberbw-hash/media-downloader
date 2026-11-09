@@ -27,7 +27,15 @@ venv/
 tools/build/
 tools/dist/
 tools/*.spec
+# macOS 打包用的 spec 要随源码走，否则 CI 编不了
+!tools/macos.spec
 tools/assets/exe-icon-check.png
+# CI 用 iconutil 现生成，不入库
+tools/assets/icon.icns
+build/
+dist/
+dmgstage/
+*.dmg
 
 # 编辑器 / 系统
 .vscode/

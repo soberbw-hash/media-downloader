@@ -24,6 +24,7 @@ import urllib.parse
 import urllib.request
 
 from core import UA_PC, unique_path
+import paths
 
 #: 播放列表后缀
 PLAYLIST_EXT = {"m3u8", "m3u", "mpd"}
@@ -237,14 +238,8 @@ def segments(text, base_url):
 
 # ---------- ffmpeg ----------
 def find_ffmpeg():
-    """找 ffmpeg：程序目录 → bin → runtime → PATH"""
-    here = os.path.dirname(os.path.abspath(__file__))
-    for d in (here, os.path.join(here, "bin"), os.path.join(here, "runtime")):
-        p = os.path.join(d, "ffmpeg.exe" if sys.platform == "win32" else "ffmpeg")
-        if os.path.isfile(p):
-            return p
-    import shutil
-    return shutil.which("ffmpeg") or ""
+    """找 ffmpeg：随包 bin/ → PATH → imageio-ffmpeg 自带的静态版。"""
+    return paths.ffmpeg_path()
 
 
 def _hms(s):

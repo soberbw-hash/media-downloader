@@ -20,14 +20,38 @@ import os
 import re
 import sys
 import shlex
+import shutil
 import subprocess
 import threading
 import time
 
+import paths
+
 BASE = os.path.dirname(os.path.abspath(__file__))
-COOKIE_DIR = os.path.join(BASE, "cookies")
+COOKIE_DIR = paths.cookie_dir()
 PROFILE_DIR = os.path.join(COOKIE_DIR, "_profile")   # 旧版遗留，保留仅为兼容
-EXT_DIR = os.path.join(BASE, "browser-extension")
+
+# 冻结成 macOS .app 之后，程序包是只读的，而且拖进 Chrome 的扩展目录
+# 不能跟着软件升级一起没掉。启动就复制一份到用户数据目录，持久保存。
+_FROZEN = getattr(sys, "frozen", False)
+EXT_DIR = (os.path.join(paths.data_dir(), "browser-extension")
+           if _FROZEN else os.path.join(BASE, "browser-extension"))
+
+
+def _prepare_ext_dir():
+    if not _FROZEN:
+        return
+    try:
+        if os.path.isfile(os.path.join(EXT_DIR, "manifest.json")):
+            return
+        os.makedirs(os.path.dirname(EXT_DIR), exist_ok=True)
+        shutil.copytree(os.path.join(BASE, "browser-extension"),
+                        EXT_DIR, dirs_exist_ok=True)
+    except Exception:
+        pass
+
+
+_prepare_ext_dir()
 
 # need: 出现任意一个就说明登录成功
 SITES = {

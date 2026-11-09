@@ -33,19 +33,20 @@ sys.path.insert(0, BASE)
 IS_WIN = os.name == "nt"
 IS_MAC = sys.platform == "darwin"
 
+import paths as paths_mod  # noqa: E402
 import core  # noqa: E402
 import login as login_mod  # noqa: E402
 import picker  # noqa: E402
 
-APP_VERSION = "1.23.0"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
+APP_VERSION = "1.24.0"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
 UPDATE_REPO = "soberbw-hash/media-downloader"
 
 # 识曲上传的上限（base64 长度）。20MB 原文件约 27MB base64，够一段音频了。
 RECOGNIZE_MAX_B64 = 28 * 1024 * 1024
 
-CONFIG_PATH = os.path.join(BASE, "config.json")
+CONFIG_PATH = paths_mod.config_path()
 DEFAULT_CFG = {
-    "out_dir": os.path.join(BASE, "downloads"),
+    "out_dir": paths_mod.default_downloads(),
     "out_dir_set": False,
     "quality": "best",
     "proxy": "",
@@ -113,6 +114,7 @@ def load_cfg():
 
 def save_cfg(cfg):
     """先写临时文件再换名，避免断电 / 被杀时把配置写坏。"""
+    paths_mod.ensure_data_dir()      # macOS 上数据目录首次可能还不存在
     tmp = CONFIG_PATH + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(cfg, f, ensure_ascii=False, indent=2)
@@ -1289,7 +1291,7 @@ def _fix_streams():
     if sys.stdout is not None and sys.stderr is not None:
         return
     try:
-        d = os.path.join(BASE, "logs")
+        d = paths_mod.log_dir()
         os.makedirs(d, exist_ok=True)
         f = open(os.path.join(d, "app.log"), "a", encoding="utf-8", buffering=1)
         f.write("\n==== %s ====\n" % time.strftime("%Y-%m-%d %H:%M:%S"))
@@ -1314,7 +1316,7 @@ def _fix_streams():
 def blog(msg):
     """启动过程打点，写到 logs/boot.log，pythonw 下也看得到。"""
     try:
-        d = os.path.join(BASE, "logs")
+        d = paths_mod.log_dir()
         os.makedirs(d, exist_ok=True)
         with open(os.path.join(d, "boot.log"), "a", encoding="utf-8") as f:
             f.write("%s  %s\n" % (time.strftime("%m-%d %H:%M:%S"), msg))

@@ -29,7 +29,7 @@ BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CODE_FILES = [
     "server.py", "core.py", "cn_sites.py", "sph.py", "music.py", "suno.py",
     "hls.py", "login.py", "search.py", "movies.py", "recognize.py",
-    "sources.py", "aggregate.py",
+    "sources.py", "aggregate.py", "paths.py",
     "picker.py", "picker_win.py", "version.txt", "README.md", "LICENSE",
     "requirements.txt", "start.bat", "诊断.bat", "启动.command",
 ]

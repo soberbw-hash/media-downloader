@@ -15,9 +15,11 @@
 
 import asyncio
 import os
-import shutil
+import re
 import subprocess
 import tempfile
+
+import paths
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 
@@ -30,28 +32,29 @@ MIN_BYTES = 3 * 1024
 
 
 def ffmpeg_path():
-    """先找程序自带的 ffmpeg，再退回系统 PATH。"""
-    local = os.path.join(BASE, "bin", "ffmpeg.exe")
-    if os.path.isfile(local):
-        return local
-    return shutil.which("ffmpeg") or ""
+    """随包 bin/ → PATH → imageio-ffmpeg。Mac 版随包带，不用装 Homebrew。"""
+    return paths.ffmpeg_path()
 
 
 def _duration(src):
-    """拿音频时长（秒）。拿不到就返回 0，后面按「从头取」处理。"""
+    """拿音频时长（秒）。拿不到就返回 0，后面按「从头取」处理。
+
+    不依赖 ffprobe：Mac 随包的静态 ffmpeg 没带 ffprobe，直接从
+    `ffmpeg -i` 的 stderr 里读 Duration 就行，Windows 也一样能用。
+    """
     ff = ffmpeg_path()
     if not ff:
         return 0.0
-    probe = os.path.join(os.path.dirname(ff), "ffprobe.exe")
-    exe = probe if os.path.isfile(probe) else ff
     try:
-        out = subprocess.run(
-            [exe, "-v", "quiet", "-show_entries", "format=duration",
-             "-of", "default=nw=1:nk=1", src],
-            capture_output=True, text=True, timeout=30)
-        return float((out.stdout or "0").strip() or 0)
+        r = subprocess.run([ff, "-hide_banner", "-i", src],
+                           capture_output=True, text=True, timeout=30)
+        m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)",
+                      (r.stderr or "") + (r.stdout or ""))
+        if m:
+            return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
     except Exception:
-        return 0.0
+        pass
+    return 0.0
 
 
 def _cut(src, dst, start):

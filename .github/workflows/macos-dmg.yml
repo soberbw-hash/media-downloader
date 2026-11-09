@@ -1,0 +1,87 @@
+name: 打包 macOS DMG
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '发布用的版本号标签（如 v1.24.0）'
+        required: false
+        default: 'v1.24.0'
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macos-14 已于 2026-11-02 退役；macos-15 是 arm64，带 -intel 的是 x86_64
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 编译 .app 并压 DMG
+        run: bash tools/build_macos_dmg.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dmg-${{ matrix.arch }}
+          path: '*.dmg'
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: 收齐两个架构的 DMG
+        uses: actions/download-artifact@v4
+        with:
+          path: dmgs
+          pattern: dmg-*
+          merge-multiple: true
+
+      - name: 发布到 GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -e
+          ls -lh dmgs/
+          cat > notes.md <<'EOF'
+          ## 音视频下载器 · macOS 版
+
+          - **Apple 芯片（M1/M2/M3/M4）** → 下 `arm64` 那个 DMG
+          - **Intel 芯片** → 下 `x86_64` 那个 DMG
+
+          双击 DMG，把 App 拖进「应用程序」。第一次打开请**右键 → 打开**，
+          或先在终端跑一次：
+
+          ```
+          xattr -dr com.apple.quarantine "/Applications/音视频下载器.app"
+          ```
+
+          没有 Apple 开发者签名，所以 macOS 会先拦一下，只需处理一次。
+          Python、ffmpeg、下载内核都打进包里了，不用另外装任何东西。
+          下好的文件默认在「下载 / 音视频下载器」。DMG 里附了中文说明。
+          EOF
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" dmgs/*.dmg --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$TAG" dmgs/*.dmg --repo "$GITHUB_REPOSITORY" \
+              --title "音视频下载器 $TAG（macOS）" --notes-file notes.md
+          fi

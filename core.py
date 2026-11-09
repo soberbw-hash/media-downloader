@@ -988,7 +988,7 @@ def douyin_download(url, out_dir, progress, quality="best"):
 # ---------- yt-dlp 通用引擎 ----------
 def ytdlp_probe(url, proxy=None, cookies_file=None):
     if yt_dlp is None:
-        raise RuntimeError("yt-dlp 未安装，请先运行 pip install yt-dlp")
+        raise RuntimeError("下载组件没装好，重新解压一次这个文件夹就行（yt-dlp 未安装）")
     opts = {"quiet": True, "no_warnings": True, "skip_download": True,
             "noplaylist": True, "socket_timeout": 20,
             # 显式给值：空字符串 = 直连，避免 yt-dlp 自己捡到环境变量里的代理

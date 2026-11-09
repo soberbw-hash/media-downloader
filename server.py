@@ -37,7 +37,7 @@ import core  # noqa: E402
 import login as login_mod  # noqa: E402
 import picker  # noqa: E402
 
-APP_VERSION = "1.22.0"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
+APP_VERSION = "1.23.0"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
 UPDATE_REPO = "soberbw-hash/media-downloader"
 
 # 识曲上传的上限（base64 长度）。20MB 原文件约 27MB base64，够一段音频了。
@@ -469,6 +469,7 @@ class Handler(BaseHTTPRequestHandler):
                 MANAGER.clear_done()
             self._json({
                 "mode": MODE,
+                "version": APP_VERSION,
                 "tasks": MANAGER.snapshot(),
                 "config": CFG,
                 "push_key": PUSH_KEY,

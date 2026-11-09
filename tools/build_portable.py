@@ -118,6 +118,7 @@ def main():
 
     skip = SKIP_ON_WIN if IS_WIN else SKIP_ON_MAC
     missing = []
+    fresh = {}       # 哪些用户数据是这次才从源码带过去的
     for f in CODE_FILES + DATA_FILES:
         if f in skip:
             continue
@@ -126,6 +127,8 @@ def main():
             missing.append(f)
             continue
         tgt = os.path.join(app, f)
+        if f in DATA_FILES:
+            fresh[f] = not os.path.isfile(tgt)
         # 配置和历史是用户数据：目标里已经有了就留着，别用开发机的覆盖过去
         if f in DATA_FILES and os.path.isfile(tgt) and not a.reset_data:
             print("保留已有:", f)
@@ -163,7 +166,50 @@ def main():
     elif not os.path.isfile(os.path.join(app, "bin", "ffmpeg.exe")):
         print("!! 没找到 ffmpeg，Suno 只能存 mp4。装一个再打包（winget install Gyan.FFmpeg）")
 
-    os.makedirs(os.path.join(dst, "下载的文件"), exist_ok=True)
+    out_dir = os.path.join(dst, "下载的文件")
+    os.makedirs(out_dir, exist_ok=True)
+
+    # 源码的 config.json 指向开发机路径，照搬过去别人会「下完找不到文件」；
+    # 只在路径明显不对时改，用户自己设过的目录不动。
+    import json
+    cfg_path = os.path.join(app, "config.json")
+    try:
+        with open(cfg_path, encoding="utf-8") as f:
+            c = json.load(f)
+        old = (c.get("out_dir") or "").replace("/", "\\").rstrip("\\").lower()
+        good = out_dir.replace("/", "\\").rstrip("\\").lower()
+        dev = BASE.replace("/", "\\").rstrip("\\").lower()
+        if old != good and (not old or old.startswith(dev)
+                            or not os.path.isdir(c.get("out_dir") or "")):
+            c["out_dir"] = out_dir
+            c["out_dir_set"] = True
+            with open(cfg_path, "w", encoding="utf-8") as f:
+                json.dump(c, f, ensure_ascii=False, indent=2)
+            print("默认下载目录 ->", out_dir)
+    except Exception as e:
+        print("!! 没能校正默认下载目录:", e)
+
+    # 第一次打包别把开发机上的下载记录带过去（用户自己的记录不碰）
+    if fresh.get("history.json"):
+        try:
+            with open(os.path.join(app, "history.json"), "w", encoding="utf-8") as f:
+                json.dump([], f)
+            print("下载记录 -> 空")
+        except Exception as e:
+            print("!! 没能清空下载记录:", e)
+
+    # 根目录说明跟着当前版本走，别留着几版之前的旧文档
+    doc = os.path.join(BASE, "使用说明.txt")
+    if os.path.isfile(doc):
+        try:
+            with open(doc, encoding="utf-8") as f:
+                text = f.read()
+            with open(os.path.join(BASE, "version.txt"), encoding="utf-8") as f:
+                ver = f.read().strip()
+            with open(os.path.join(dst, "使用说明.txt"), "w", encoding="utf-8-sig") as f:
+                f.write(text.replace("{VER}", ver))
+        except Exception as e:
+            print("!! 没能写使用说明:", e)
 
     # 产物自检：每个代码文件都得真的落到目标里。
     # 以前清单漏了一个文件，打出来的包就少个模块，运行时报 ImportError，

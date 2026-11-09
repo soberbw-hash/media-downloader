@@ -142,6 +142,11 @@
 <!-- ---------- 试听播放器：全局只有一个，搜歌时点 ▶ 就能听 ---------- -->
 <audio id="auPlayer" preload="none"></audio>
 <div class="pbar" id="pBar" hidden>
+  <button class="pb-btn" id="pbPrev" title="上一首" aria-label="上一首">
+    <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+      <path d="M6 6v12M18 6.6L9.5 12l8.5 5.4z" fill="currentColor"/>
+    </svg>
+  </button>
   <button class="pb-btn" id="pbPlay" title="播放 / 暂停" aria-label="播放或暂停">
     <svg class="ic-play" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
       <path d="M8.5 5.6l10 6.4-10 6.4z" fill="currentColor"/>
@@ -156,6 +161,11 @@
     <div class="pb-bar" id="pbBar"><i></i></div>
   </div>
   <span class="pb-time" id="pbTime">0:00</span>
+  <button class="pb-btn" id="pbNext" title="下一首" aria-label="下一首">
+    <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+      <path d="M18 6v12M6 6.6l8.5 5.4L6 17.4z" fill="currentColor"/>
+    </svg>
+  </button>
   <button class="pb-btn" id="pbStop" title="停止试听" aria-label="停止试听">
     <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
       <path d="M6.5 6.5l11 11M17.5 6.5l-11 11" fill="none" stroke="currentColor"
@@ -201,15 +211,12 @@
     </button>
 
     <section class="grp">
-      <div class="grp-t">保存位置</div>
-
       <div class="field">
         <label for="cfgOut">下载目录</label>
         <div class="path-row">
           <input id="cfgOut" placeholder="D:\素材\下载">
           <button class="pick-btn" id="pickOut">浏览</button>
         </div>
-        <div class="hint">不存在的文件夹会自动创建</div>
       </div>
 
       <div class="field">
@@ -220,74 +227,66 @@
         </div>
       </div>
 
-      <div class="field">
-        <label for="cfgNamePre">文件命名 <span class="opt">可选</span></label>
-        <select id="cfgNamePre">
-          <option value="">默认（沿用原标题）</option>
-          <option value="{date}_{platform}_{author}_{title}" selected>日期_平台_作者_标题</option>
-          <option value="{platform}_{author}_{title}">平台_作者_标题</option>
-          <option value="{author}_{title}">作者_标题</option>
-          <option value="{date}_{title}">日期_标题</option>
-          <option value="__custom__">自定义…</option>
-        </select>
-        <div class="name-edit" id="nameEdit" hidden>
-          <input id="cfgNameTpl" placeholder="点下面的标签，拼出文件名" autocomplete="off">
-          <div class="toks" id="nameToks">
-            <button type="button" class="tok" data-t="{title}">标题</button>
-            <button type="button" class="tok" data-t="{author}">作者</button>
-            <button type="button" class="tok" data-t="{platform}">平台</button>
-            <button type="button" class="tok" data-t="{date}">日期</button>
-            <button type="button" class="tok" data-t="{time}">时间</button>
-            <button type="button" class="tok" data-t="{id}">ID</button>
-            <button type="button" class="tok" data-t="{kind}">类型</button>
+      <details class="qbox name-box" id="nameBox">
+        <summary id="nameSummary">文件命名</summary>
+        <div class="qbox-body">
+          <div class="field">
+            <label for="cfgNamePre">模板</label>
+            <select id="cfgNamePre">
+              <option value="">默认（沿用原标题）</option>
+              <option value="{date}_{platform}_{author}_{title}" selected>日期_平台_作者_标题</option>
+              <option value="{platform}_{author}_{title}">平台_作者_标题</option>
+              <option value="{author}_{title}">作者_标题</option>
+              <option value="{date}_{title}">日期_标题</option>
+              <option value="__custom__">自定义…</option>
+            </select>
+            <div class="name-edit" id="nameEdit" hidden>
+              <input id="cfgNameTpl" placeholder="点下面的标签，拼出文件名" autocomplete="off">
+              <div class="toks" id="nameToks">
+                <button type="button" class="tok" data-t="{title}">标题</button>
+                <button type="button" class="tok" data-t="{author}">作者</button>
+                <button type="button" class="tok" data-t="{platform}">平台</button>
+                <button type="button" class="tok" data-t="{date}">日期</button>
+                <button type="button" class="tok" data-t="{time}">时间</button>
+                <button type="button" class="tok" data-t="{id}">ID</button>
+                <button type="button" class="tok" data-t="{kind}">类型</button>
+              </div>
+            </div>
+            <div class="hint" id="nameHint">留空用原标题。选「自定义」后，点标签往里加，用下划线连接。</div>
           </div>
         </div>
-        <div class="hint" id="nameHint">留空用原标题。选「自定义」后，点标签往里加，用下划线连接。</div>
-      </div>
+      </details>
 
-      <div class="tg-list">
-        <label class="tg">
-          <span class="tg-txt">
-            <b>保存封面图</b>
-            <i>多一张同名 .cover.jpg</i>
-          </span>
+      <div class="tg-list" title="打开的附件会收进一个跟视频同名的文件夹，下载目录里还是一排视频">
+        <label class="tg" title="多一张同名 .cover.jpg">
+          <span class="tg-txt"><b>保存封面图</b></span>
           <span class="switch">
             <input type="checkbox" id="cfgCover">
             <span class="track"><i></i></span>
           </span>
         </label>
-        <label class="tg">
-          <span class="tg-txt">
-            <b>下载字幕</b>
-            <i>B站、YouTube 有字幕时存成 .srt</i>
-          </span>
+        <label class="tg" title="B站、YouTube 有字幕时存成 .srt">
+          <span class="tg-txt"><b>下载字幕</b></span>
           <span class="switch">
             <input type="checkbox" id="cfgSubs">
             <span class="track"><i></i></span>
           </span>
         </label>
-        <label class="tg">
-          <span class="tg-txt">
-            <b>保存弹幕</b>
-            <i>B站弹幕存成同名 .xml 文件</i>
-          </span>
+        <label class="tg" title="B站弹幕存成同名 .xml 文件">
+          <span class="tg-txt"><b>保存弹幕</b></span>
           <span class="switch">
             <input type="checkbox" id="cfgDanmaku">
             <span class="track"><i></i></span>
           </span>
         </label>
-        <label class="tg">
-          <span class="tg-txt">
-            <b>保存简介</b>
-            <i>标题、作者、链接、简介写成同名 .txt</i>
-          </span>
+        <label class="tg" title="标题、作者、链接、简介写成同名 .txt">
+          <span class="tg-txt"><b>保存简介</b></span>
           <span class="switch">
             <input type="checkbox" id="cfgDesc">
             <span class="track"><i></i></span>
           </span>
         </label>
       </div>
-      <div class="hint">开着的附件（封面/字幕/弹幕/简介）会收进一个跟视频同名的文件夹，下载目录里还是一排视频。</div>
     </section>
 
     <section class="grp">
@@ -295,11 +294,11 @@
       <div class="grp-cols">
         <div class="field">
           <label for="cfgQuality">清晰度</label>
-          <select id="cfgQuality">
-            <option value="best">最高画质（音乐：会员无损）</option>
+          <select id="cfgQuality" title="最高画质：登了音乐会员会优先取无损；720p 用普通音质">
+            <option value="best">最高画质</option>
             <option value="1080">1080p 及以下</option>
-            <option value="720">720p 及以下（音乐：普通音质）</option>
-            <option value="audio">仅音频（mp3）</option>
+            <option value="720">720p 及以下</option>
+            <option value="audio">仅音频 mp3</option>
           </select>
         </div>
         <div class="field">
@@ -312,13 +311,6 @@
           </select>
         </div>
       </div>
-    </section>
-
-    <section class="grp">
-      <div class="grp-t">一键收网页 <span class="opt">少复制一次</span></div>
-      <div class="hint" style="margin-bottom:10px">把这个按钮拖到浏览器书签栏。以后在任意网站看到想下的东西，点一下就进下载队列，不用复制链接再切回来。</div>
-      <a class="s-btn" id="pushBookmark" href="#" title="拖到书签栏">＋ 收下这个网页</a>
-      <div class="hint" style="margin-top:10px">已经复制了链接？点右边这个直接收：<button type="button" class="s-btn" id="btnGrabClip">收下剪贴板</button></div>
     </section>
 
     <details class="adv" id="advBox">
@@ -339,9 +331,8 @@
 
         <div class="field">
           <label>视频号</label>
-          <div class="hint">微信只把视频地址发给微信客户端，分享短链里没有视频。软件会先自动找本机的视频号下载器（wx_channels_download），找到就直接接上；没装就走下面两条路。</div>
+          <div class="hint">分享短链里没有视频地址，自己的作品去助手里点「下载视频」就是原片。</div>
           <button type="button" class="s-btn" id="btnChannels">打开视频号助手</button>
-          <div class="hint" style="margin-top:6px">自己发的作品：在助手里点「下载视频」就是原片。别人的：填一个解析接口。</div>
           <details class="qbox">
             <summary>解析接口（进阶）</summary>
             <div class="qbox-body">
@@ -353,6 +344,15 @@
               或者任意带 <code>stodownload</code> 的字符串）。境外接口会自动走系统代理。</p>
             </div>
           </details>
+        </div>
+
+        <div class="field">
+          <label>从网页收链接 <span class="opt">可选</span></label>
+          <div class="hint">主界面直接 Ctrl+V 就能贴链接，用不上可以不管。</div>
+          <div class="row-btns">
+            <button type="button" class="s-btn" id="btnCopyBookmark">复制书签地址</button>
+            <button type="button" class="s-btn" id="btnGrabClip">收下剪贴板</button>
+          </div>
         </div>
 
       </div>
@@ -388,7 +388,7 @@
   </div>
 
   <div class="drawer-foot">
-    <button class="save-btn" id="saveCfg">保存</button>
+    <button class="save-btn" id="saveCfg">完成</button>
   </div>
 </aside>
 
@@ -427,18 +427,18 @@
         <b>一键同步登录态</b>
         <span class="ext-badge" id="extBadge">可选</span>
       </div>
-      <p class="ext-p">装一次小扩展，以后点一下就把你 <b id="extBrowser">日常浏览器</b> 里已登录的账号同步进来，不用再登一遍。</p>
+      <p class="ext-p">装一次小扩展，就把你 <b id="extBrowser">日常浏览器</b> 里已登录的账号自动同步进来，之后一直自己更新，不用再登一遍。</p>
       <div class="ext-acts">
         <button type="button" id="extFolder">打开扩展文件夹</button>
         <button type="button" id="extPage">打开扩展安装页</button>
       </div>
-      <p class="ext-steps">扩展页右上角开「开发者模式」→「加载已解压的扩展程序」→ 选中刚打开的 <code>browser-extension</code> 文件夹 → 点图标里的「立即同步」。</p>
+      <p class="ext-steps">扩展页右上角开「开发者模式」→「加载已解压的扩展程序」→ 选中刚打开的 <code>browser-extension</code> 文件夹。装好立刻自动同步一次。</p>
       <p class="ext-note">只读取下载器支持的站点，只发到本机 127.0.0.1，不上传。<span id="extLast"></span></p>
     </div>
 
     <p class="acct-lead">
       点「打开」用的是<b>你平时那个已登录的浏览器</b>，不会再弹独立 / 无痕窗口。
-      登录态用上面的扩展一键同步；不想装扩展，就在那行点「粘贴」手动贴一次。
+      装了扩展，登录态会自己进来；不想装，就在那行点「粘贴」贴一次。
     </p>
 
     <div id="logins" class="logins"></div>
@@ -480,24 +480,6 @@
     <div class="modal-foot">
       <button class="ghost-btn" id="ckCancel">取消</button>
       <button class="save-btn" id="ckSave">保存</button>
-    </div>
-  </div>
-</div>
-
-<div class="fd" id="firstDir">
-  <div class="fd-card">
-    <div class="fd-mark">
-      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-        <path d="M3 7.2c0-1 .8-1.8 1.8-1.8h4l1.8 2h7.6c1 0 1.8.8 1.8 1.8v8.6c0 1-.8 1.8-1.8 1.8H4.8c-1 0-1.8-.8-1.8-1.8z"
-              fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
-      </svg>
-    </div>
-    <h2>下好的文件存哪儿？</h2>
-    <p>选一个文件夹，视频和图集都会存进去。以后想换，在右上角「设置」里随时可以改。</p>
-    <div class="fd-path" id="fdPath"></div>
-    <div class="fd-btns">
-      <button class="fd-ghost" id="fdDefault">就用这个</button>
-      <button class="fd-main" id="fdPick">选择文件夹</button>
     </div>
   </div>
 </div>

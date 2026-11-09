@@ -904,8 +904,27 @@ body.tab-music .tasks-block {
 }
 
 .toast.on { opacity: 1; transform: translate(-50%, 0); }
+/* 带按钮的提示要能点 */
+.toast.has-act { pointer-events: auto; display: flex; align-items: center; gap: 12px; }
+.toast.has-act button {
+  border: 0; background: rgba(255,255,255,.16); color: #fff;
+  font: inherit; font-size: 11.5px; padding: 4px 10px;
+  border-radius: 6px; cursor: pointer; white-space: nowrap;
+}
+.toast.has-act button:hover { background: rgba(255,255,255,.28); }
 /* 播放条在底下时，提示往上挪，别压住它 */
 body.playing .toast { bottom: 84px; }
+
+/* ---------- 设置：默认只留控件，说明收进折叠 / 悬停提示 ---------- */
+.name-box { margin: 2px 0 16px; }
+.name-box > summary { font-size: 12px; color: var(--text-2); }
+.name-box[open] { margin-bottom: 14px; }
+.name-box .qbox-body .field { margin-bottom: 0; }
+.name-box .qbox-body .field .hint { margin-top: 6px; }
+.name-edit[hidden] { display: none; }
+.row-btns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
+/* 删掉副标题后，开关行收紧一点，一屏能看完 */
+.tg { padding: 8px 0; }
 
 /* ---------- 粘贴闸门 / 交互反馈 ---------- */
 .composer.pulse {
@@ -1242,6 +1261,8 @@ body.playing .toast { bottom: 84px; }
 }
 
 .login-bar button:hover { color: var(--err); }
+.login-bar button.go { text-decoration: underline; text-underline-offset: 3px; white-space: nowrap; }
+.login-bar button.go:hover { color: var(--text); }
 
 @media (max-width: 620px) {
   .wrap { padding: 22px 16px 16px; }

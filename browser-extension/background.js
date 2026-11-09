@@ -108,13 +108,23 @@ function unschedule() {
   chrome.alarms.clear(ALARM);
 }
 
+/* 默认就开着自动同步：装上即生效，不用先点一次图标。
+   用户明确关掉过才关（存的是 false）。 */
+async function autoOn() {
+  const d = await chrome.storage.local.get("auto");
+  return d.auto !== false;
+}
+
 chrome.runtime.onInstalled.addListener(async () => {
-  const { auto } = await chrome.storage.local.get("auto");
-  if (auto) schedule();
+  await chrome.storage.local.set({ auto: true });
+  schedule();
+  syncAll();                    // 装完立刻送一次登录态
 });
 chrome.runtime.onStartup.addListener(async () => {
-  const { auto } = await chrome.storage.local.get("auto");
-  if (auto) schedule();
+  if (await autoOn()) {
+    schedule();
+    syncAll();
+  }
 });
 chrome.alarms.onAlarm.addListener(a => {
   if (a.name === ALARM) syncAll();

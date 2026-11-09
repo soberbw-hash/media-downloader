@@ -2,7 +2,7 @@ const $ = s => document.querySelector(s);
 
 async function render() {
   const d = await chrome.storage.local.get(["lastSync", "lastMsg", "auto"]);
-  $("#auto").checked = !!d.auto;
+  $("#auto").checked = d.auto !== false;   // 没设置过 = 默认开
   if (d.lastSync) {
     const t = new Date(d.lastSync).toLocaleTimeString("zh-CN", {
       hour: "2-digit", minute: "2-digit"

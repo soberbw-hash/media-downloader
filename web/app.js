@@ -40,9 +40,18 @@ let pushKey = "";          // 「一键收网页」书签带的钥匙，跟着�
 let autoPaste = localStorage.getItem("autoPaste") !== "0";
 let supportRendered = false;
 
-function toast(msg, ms = 2400) {
+function toast(msg, ms = 2400, action) {
   const t = $("#toast");
+  t.classList.remove("has-act");
   t.textContent = msg;
+  if (action && action.label && typeof action.fn === "function") {
+    t.classList.add("has-act");
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = action.label;
+    b.onclick = () => { t.classList.remove("on"); action.fn(); };
+    t.appendChild(b);
+  }
   t.classList.add("on");
   clearTimeout(t._h);
   t._h = setTimeout(() => t.classList.remove("on"), ms);
@@ -72,8 +81,19 @@ function urlsIn(text) {
   }
   hits.sort((a, b) => a[0] - b[0]);
   const out = [];
-  hits.forEach(([, u]) => { if (!out.includes(u)) out.push(u); });
+  // 软件自己的地址（/push 书签回链）不是素材，别把它变成一条必然失败的下载任务
+  hits.forEach(([, u]) => { if (!isSelfUrl(u) && !out.includes(u)) out.push(u); });
   return out;
+}
+
+function isSelfUrl(u) {
+  try {
+    const x = new URL(u);
+    const h = x.hostname.toLowerCase();
+    const port = +x.port;
+    if (h !== "127.0.0.1" && h !== "localhost" && h !== "[::1]") return false;
+    return x.pathname === "/push" || (port >= 8765 && port <= 8785);
+  } catch (e) { return false; }
 }
 
 function platformOf(url) {
@@ -517,9 +537,28 @@ function syncTitle(tasks, c) {
     t = `✓ ${c.done} 项已完成`;
     clearTimeout(syncTitle._t);
     syncTitle._t = setTimeout(() => { document.title = "音视频下载器"; }, 5000);
+    notifyDone(c.done);
   }
   liveBefore = c.live;
   if (document.title !== t) document.title = t;
+}
+
+/* 下完了主动说一声，并给一步到文件夹的入口；没授权系统通知就不去讨权限 */
+function notifyDone(n) {
+  try {
+    if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+      const nt = new Notification("音视频下载器", { body: `${n} 项已下好` });
+      nt.onclick = () => {
+        window.focus();
+        const b = $("#openDir");
+        if (b) b.click();
+      };
+    }
+  } catch (e) {}
+  toast(`${n} 项已下好`, 5600, {
+    label: "打开文件夹",
+    fn: () => { const b = $("#openDir"); if (b) b.click(); },
+  });
 }
 
 let lastTasks = [];
@@ -620,6 +659,11 @@ async function poll() {
       pushKey = d.push_key;
       renderPushBookmark();
     }
+    // 版本号先填本地的，别等联网检查时先闪一个「v—」
+    if (d.version) {
+      const cv = $("#curVer");
+      if (cv && (cv.textContent === "v—" || !cv.textContent)) cv.textContent = "v" + d.version;
+    }
     renderSupport(d.platforms || []);
     // 有活在跑就勤快点，全闲着没必要每 0.8 秒问一次
     const busy = tasks.some((t) => t.status === "running" || t.status === "queued");
@@ -682,9 +726,11 @@ function renderSupport(list) {
 let inflight = 0;
 
 async function submitBlocks(blocks, localUrls) {
-  await ensureDir();          // 第一次用时先问一句存哪儿
+  // 粘贴、拖放、全局 Ctrl+V、剪贴板自动收都走这儿，统一一道闸防重复提交
+  if (inflight > 0) return;
   inflight++;
   try {
+    await ensureDir();
     const r = await post("/api/add", { blocks });
     const added = r.added || [];
     const skipped = r.skipped || [];
@@ -811,6 +857,29 @@ document.addEventListener("paste", (e) => {
   }
 });
 
+/* 在搜索框里粘了一条链接：别当歌名搜，直接切回「链接下载」下掉 */
+const mQuery = $("#mQuery");
+if (mQuery) {
+  mQuery.addEventListener("paste", (e) => {
+    const cd = e.clipboardData || window.clipboardData;
+    const text = cd ? cd.getData("text") : "";
+    const urls = urlsIn(text);
+    if (!urls.length) return;
+    e.preventDefault();
+    applyTab("video");
+    if (autoPaste) {
+      flashComposer();
+      submitBlocks([{ text }], urls);
+      toast("认出是链接，已直接开始下载");
+    } else {
+      input.value = (input.value ? input.value + "\n" : "") + text;
+      autoGrow();
+      renderDetected(urlsIn(input.value));
+      toast("认出是链接，点「开始下载」就行");
+    }
+  });
+}
+
 $("#autoPaste").addEventListener("change", (e) => {
   autoPaste = e.target.checked;
   localStorage.setItem("autoPaste", autoPaste ? "1" : "0");
@@ -818,15 +887,25 @@ $("#autoPaste").addEventListener("change", (e) => {
   toast(autoPaste ? "粘贴后自动开始下载" : "粘贴后点「开始下载」");
 });
 
-/* ---------- 一键收：书签 + 剪贴板 ---------- */
-/* 在别的网站点一下书签就把当前页推过来，连复制都不用 */
+/* ---------- 网页书签 + 剪贴板（收进高级设置，用不上就看不见） ---------- */
+let bookmarklet = "";
 function renderPushBookmark() {
-  const el = $("#pushBookmark");
-  if (!el || !pushKey) return;
+  if (!pushKey) return;
   const base = location.origin + "/push?k=" + encodeURIComponent(pushKey) + "&url=";
-  el.href = "javascript:(function(){window.open('" + base +
+  bookmarklet = "javascript:(function(){window.open('" + base +
     "'+encodeURIComponent(location.href),'_blank');})()";
 }
+
+const copyBm = $("#btnCopyBookmark");
+if (copyBm) copyBm.onclick = async () => {
+  if (!bookmarklet) { toast("还没连上服务，稍等一下再点"); return; }
+  try {
+    await navigator.clipboard.writeText(bookmarklet);
+    toast("已复制 · 新建个书签，把地址粘进去就能用", 4200);
+  } catch (e) {
+    window.prompt("复制这段，新建书签时粘到地址里：", bookmarklet);
+  }
+};
 
 let lastClip = "";
 async function grabClipboard(manual) {
@@ -1014,6 +1093,22 @@ function renderLoginBar(status, busy) {
   };
   if (busy) {
     show(status.msg || "请在浏览器窗口里完成登录", true);
+  } else if (status.state === "opened") {
+    // 打开网页之后别让状态栏空着，明确告诉用户下一步（或不用做什么）
+    const synced = !!(extInfo && extInfo.synced);
+    show(synced
+      ? "网页已打开 · 登录态会自动同步，这边不用管了"
+      : "网页已打开 · 装一次同步扩展，以后登录态自己就进来了", false);
+    if (!synced) {
+      const b = document.createElement("button");
+      b.className = "go";
+      b.textContent = "看怎么装";
+      b.onclick = () => {
+        const card = $("#extCard");
+        if (card) card.scrollIntoView({ behavior: "smooth", block: "center" });
+      };
+      bar.appendChild(b);
+    }
   } else if (["done", "error", "timeout", "closed"].includes(status.state)) {
     show(status.msg || "", false);
   }
@@ -1082,9 +1177,9 @@ async function saveCookie() {
 }
 
 async function logoutSite(s) {
-  if (!window.confirm("退出 " + s.name + " 的登录？")) return;
   const r = await post("/api/login/logout", { platform: s.id });
-  toast(r.msg || (r.ok ? "已退出" : "退出失败"));
+  toast(r.ok ? `已退出 ${s.name} · 想恢复，点扩展同步或「粘贴」就行`
+             : (r.msg || "退出失败"));
   loadLogins(true);
 }
 
@@ -1113,9 +1208,6 @@ if (typeof document !== "undefined") {
 }
 
 /* ---------- 下载目录 ---------- */
-let dirPromise = null;
-let dirResolve = null;
-
 async function openPicker(btn, label) {
   if (btn) {
     btn.disabled = true;
@@ -1144,40 +1236,18 @@ async function saveDir(path) {
   return false;
 }
 
+/* 默认目录直接开下，不再拦一个「存哪儿」的弹窗打断粘贴。
+   只在第一次悄悄说一句文件去哪了，想换随时去设置里点「浏览」。 */
 async function ensureDir() {
   if (!cfg || !cfg.out_dir) {
     try { await poll(); } catch (e) {}   // 配置还没拉下来，先等一次
   }
-  if (cfg && cfg.out_dir_set) return true;
-  if (dirPromise) return dirPromise;     // 已经在问了
-  $("#fdPath").textContent = (cfg && cfg.out_dir) || "默认目录";
-  $("#firstDir").classList.add("on");
-  dirPromise = new Promise((res) => { dirResolve = res; });
-  return dirPromise;
+  if (!ensureDir._told && cfg && !cfg.out_dir_set) {
+    ensureDir._told = true;
+    toast(`文件会存到 ${cfg.out_dir || "默认文件夹"} · 想改去设置`, 4200);
+  }
+  return true;
 }
-
-function closeFirstDir() {
-  $("#firstDir").classList.remove("on");
-  const fn = dirResolve;
-  dirResolve = null;
-  dirPromise = null;
-  if (fn) fn(true);
-}
-
-$("#fdDefault").onclick = async () => {
-  if (!(await saveDir(cfg.out_dir))) { toast("保存失败"); return; }
-  toast("下载目录：" + cfg.out_dir, 3200);
-  closeFirstDir();
-};
-
-$("#fdPick").onclick = async () => {
-  const p = await openPicker($("#fdPick"), "选择文件夹");
-  if (!p) return;
-  if (!(await saveDir(p))) { toast("保存失败"); return; }
-  $("#fdPath").textContent = cfg.out_dir;
-  toast("下载目录：" + cfg.out_dir, 3200);
-  closeFirstDir();
-};
 
 /* ---------- 设置 ---------- */
 function openDrawer() {
@@ -1299,6 +1369,21 @@ function syncNameUI(fromSelect) {
   hint.textContent = ex
     ? "示例：" + ex
     : "留空用原标题。选「自定义」后，点标签往里加，用下划线连接。";
+  syncNameSummary();
+}
+
+/* 折叠状态下也要一眼看到现在用的是哪套命名 */
+function syncNameSummary() {
+  const el = $("#nameSummary");
+  if (!el) return;
+  const pre = $("#cfgNamePre");
+  const tpl = $("#cfgNameTpl");
+  if (!pre || !tpl) return;
+  const v = pre.value === "" ? "" : tpl.value.trim();
+  const opt = pre.options[pre.selectedIndex];
+  const label = opt ? opt.textContent : "自定义";
+  el.textContent = !v ? "文件命名 · 原标题"
+    : "文件命名 · " + (pre.value === "__custom__" ? "自定义" : label);
 }
 
 if ($("#cfgNamePre")) {
@@ -1383,8 +1468,9 @@ $("#quitApp").onclick = async () => {
   }, 900);
 };
 
-$("#saveCfg").onclick = async () => {
-  const r = await post("/api/config", {
+/* ---------- 设置：改一下就存一下，不用记着点「完成」 ---------- */
+function collectCfg() {
+  return {
     out_dir: $("#cfgOut").value.trim(),
     quality: $("#cfgQuality").value,
     proxy: $("#cfgProxy").value.trim(),
@@ -1398,8 +1484,61 @@ $("#saveCfg").onclick = async () => {
     down_subs: $("#cfgSubs").checked,
     save_danmaku: $("#cfgDanmaku").checked,
     save_desc: $("#cfgDesc").checked,
-  });
-  if (r.ok) { cfg = r.config; toast("已保存"); closeAllDrawers(); }
+  };
+}
+
+async function pushCfg(patch) {
+  try {
+    const r = await post("/api/config", patch);
+    if (r.ok) cfg = r.config;
+    else if (r.error) toast(r.error, 3200);
+  } catch (e) { /* 服务没起来时别刷错误，下次改动会再试 */ }
+}
+
+const cfgTimers = {};
+function cfgLater(key, patch, wait = 420) {
+  clearTimeout(cfgTimers[key]);
+  cfgTimers[key] = setTimeout(() => pushCfg(patch), wait);
+}
+function nameTplNow() {
+  return { name_tpl: $("#cfgNamePre").value === "" ? "" : $("#cfgNameTpl").value.trim() };
+}
+
+// 下拉 / 开关：改完立刻生效
+[["#cfgQuality", () => ({ quality: $("#cfgQuality").value })],
+ ["#cfgConc", () => ({ concurrency: parseInt($("#cfgConc").value, 10) || 3 })],
+ ["#cfgCover", () => ({ save_cover: $("#cfgCover").checked })],
+ ["#cfgSubs", () => ({ down_subs: $("#cfgSubs").checked })],
+ ["#cfgDanmaku", () => ({ save_danmaku: $("#cfgDanmaku").checked })],
+ ["#cfgDesc", () => ({ save_desc: $("#cfgDesc").checked })],
+].forEach(([sel, get]) => {
+  const el = $(sel);
+  if (el) el.addEventListener("change", () => pushCfg(get()));
+});
+
+// 文本框：停手一会儿再存，别把打了一半的路径建成文件夹
+["#cfgProxy", "#cfgCookies", "#cfgSph", "#cfgSphToken", "#cfgMusicDir"].forEach((sel) => {
+  const el = $(sel);
+  if (!el) return;
+  const key = { "#cfgProxy": "proxy", "#cfgCookies": "cookies_file", "#cfgSph": "sph_api",
+                "#cfgSphToken": "sph_token", "#cfgMusicDir": "music_dir" }[sel];
+  el.addEventListener("input", () => cfgLater(key, { [key]: el.value.trim() }, 600));
+});
+const outEl = $("#cfgOut");
+if (outEl) outEl.addEventListener("change", () => pushCfg({ out_dir: outEl.value.trim() }));
+const tplEl = $("#cfgNameTpl");
+if (tplEl) tplEl.addEventListener("input", () => cfgLater("name_tpl", nameTplNow(), 600));
+const preEl = $("#cfgNamePre");
+if (preEl) preEl.addEventListener("change", () => {
+  syncNameUI(true);
+  pushCfg(nameTplNow());
+  syncNameSummary();
+});
+
+$("#saveCfg").onclick = async () => {
+  Object.keys(cfgTimers).forEach((k) => clearTimeout(cfgTimers[k]));
+  const r = await post("/api/config", collectCfg());
+  if (r.ok) { cfg = r.config; closeAllDrawers(); }
   else toast(r.error || "保存失败", 3600);
 };
 
@@ -1497,7 +1636,11 @@ function musicUrlOf(s) {
 
 const PLAT_NAME = { all: "全网", netease: "网易云", qqmusic: "QQ音乐", kugou: "酷狗", bili: "B站", youtube: "YouTube" };
 const MUSIC_PLATS = ["netease", "qqmusic", "kugou"];   // 能搜歌、也能试听的平台
-let mMode = "music";      // music=搜歌 / video=搜视频素材 / movie=搜电影
+// 记住上次在搜歌 / 找素材 / 找电影，别每次进来都先点一下「视频」
+let mMode = (() => {
+  const v = localStorage.getItem("mMode");
+  return (v === "music" || v === "video" || v === "movie") ? v : "music";
+})();
 let vPlat = "all";        // all 或某个来源 id
 
 /* 聚合搜索：来源清单、资源站入口都由后端下发；
@@ -1555,28 +1698,39 @@ document.querySelectorAll("#mPlats .plat").forEach((b) => {
 });
 applyPlat(mPlat);
 
+function syncModeUI() {
+  document.querySelectorAll("#mSrc .plat").forEach((x) => {
+    x.classList.toggle("on", x.dataset.s === mMode);
+  });
+  const plats = $("#mPlats");
+  if (plats) plats.hidden = mMode !== "music";
+  applySourceUI();
+  const q = $("#mQuery");
+  if (q) {
+    q.placeholder = mMode === "video" ? "视频关键词：电影解说、运镜、猫咪…"
+      : mMode === "movie" ? "片名：哪吒、流浪地球、三体…"
+      : "歌名、歌手";
+  }
+  const mic = $("#mRec");
+  if (mic) mic.hidden = mMode !== "music";
+}
+
 document.querySelectorAll("#mSrc .plat").forEach((b) => {
   b.onclick = () => {
     mMode = b.dataset.s;
-    document.querySelectorAll("#mSrc .plat").forEach((x) => x.classList.toggle("on", x === b));
-    $("#mPlats").hidden = mMode !== "music";
-    applySourceUI();
-    $("#mQuery").placeholder =
-      mMode === "video" ? "视频关键词：电影解说、运镜、猫咪…"
-      : mMode === "movie" ? "片名：哪吒、流浪地球、三体…"
-      : "歌名、歌手";
+    localStorage.setItem("mMode", mMode);
+    syncModeUI();
     // 换来源就是换一套东西，旧的计数、旧的列表、旧的提示都得清掉。
     // 不清就会出现「上面写着共 24 条，下面却是另一个来源的空列表」。
     resetResults();
     // 识曲只在音乐来源下有入口：认出来的是歌，跟搜片名不是一回事
-    const mic = $("#mRec");
-    if (mic) mic.hidden = mMode !== "music";
     if (mMode !== "music") recOpen(false);
     const q = $("#mQuery").value.trim();
     if (q) musicSearch(q);
     else $("#mHint").textContent = SOURCE_GUIDE[mMode] || "";
   };
 });
+syncModeUI();   // 启动时按上次用的模式摆好界面
 
 /* ---------------- 多来源聚合 ---------------- */
 function applySourceUI() {
@@ -2037,6 +2191,22 @@ function syncPvButtons() {
   }
 }
 
+/* 上一首 / 下一首：只挑能试听的歌，电影、没结果的条目直接跳过 */
+function playAdjacent(step) {
+  const n = mItems.length;
+  if (!n) return;
+  let i = mItems.findIndex((s) => mkey(s) === pvKey);
+  if (i < 0) i = step > 0 ? -1 : 0;
+  for (let k = 1; k <= n; k++) {
+    const j = ((i + step * k) % n + n) % n;
+    const s = mItems[j];
+    if (!s || !MUSIC_PLATS.includes(s.platform)) continue;
+    const el = document.querySelector(`#mResults .msong[data-i="${j}"] .pv`);
+    previewSong(s, el || document.createElement("span"));
+    return;
+  }
+}
+
 function initPreview() {
   const au = $("#auPlayer");
   if (!au) return;
@@ -2044,7 +2214,11 @@ function initPreview() {
   au.addEventListener("loadedmetadata", updatePvTime);
   au.addEventListener("play", syncPvButtons);
   au.addEventListener("pause", syncPvButtons);
-  au.addEventListener("ended", () => { au.currentTime = 0; syncPvButtons(); });
+  au.addEventListener("ended", () => {
+    au.currentTime = 0;
+    syncPvButtons();
+    playAdjacent(1);        // 播完自动接下一首，不用回列表再点
+  });
   au.addEventListener("error", () => {
     if (!au.getAttribute("src")) return;      // 主动 stopPreview 也会触发 error
     toast("这条音频拉不下来，换一首试试", 3600);
@@ -2059,6 +2233,10 @@ function initPreview() {
   };
   const stop = $("#pbStop");
   if (stop) stop.onclick = stopPreview;
+  const prev = $("#pbPrev");
+  if (prev) prev.onclick = () => playAdjacent(-1);
+  const next = $("#pbNext");
+  if (next) next.onclick = () => playAdjacent(1);
   const pbar = $("#pbBar");
   if (pbar) pbar.onclick = (e) => {
     if (!isFinite(au.duration) || au.duration <= 0) return;
@@ -2485,7 +2663,7 @@ async function movieSearch(q) {
     const errs = (r.errors || []).join("；");
     $("#mHint").textContent = mItems.length ? errs : (errs || "没搜到，换个片名或简称试试");
   } catch (e) {
-    $("#mHint").textContent = "搜索失败，服务可能已经关了";
+    $("#mHint").textContent = "没连上，稍等一下再搜一次";
   } finally {
     searching = false;
     $("#mGo").disabled = false;
@@ -2527,7 +2705,7 @@ async function musicSearch(q) {
     const errs = (r.errors || []).join("；");
     $("#mHint").textContent = mItems.length ? errs : (errs || "没搜到，换个关键词或换个来源");
   } catch (e) {
-    $("#mHint").textContent = "搜索失败，服务可能已经关了";
+    $("#mHint").textContent = "没连上，稍等一下再搜一次";
   } finally {
     searching = false;
     $("#mGo").disabled = false;
@@ -2731,6 +2909,7 @@ if ($("#pickMusic")) {
     const p = await openPicker($("#pickMusic"), "浏览");
     if (!p) return;
     $("#cfgMusicDir").value = p;
-    toast("点底部「保存」生效");
+    await pushCfg({ music_dir: p });
+    toast("音乐目录已改成 " + p, 3200);
   };
 }

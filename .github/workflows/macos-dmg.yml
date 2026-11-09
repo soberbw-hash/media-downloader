@@ -99,7 +99,20 @@ jobs:
             echo "清掉旧资产 id=$aid"
             gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$aid" >/dev/null
           done
-          # 中文文件名直接交给 gh；用 -- 防文件名被当成参数
-          gh release upload "$TAG" dmgs/*.dmg --repo "$GITHUB_REPOSITORY" --clobber
+          # gh release upload 会把中文资产名剥成 "-1.24.1-M.dmg" 这种残缺名，
+          # 所以走官方上传接口，用 name= 显式指定（URL 编码后的完整中文名）。
+          UPLOAD="https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RID/assets"
+          for f in dmgs/*.dmg; do
+            name=$(basename "$f")
+            enc=$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1],safe=""))' "$name")
+            echo "上传: $name"
+            curl -fsS --max-time 600 -X POST \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@$f" "$UPLOAD?name=$enc" >/dev/null
+          done
           echo "本次资产："
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name'
+          # 名字没保住就让它红，别悄悄发出一个认不出来的包
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets \
+            --jq '[.assets[].name | select(contains("芯片版"))] | length' | grep -qx 2

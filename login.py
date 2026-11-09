@@ -538,19 +538,25 @@ def open_site(pid):
 
 
 def open_ext_dir():
-    """打开随包的扩展文件夹，方便用户拖进扩展安装页。"""
+    """在文件管理器里**选中** browser-extension 文件夹本身，而不是打开进去。
+
+    Chrome 2018 起就不收单个 .crx 了（Win/Mac 只认商店签名），但把整个扩展
+    文件夹拖进 chrome://extensions 一直有效。选中状态用户按住就能拖，
+    不用自己退回上一级去找那个文件夹。
+    """
     if not os.path.isdir(EXT_DIR):
         return False, "没找到扩展文件夹（browser-extension）"
     if os.environ.get("VDL_NO_OPEN") == "1":
-        return True, "已打开扩展文件夹"
+        return True, "已选中扩展文件夹"
     try:
         if sys.platform == "win32":
-            os.startfile(EXT_DIR)
+            subprocess.Popen(["explorer.exe",
+                              "/select," + os.path.normpath(EXT_DIR)])
         elif sys.platform == "darwin":
-            subprocess.Popen(["open", EXT_DIR])
+            subprocess.Popen(["open", "-R", EXT_DIR])   # Finder 里选中它
         else:
-            subprocess.Popen(["xdg-open", EXT_DIR])
-        return True, "已打开扩展文件夹"
+            subprocess.Popen(["xdg-open", os.path.dirname(EXT_DIR)])
+        return True, "已选中扩展文件夹"
     except Exception as e:
         return False, "打不开文件夹：%s" % str(e)[:100]
 
@@ -564,14 +570,14 @@ def open_ext_page():
 
 
 def setup_ext():
-    """「一键装小助手」：文件夹和浏览器扩展页一起打开，用户只差选一下文件夹。
+    """「一键装小助手」：选中文件夹 + 打开扩展页，用户把文件夹拖进去就完事。
 
     以前要在界面上点两个按钮、还得自己弄懂先后顺序；这一步合并掉。
     """
     ok_dir, msg_dir = open_ext_dir()
     ok_page, msg_page = open_ext_page()
     if ok_dir and ok_page:
-        return True, "已打开安装页和文件夹，在页面里点「加载已解压的扩展程序」选中它就行"
+        return True, "文件夹已选中、安装页已打开，把文件夹拖进网页就行"
     if ok_dir or ok_page:
         return True, "打开了一个，另一个没开成：%s" % (msg_page if ok_dir else msg_dir)
     return False, "没打开：%s / %s" % (msg_dir, msg_page)

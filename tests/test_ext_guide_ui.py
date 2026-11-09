@@ -1,0 +1,107 @@
+# -*- coding: utf-8 -*-
+"""真机看一眼「怎么装」图文三步：自己起隔离服务、截图、检查没挤出抽屉。
+
+跑法：python tests/test_ext_guide_ui.py
+服务用完自动关，VDL_NO_OPEN=1 不会真弹文件夹 / 浏览器。
+"""
+import os
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.request
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+EXE = r"C:/Program Files/Google/Chrome/Application/chrome.exe"
+OP = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+SHOT = os.path.join(tempfile.gettempdir(), "vdl_ext_guide.png")
+
+
+def log(*a):
+    print(*a, flush=True)
+
+
+def find_new_service():
+    for _ in range(40):
+        for port in range(8765, 8786):
+            try:
+                html = OP.open("http://127.0.0.1:%d/" % port, timeout=0.6).read().decode(
+                    "utf-8", "replace")
+            except Exception:
+                continue
+            if 'class="gpic"' in html and "拖进网页" in html:
+                return port
+        time.sleep(0.25)
+    return 0
+
+
+def main():
+    tmp = tempfile.mkdtemp(prefix="vdl_guide_")
+    env = os.environ.copy()
+    env.update({"VDL_FORCE_NEW": "1", "VDL_NO_OPEN": "1", "VDL_DATA_DIR": tmp})
+    logf = open(os.path.join(tmp, "srv.log"), "wb")
+    srv = subprocess.Popen([sys.executable, "server.py", "none"], cwd=ROOT,
+                           env=env, stdout=logf, stderr=subprocess.STDOUT)
+    try:
+        port = find_new_service()
+        assert port, "没起带新代码的服务（可能被旧桌面版占了）"
+        log("隔离服务端口:", port)
+
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            b = p.chromium.launch(executable_path=EXE, headless=True)
+            pg = b.new_page(viewport={"width": 1280, "height": 900})
+            pg.goto("http://127.0.0.1:%d/" % port, wait_until="networkidle", timeout=30000)
+            pg.evaluate("() => document.querySelector('#openAcct').click()")
+            pg.wait_for_timeout(500)
+
+            sm = pg.locator("#extHow summary")
+            assert sm.is_visible(), "「怎么装」小按钮没显示"
+            assert not pg.locator("#extHow").evaluate("e => e.open"), "默认没折叠"
+            sm.click()
+            pg.wait_for_timeout(350)
+
+            steps = pg.locator("#extHow .gstep")
+            pics = pg.locator("#extHow svg.gpic")
+            assert steps.count() == 3 and pics.count() == 3, "图文三步不齐"
+            for i in range(3):
+                assert pics.nth(i).is_visible(), "第 %d 张图没显示" % (i + 1)
+            log("  OK 小按钮点开后三步图文都在")
+
+            # 卡片不能横向溢出抽屉（330px），文字也不能被图挤没
+            drawer = pg.locator("#acctDrawer").bounding_box()
+            right = drawer["x"] + drawer["width"]
+            for i in range(3):
+                box = steps.nth(i).bounding_box()
+                assert box["x"] >= drawer["x"] - 1, "第 %d 步跑出抽屉左边" % (i + 1)
+                assert box["x"] + box["width"] <= right + 1, \
+                    "第 %d 步横向溢出抽屉" % (i + 1)
+                txt = steps.nth(i).locator(".gt").bounding_box()
+                assert txt and txt["width"] >= 90, "第 %d 步文字被挤没了" % (i + 1)
+            log("  OK 三步在抽屉里没溢出、文字没被挤掉")
+
+            steps.first.scroll_into_view_if_needed()
+            pg.locator("#extHow").screenshot(path=SHOT)
+            log("  截图:", SHOT)
+
+            # 「一键装小助手」仍会自动展开图文，且反馈是新动作文案
+            pg.locator("#extHow").evaluate("e => e.open = false")
+            pg.locator("#btnExtSetup").click()
+            pg.wait_for_timeout(700)
+            assert pg.locator("#extHow").evaluate("e => e.open"), "点一键后没展开"
+            assert "文件夹已选中，拖进网页就行" in pg.inner_text("#toast"), \
+                "一键按钮反馈文案不对"
+            log("  OK 一键装小助手：接口通、自动展开、反馈是动作")
+            b.close()
+    finally:
+        srv.terminate()
+        try:
+            srv.wait(timeout=5)
+        except Exception:
+            srv.kill()
+        logf.close()
+    log("全部通过")
+
+
+if __name__ == "__main__":
+    main()

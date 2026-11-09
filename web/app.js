@@ -1024,7 +1024,7 @@ async function setupExt() {
   const r = await post("/api/login/setup_ext", {});
   if (btn) btn.disabled = false;
   if (!r.ok) { toast(r.error || "没打开，稍后再试一次"); return; }
-  toast("照着下面三步选一下");
+  toast("文件夹已选中，拖进网页就行");
   const how = $("#extHow");
   if (how) how.open = true;
   setTimeout(() => loadLogins(true), 3000);
@@ -1164,7 +1164,7 @@ if (typeof document !== "undefined") {
   const ef = $("#extFolder");
   if (ef) ef.onclick = async () => {
     const r = await post("/api/login/open_ext_dir", {});
-    toast(r.ok ? "已打开扩展文件夹，选中它加载进扩展页" : (r.error || "打不开文件夹"));
+    toast(r.ok ? "已选中扩展文件夹，拖进网页就行" : (r.error || "打不开文件夹"));
   };
   const ep = $("#extPage");
   if (ep) ep.onclick = async () => {

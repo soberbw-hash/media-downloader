@@ -459,6 +459,50 @@ def main():
             updater.proxy_hint = saved_hint
             os.environ.pop("VDL_UPDATE_VERSION_ALT", None)
 
+        log("=== 12. 查不到新版时，界面那行字不会被轮询刷回去 ===")
+        # 版本那一行是每秒轮询 /api/state 刷出来的。检查失败只在前端临时写一句，
+        # 下一轮就被刷回「启动时自动检查新版」——用户看到的就是「点了没反应」。
+        env2 = dict(env)
+        env2.update({
+            "VDL_DATA_DIR": os.path.join(tmp, "srvdata2"),
+            "VDL_UPDATE_API": "http://127.0.0.1:9/nope",
+            "VDL_UPDATE_VERSION_TXT": "http://127.0.0.1:9/nope",
+            "VDL_UPDATE_MANUAL": "http://127.0.0.1:9/manual",
+        })
+        pf2 = os.path.join(tmp, "port2.txt")
+        env2["VDL_PORT_FILE"] = pf2
+        logf2 = open(os.path.join(tmp, "srv2.log"), "wb")
+        proc2 = subprocess.Popen([sys.executable, "server.py", "none"], cwd=ROOT,
+                                 env=env2, stdout=logf2, stderr=subprocess.STDOUT)
+        try:
+            p2 = 0
+            for _ in range(120):
+                if os.path.isfile(pf2):
+                    try:
+                        p2 = int(open(pf2, encoding="utf-8").read().strip() or 0)
+                    except (OSError, ValueError):
+                        p2 = 0
+                if p2:
+                    break
+                time.sleep(0.15)
+            check(bool(p2), "连不上 GitHub 的隔离服务起来了")
+            if p2:
+                u2 = "http://127.0.0.1:%d" % p2
+                time.sleep(1.6)      # 等启动时那次静默检查先跑完，别抢状态
+                r2 = json.load(local.open(u2 + "/api/check_update", timeout=30))
+                check(not r2["ok"] and "连不上" in (r2.get("error") or ""),
+                      "查不到时如实报错，不装成已是最新")
+                st2 = json.load(local.open(u2 + "/api/update/status", timeout=5))["update"]
+                check("连不上" in (st2.get("detail") or ""),
+                      "错误写进了状态，每秒轮询刷不掉这句提示")
+        finally:
+            proc2.terminate()
+            try:
+                proc2.wait(timeout=5)
+            except Exception:
+                proc2.kill()
+            logf2.close()
+
         log("\n通过 %d 项" % PASS[0])
         if FAIL:
             log("失败 %d 项：" % len(FAIL))

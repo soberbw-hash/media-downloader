@@ -1463,7 +1463,13 @@ function renderUpdateStatus(u) {
 
 async function checkUpdate(manual) {
   const msg = $("#updMsg");
+  const btn = $("#checkUpd");
   if (manual && msg) msg.textContent = "正在检查…";
+  // 点下去要有反应：网络差的时候检查要等几秒，按钮不转圈用户就以为没点上
+  if (manual && btn) {
+    btn.disabled = true;
+    btn.textContent = "检查中…";
+  }
   try {
     const r = await fetch("/api/check_update").then((x) => x.json());
     if (r.current) {
@@ -1497,6 +1503,11 @@ async function checkUpdate(manual) {
     }
   } catch (e) {
     if (msg) msg.textContent = manual ? "检查失败，网络不通" : "";
+  } finally {
+    if (manual && btn) {
+      btn.disabled = false;
+      btn.textContent = "检查更新";
+    }
   }
 }
 if ($("#checkUpd")) $("#checkUpd").onclick = () => checkUpdate(true);

@@ -20,6 +20,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -123,13 +124,6 @@ def _fetch(op, url, headers=None, rng=None, timeout=12, tries=3):
     raise last
 
 
-def _json(op, url, timeout=8, tries=2):
-    body, _, _ = _fetch(op, url, {
-        "Accept": "application/vnd.github+json",
-    }, timeout=timeout, tries=tries)
-    return json.loads(body.decode("utf-8", "replace"))
-
-
 def pick_asset(assets, mac=False):
     if mac:
         for a in assets:
@@ -192,66 +186,102 @@ def _net_reason(e):
     return "网络不通"
 
 
+def _probe_all(endpoints, op, timeout):
+    """同时打所有地址，最多等 timeout 秒，能回来几个算几个。
+
+    一个个试的话，GitHub API 被墙要等 6 秒，三个备用地址再各等 4 秒，用户点
+    一下「检查更新」干等十几秒，肉眼看就是「点了没反应」。并发之后最慢也就
+    一次超时的时间。
+    """
+    got = {}
+    lock = threading.Lock()
+
+    def worker(key, url, headers):
+        try:
+            body, _, _ = _fetch(op, url, headers, timeout=timeout, tries=1)
+            with lock:
+                got[key] = body
+        except Exception as e:
+            with lock:
+                got.setdefault(key + ".err", e)
+
+    threads = []
+    for key, url, headers in endpoints:
+        t = threading.Thread(target=worker, args=(key, url, headers), daemon=True)
+        t.start()
+        threads.append(t)
+    end = time.time() + timeout + 0.4
+    for t in threads:
+        t.join(max(0.05, end - time.time()))
+    return got
+
+
 def check(current, timeout=8, op=None):
     """查最新版和对应安装包。连不上就如实说，不假装是最新。
 
-    整个过程有总预算：这个函数是在界面的请求线程里跑的，卡半分钟用户就以为
-    点「检查更新」没反应。宁可快一点给一句「连不上」，也别干等。
+    这个函数跑在界面的请求线程里，卡半分钟用户就以为点「检查更新」没反应。
+    所以所有地址并发探，总耗时压在一次超时以内。
     """
     op = op or opener()
-    deadline = time.time() + max(10, min(timeout * 2, 14))
     out = {
         "ok": False, "current": current, "latest": "", "has_update": False,
         "url": MANUAL_URL, "asset": None, "proxy_hint": proxy_hint(),
         "can_auto": True, "platform": "mac" if IS_MAC else "win", "error": "",
     }
+    urls = _version_urls()
+    eps = [("api", API_LATEST, {"Accept": "application/vnd.github+json"})]
+    eps += [("v%d" % i, u, {"Accept": "application/vnd.github.raw"})
+            for i, u in enumerate(urls)]
+    got = _probe_all(eps, op, min(timeout, 6))
     api_err = None
-    try:
-        # 一次就够：被墙的话重试三次只是让用户多点半分钟等待
-        d = _json(op, API_LATEST, min(timeout, 6), tries=1)
-        latest = (d.get("tag_name") or "").lstrip("v").strip()
-        if not latest:
-            raise ValueError("发布页没有版本号")
-        asset = pick_asset(d.get("assets") or [], IS_MAC)
-        out.update({
-            "ok": True, "latest": latest,
-            "has_update": version_numbers(latest) > version_numbers(current),
-            "asset": ({"name": asset.get("name"), "url": asset.get("browser_download_url"),
-                       "size": asset.get("size") or 0,
-                       "digest": asset.get("digest") or ""} if asset else None),
-        })
-        if not asset:
-            # 版本查到了但对应系统的包没找到：Mac 的 DMG 是发版后由 CI 单独补传的，
-            # 刚发完的那几分钟确实会空一段。别说成「已是最新」，那会让人以为没更新。
-            out["can_auto"] = False
-            out["error"] = ("Mac 包还在生成，过几分钟再点一次检查"
-                            if IS_MAC else "发布页里没有 Windows 安装包")
-        return out
-    except Exception as e:
-        api_err = e
-
-    # Release API 被限流 / 连不上：退到只读 version.txt 的地址，至少能说清有没有新版
-    for u in _version_urls():
-        left = deadline - time.time()
-        if left <= 1.0:
-            break
+    # 1) Release API 通了就它说了算：只有它带安装包信息，能走自动更新
+    body = got.get("api")
+    if body:
         try:
-            body, _, _ = _fetch(op, u, {"Accept": "application/vnd.github.raw"},
-                                timeout=min(4, left), tries=1)
-            latest = body.decode("utf-8", "replace").strip().lstrip("v")
-            if not version_numbers(latest):
-                continue
-            out.update({"ok": True, "latest": latest,
-                        "has_update": version_numbers(latest) > version_numbers(current),
-                        "can_auto": False, "error": "查到新版了，这次得手动下载"})
+            d = json.loads(body.decode("utf-8", "replace"))
+            latest = (d.get("tag_name") or "").lstrip("v").strip()
+            if not latest:
+                raise ValueError("发布页没有版本号")
+            asset = pick_asset(d.get("assets") or [], IS_MAC)
+            out.update({
+                "ok": True, "latest": latest,
+                "has_update": version_numbers(latest) > version_numbers(current),
+                "asset": ({"name": asset.get("name"),
+                           "url": asset.get("browser_download_url"),
+                           "size": asset.get("size") or 0,
+                           "digest": asset.get("digest") or ""} if asset else None),
+            })
+            if not asset:
+                # 版本查到了但对应系统的包没找到：Mac 的 DMG 是发版后由 CI 单独
+                # 补传的，刚发完那几分钟确实会空一段。别说成「已是最新」。
+                out["can_auto"] = False
+                out["error"] = ("Mac 包还在生成，过几分钟再点一次检查"
+                                if IS_MAC else "发布页里没有 Windows 安装包")
             return out
-        except Exception:
+        except Exception as e:
+            api_err = e
+    else:
+        api_err = got.get("api.err") or Exception("连接超时")
+
+    # 2) API 挂了（限流 / 被墙 / 返回脏数据）：退到只读 version.txt 的地址，
+    #    至少能说清「有没有新版」，绝不能把有新版说成已是最新
+    for i in range(len(urls)):
+        b = got.get("v%d" % i)
+        if not b:
             continue
+        latest = b.decode("utf-8", "replace").strip().lstrip("v")
+        if not version_numbers(latest):
+            continue
+        out.update({"ok": True, "latest": latest,
+                    "has_update": version_numbers(latest) > version_numbers(current),
+                    "can_auto": False, "error": "查到新版了，这次得手动下载"})
+        return out
 
     why = _net_reason(api_err)
     out["error"] = ("连不上更新服务器（%s）。先开代理再点一次检查" % why
                     if out["proxy_hint"] else
                     "连不上更新服务器（%s）。开了代理的话，换个节点再试" % why)
+    log("查版本失败：%s" % why)
     return out
 
 

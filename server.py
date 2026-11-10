@@ -846,6 +846,15 @@ class Handler(BaseHTTPRequestHandler):
                 active = _UPD["state"] in ("downloading", "waiting", "applying")
             if not active and not r["has_update"]:
                 _set_upd(state="idle", detail="已是最新 v" + APP_VERSION, error="")
+        else:
+            # 查不到也得把话写进状态里：版本那一行是每秒轮询 /api/state 刷出来的，
+            # 只在前端临时改一句，下一轮就被刷回「启动时自动检查新版」，
+            # 用户看到的就是「点了检查更新，什么都没变」。
+            with _UPD_LOCK:
+                active = _UPD["state"] in ("downloading", "waiting", "applying")
+            if not active:
+                _set_upd(state="idle", latest="", has_update=False,
+                         detail=r["error"] or "检查失败，稍后再试", error=r["error"])
         return out
 
     # ---------- POST ----------

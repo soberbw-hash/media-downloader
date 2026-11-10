@@ -276,8 +276,11 @@ def _update_worker(wait_idle=True):
                      has_update=False, latest=info["latest"], error="")
             return
         if not info["asset"]:
+            # Mac 的 DMG 是发版后 CI 单独补传的，刚发完那几分钟确实会空一段
+            detail = ("新版 v%s 的 Mac 包还在传，过几分钟再点检查" % info["latest"]
+                      if IS_MAC else "发现新版 v%s，点右边下载" % info["latest"])
             _set_upd(state="manual", has_update=True, latest=info["latest"],
-                     detail="发现新版 v%s，点右边下载" % info["latest"],
+                     detail=detail,
                      manual_url=info["url"], proxy_hint=info["proxy_hint"],
                      error=info["error"])
             return

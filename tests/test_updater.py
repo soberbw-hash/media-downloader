@@ -369,6 +369,96 @@ def main():
         check("VPN" in rd and "自动" in rd, "README 写清了代理与自动更新")
         check('"updater.py"' in bp, "新模块进了打包清单")
 
+        log("=== 9. 更新后重启不走单文件 exe（Windows 便携版） ===")
+        # 现场造一份便携版结构：根目录有 exe，程序\ 里有 runtime 和 server.py
+        proot = os.path.join(tmp, "portroot")
+        papp = os.path.join(proot, "程序")
+        os.makedirs(os.path.join(papp, "runtime"))
+        for n in ("pythonw.exe", "python.exe"):
+            with open(os.path.join(papp, "runtime", n), "wb") as f:
+                f.write(b"MZ" + b"\0" * 64)
+        with open(os.path.join(papp, "server.py"), "w", encoding="utf-8") as f:
+            f.write('APP_VERSION = "1.24.4"\n')
+        with open(os.path.join(proot, "音视频下载器.exe"), "wb") as f:
+            f.write(b"MZ" + b"\0" * 64)
+        lp = updater.default_launch("app", papp)
+        check(bool(lp["cmd"]) and lp["cmd"][0].endswith("pythonw.exe"),
+              "重启用包内 pythonw，不让单文件 exe 去解压 %TEMP%")
+        check(len(lp["cmd"]) >= 3 and lp["cmd"][1].endswith("server.py")
+              and lp["cmd"][2] == "app", "重启命令带着 server.py 和窗口模式")
+        check(os.path.abspath(lp["cwd"]) == os.path.abspath(papp),
+              "工作目录钉在程序目录，import 才找得到兄弟模块")
+        check("音视频下载器.exe" not in " ".join(lp["cmd"]),
+              "启动命令里没有那个会崩的 exe")
+        # runtime 被删了才退回 exe，别让更新助手连兜底都没有
+        shutil.rmtree(os.path.join(papp, "runtime"))
+        check(updater.default_launch("app", papp)["cmd"][0].endswith(".exe"),
+              "runtime 不在时才退回 exe 兜底")
+
+        log("=== 10. 更新残留清理 ===")
+        wd = os.path.join(tmp, "vdl_update_9.9.9")
+        os.makedirs(os.path.join(wd, "plan"))
+        os.makedirs(os.path.join(wd, "staged", "web"))
+        os.makedirs(os.path.join(wd, "backup"))
+        for n in ("VideoDL-9.9.9-Windows.zip", "VideoDL-9.9.9-Windows.zip.part"):
+            with open(os.path.join(wd, n), "wb") as f:
+                f.write(b"x" * 1024)
+        with open(os.path.join(wd, "plan", "plan.json"), "w", encoding="utf-8") as f:
+            f.write("{}")
+        updater._clean_workdir(os.path.join(wd, "plan", "plan.json"))
+        left = sorted(os.listdir(wd))
+        check(not any(x.endswith((".zip", ".part")) for x in left) and "staged" not in left,
+              "150MB 的整包残留和 staged 都清掉了，不再撑爆临时目录")
+        check(os.path.isfile(os.path.join(wd, "plan", "plan.json")) and "backup" in left,
+              "回滚用的备份和计划文件留着")
+        other = os.path.join(tmp, "somebody_else")
+        os.makedirs(os.path.join(other, "plan"))
+        with open(os.path.join(other, "keep.zip"), "wb") as f:
+            f.write(b"y" * 16)
+        updater._clean_workdir(os.path.join(other, "plan", "plan.json"))
+        check(os.path.isfile(os.path.join(other, "keep.zip")),
+              "不是我们的临时目录，一个字节都不删")
+
+        log("=== 11. 查版本多端点回退 / 失败说人话 ===")
+        saved_api, saved_ver = updater.API_LATEST, updater.VERSION_TXT
+        saved_hint = updater.proxy_hint
+        updater.proxy_hint = lambda: False       # 别去真探系统代理，测试要快
+        try:
+            # API 挂了 + 第一个备用地址也挂 → 第二个备用地址顶上
+            updater.API_LATEST = base + "/bad"
+            updater.VERSION_TXT = base + "/bad"
+            os.environ["VDL_UPDATE_VERSION_ALT"] = base + "/bad," + base + "/content/version.txt"
+            r = updater.check("1.24.3", op=op, timeout=4)
+            check(r["ok"] and r["has_update"] and r["latest"] == VER,
+                  "API 被限流时靠备用地址仍能查到新版")
+            check(not r["can_auto"], "只查到版本号时说明这次得手动下载")
+
+            # 全挂：说的是「连不上」，绝不能说成「已是最新」
+            updater.VERSION_TXT = base + "/bad"
+            os.environ["VDL_UPDATE_VERSION_ALT"] = base + "/bad"
+            r = updater.check("1.24.3", op=op, timeout=4)
+            check(not r["ok"] and "连不上更新服务器" in r["error"],
+                  "三处都连不上时如实说连不上：%s" % r["error"][:30])
+
+            # Mac 上版本查到了但 DMG 还没传完：不能说「已是最新」
+            updater.API_LATEST = base + "/releases/latest"
+            updater.VERSION_TXT = base + "/content/version.txt"
+            os.environ.pop("VDL_UPDATE_VERSION_ALT", None)
+            saved_mac = updater.IS_MAC
+            updater.IS_MAC = True
+            try:
+                r = updater.check("1.24.3", op=op, timeout=4)
+                check(r["ok"] and r["has_update"] and not r["asset"],
+                      "Mac 没挑到 DMG 时仍报有新版，不吞掉")
+                check("Mac 包" in r["error"] and "几分钟" in r["error"],
+                      "Mac 包没传完时说「过几分钟再查」")
+            finally:
+                updater.IS_MAC = saved_mac
+        finally:
+            updater.API_LATEST, updater.VERSION_TXT = saved_api, saved_ver
+            updater.proxy_hint = saved_hint
+            os.environ.pop("VDL_UPDATE_VERSION_ALT", None)
+
         log("\n通过 %d 项" % PASS[0])
         if FAIL:
             log("失败 %d 项：" % len(FAIL))

@@ -123,10 +123,10 @@ def _fetch(op, url, headers=None, rng=None, timeout=12, tries=3):
     raise last
 
 
-def _json(op, url, timeout=8):
+def _json(op, url, timeout=8, tries=2):
     body, _, _ = _fetch(op, url, {
         "Accept": "application/vnd.github+json",
-    }, timeout=timeout)
+    }, timeout=timeout, tries=tries)
     return json.loads(body.decode("utf-8", "replace"))
 
 
@@ -144,20 +144,75 @@ def pick_asset(assets, mac=False):
     return None
 
 
+def _version_urls():
+    """查版本号的备用地址，按「最不容易挂」排序。
+
+    GitHub 的 Release API 按出口 IP 限流（一小时 60 次），公司网、校园网、
+    开着代理的机器经常是几十个人共用一个 IP，很容易被 403；raw 直链几乎不管，
+    contents API 兜最后。三个都试，别因为一个接口 403 就告「已是最新」。
+    """
+    urls = [VERSION_TXT]
+    alts = [x.strip() for x in (os.environ.get("VDL_UPDATE_VERSION_ALT") or "").split(",")
+            if x.strip()]
+    if alts:
+        urls.extend(alts)
+    elif _is_local(VERSION_TXT):
+        return urls          # 回归测试把地址指到本地假发布页，别掺线上地址
+    else:
+        urls.append("https://raw.githubusercontent.com/%s/main/version.txt" % REPO)
+        urls.append("https://api.github.com/repos/%s/contents/version.txt" % REPO)
+    seen, out = set(), []
+    for u in urls:
+        if u and u not in seen:
+            seen.add(u)
+            out.append(u)
+    return out
+
+
+def _net_reason(e):
+    """把网络异常翻成人话。用户不该看到 HTTP Error 403 这种原文。"""
+    s = str(e)
+    m = re.search(r"HTTP Error (\d{3})", s)
+    if m:
+        code = m.group(1)
+        if code == "403":
+            return "同一网络查得太频繁，被 GitHub 限流了"
+        if code == "404":
+            return "发布页打不开"
+        if code[:1] == "5":
+            return "GitHub 那边出错了"
+        return "更新服务返回 %s" % code
+    low = s.lower()
+    if "timed out" in low or "timeout" in low:
+        return "连接超时"
+    if "certificate" in low or "ssl" in low:
+        return "证书校验没过，代理软件可能拦了 HTTPS"
+    if "getaddrinfo" in low or "name or service" in low:
+        return "域名解析不了，可能被限制了"
+    return "网络不通"
+
+
 def check(current, timeout=8, op=None):
-    """查最新版和对应安装包。连不上就如实说，不假装是最新。"""
+    """查最新版和对应安装包。连不上就如实说，不假装是最新。
+
+    整个过程有总预算：这个函数是在界面的请求线程里跑的，卡半分钟用户就以为
+    点「检查更新」没反应。宁可快一点给一句「连不上」，也别干等。
+    """
     op = op or opener()
+    deadline = time.time() + max(10, min(timeout * 2, 14))
     out = {
         "ok": False, "current": current, "latest": "", "has_update": False,
         "url": MANUAL_URL, "asset": None, "proxy_hint": proxy_hint(),
         "can_auto": True, "platform": "mac" if IS_MAC else "win", "error": "",
     }
+    api_err = None
     try:
-        d = _json(op, API_LATEST, timeout)
+        # 一次就够：被墙的话重试三次只是让用户多点半分钟等待
+        d = _json(op, API_LATEST, min(timeout, 6), tries=1)
         latest = (d.get("tag_name") or "").lstrip("v").strip()
-        asset = pick_asset(d.get("assets") or [], IS_MAC)
         if not latest:
             raise ValueError("发布页没有版本号")
+        asset = pick_asset(d.get("assets") or [], IS_MAC)
         out.update({
             "ok": True, "latest": latest,
             "has_update": version_numbers(latest) > version_numbers(current),
@@ -166,23 +221,38 @@ def check(current, timeout=8, op=None):
                        "digest": asset.get("digest") or ""} if asset else None),
         })
         if not asset:
+            # 版本查到了但对应系统的包没找到：Mac 的 DMG 是发版后由 CI 单独补传的，
+            # 刚发完的那几分钟确实会空一段。别说成「已是最新」，那会让人以为没更新。
             out["can_auto"] = False
-            out["error"] = "发布页里没有对应系统的安装包"
+            out["error"] = ("Mac 包还在生成，过几分钟再点一次检查"
+                            if IS_MAC else "发布页里没有 Windows 安装包")
         return out
-    except Exception as e1:
-        # Release API 被限流时退回最小的 version.txt，至少能告诉用户有新版本
+    except Exception as e:
+        api_err = e
+
+    # Release API 被限流 / 连不上：退到只读 version.txt 的地址，至少能说清有没有新版
+    for u in _version_urls():
+        left = deadline - time.time()
+        if left <= 1.0:
+            break
         try:
-            body, _, _ = _fetch(op, VERSION_TXT, {
-                "Accept": "application/vnd.github.raw",
-            }, timeout=timeout)
+            body, _, _ = _fetch(op, u, {"Accept": "application/vnd.github.raw"},
+                                timeout=min(4, left), tries=1)
             latest = body.decode("utf-8", "replace").strip().lstrip("v")
+            if not version_numbers(latest):
+                continue
             out.update({"ok": True, "latest": latest,
                         "has_update": version_numbers(latest) > version_numbers(current),
-                        "can_auto": False, "error": "只能查到版本号，请手动下载"})
+                        "can_auto": False, "error": "查到新版了，这次得手动下载"})
             return out
         except Exception:
-            out["error"] = "连不上更新服务器（%s）" % str(e1)[:60]
-            return out
+            continue
+
+    why = _net_reason(api_err)
+    out["error"] = ("连不上更新服务器（%s）。先开代理再点一次检查" % why
+                    if out["proxy_hint"] else
+                    "连不上更新服务器（%s）。开了代理的话，换个节点再试" % why)
+    return out
 
 
 # ---------------- 远端 zip：只读需要的几个文件 ----------------
@@ -439,11 +509,32 @@ def mac_app_path(fallback=""):
     return ""
 
 
+def win_runtime(app_dir, name="pythonw.exe"):
+    """便携版里自带的 Python，优先无窗口那个。拿不到返回空。"""
+    for n in (name, "python.exe"):
+        p = os.path.join(app_dir, "runtime", n)
+        if os.path.isfile(p):
+            return p
+    return ""
+
+
 def default_launch(mode="server", app_dir=None):
-    """算出「更新完怎么把软件再拉起来」。"""
+    """算出「更新完怎么把软件再拉起来」。
+
+    Windows 上不给 exe 派活：根目录那个 音视频下载器.exe 是 PyInstaller
+    单文件包，每启动一次都要把整个 Python 解到 %TEMP%\\_MEIxxxx 再 LoadLibrary。
+    临时目录被安全软件锁、盘满、或者解包到一半被拦，就会甩一个英文框
+    「Failed to load Python DLL ... \\_MEI000\\python313.dll」——用户看到的是
+    「更新完了打不开」，还以为是更新把软件搞坏了。包里的 runtime 是真 Python，
+    不经过解包，直接起 server.py 最稳。
+    """
     app_dir = app_dir or os.path.dirname(os.path.abspath(__file__))
     parent = os.path.dirname(app_dir)
     if IS_WIN:
+        entry = os.path.join(app_dir, "server.py")
+        py = win_runtime(app_dir)
+        if py and os.path.isfile(entry):
+            return {"cmd": [py, entry, mode or "server"], "cwd": app_dir}
         for name in ("音视频下载器.exe",):
             exe = os.path.join(parent, name)
             if os.path.isfile(exe):
@@ -539,6 +630,7 @@ mv "$NEW" "$APP" || { mv "$OLD" "$APP"; hdiutil detach "$MNT" -quiet 2>/dev/null
 xattr -dr com.apple.quarantine "$APP" 2>/dev/null
 hdiutil detach "$MNT" -quiet 2>/dev/null
 rm -rf "$OLD"
+rm -f "$ARCHIVE"
 open -n "$APP"
 """ % (port, q(app), q(plan.get("archive") or ""))
     path = os.path.join(plan_dir, "apply.sh")
@@ -563,19 +655,21 @@ def spawn_helper(plan_path, no_restart=False):
             return True, ""
         except Exception as e:
             return False, "起不来替换助手：%s" % str(e)[:100]
+    me = os.path.abspath(__file__)
     py = sys.executable
-    flags = 0
     kwargs = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL,
               "stderr": subprocess.DEVNULL, "close_fds": True}
     if IS_WIN:
-        pw = os.path.join(os.path.dirname(py), "pythonw.exe")
-        if os.path.isfile(pw):
-            py = pw
-        flags = 0x00000008 | 0x00000200      # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
-        kwargs["creationflags"] = flags
+        # 助手也指定包内运行时：万一 sys.executable 指向的是那个单文件 exe，
+        # 用它跑脚本又会撞上同一套解包问题，替换助手直接起不来。
+        here = os.path.dirname(me)
+        py = win_runtime(here) or sys.executable
+        # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP：主程序退了它照样干完
+        kwargs["creationflags"] = 0x00000008 | 0x00000200
+        # cwd 钉在程序目录：助手要 import paths，靠 exe 外的相对路径会找不到
+        kwargs["cwd"] = here
     else:
         kwargs["start_new_session"] = True
-    me = os.path.abspath(__file__)
     try:
         subprocess.Popen([py, me, "--apply", plan_path], **kwargs)
         return True, ""
@@ -690,6 +784,72 @@ def _mac_replace(archive, app_dir):
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+def _notify(msg):
+    """重启失败时把人叫醒：这时候主程序已经退了，界面上的字没人看得见。"""
+    try:
+        if IS_WIN:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(None, msg, "音视频下载器", 0x00000040)
+        elif IS_MAC:
+            script = 'display dialog %s buttons {"好"} default button 1 with title "音视频下载器"' % (
+                '"' + msg.replace("\\", "\\\\").replace('"', '\\"') + '"')
+            subprocess.Popen(["osascript", "-e", script])
+        else:
+            sys.stderr.write(msg + "\n")
+    except Exception:
+        pass
+
+
+def _clean_workdir(plan_path):
+    """更新完把下载残留扫掉。
+
+    Windows 整包兜底会往 %TEMP% 里落一个 150MB 的 zip，热更也留 staged。
+    留着不管，临时目录迟早被塞满——那时候连 exe 解包都会失败，下一个版本
+    就彻底更不动了。只删我们自己的产物（staged*、zip/part），计划和备份留着。
+    """
+    try:
+        workdir = os.path.dirname(os.path.dirname(os.path.abspath(plan_path)))
+        # 只在自己造的 vdl_update_* 目录里动手，别误删临时目录里的别的东西
+        if not os.path.basename(workdir).startswith("vdl_update_"):
+            return
+        for name in os.listdir(workdir):
+            if name == "plan":
+                continue
+            p = os.path.join(workdir, name)
+            # 只认自己造出来的那几样：staged 目录和下载下来的整包。
+            # 别的目录（比如用户自己放的东西）一个字节都不碰。
+            if name.startswith("staged") and os.path.isdir(p):
+                shutil.rmtree(p, ignore_errors=True)
+            elif name.endswith((".zip", ".part", ".part.src")):
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
+        log("已清理更新临时文件：%s" % workdir)
+    except Exception as e:
+        log("清理临时文件失败：%r" % (e,))
+
+
+def launch_app(plan):
+    """按计划把软件重新拉起来。返回 (成功?, 人话说明)。"""
+    launch = plan.get("launch") or {}
+    cmd = launch.get("cmd") or []
+    if not cmd:
+        return False, "没有可用的启动方式"
+    try:
+        kw = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL,
+              "stderr": subprocess.DEVNULL, "close_fds": True}
+        if IS_WIN:
+            # DETACHED | CREATE_NO_WINDOW：别给用户闪一个黑框
+            kw["creationflags"] = 0x00000008 | 0x08000000
+        else:
+            kw["start_new_session"] = True
+        subprocess.Popen(cmd, cwd=launch.get("cwd") or None, **kw)
+        return True, ""
+    except Exception as e:
+        return False, str(e)[:160]
+
+
 def run_helper(plan_path):
     """助手进程入口。返回 (成功?, 说明)。"""
     plan = json.load(open(plan_path, encoding="utf-8"))
@@ -706,17 +866,22 @@ def run_helper(plan_path):
             log("已整包替换 .app")
         else:
             raise IOError("不支持的更新方式")
+        if not IS_MAC:
+            _clean_workdir(plan_path)
         if not plan.get("no_restart"):
-            launch = plan.get("launch") or {}
-            cmd = launch.get("cmd") or []
-            if cmd:
-                subprocess.Popen(cmd, cwd=launch.get("cwd") or None,
-                                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                 stderr=subprocess.DEVNULL,
-                                 close_fds=True,
-                                 **({"creationflags": 0x00000008} if IS_WIN else
-                                    {"start_new_session": True}))
+            ok, why = launch_app(plan)
+            if ok:
                 log("已重新拉起软件")
+            else:
+                # 新版已经在盘上了，只是没自己打开。这时候必须说话，
+                # 否则用户以为更新把软件搞没了。
+                log("重启失败：%s" % why)
+                _notify("新版 v%s 已经装好了，但自动打开没成功。\n\n"
+                        "请手动打开一次：\n"
+                        "  · 双击桌面上的「音视频下载器」图标，或\n"
+                        "  · 打开程序文件夹里的「音视频下载器-公司.lnk」\n\n"
+                        "（技术信息：%s）" % (plan.get("version") or "", why))
+                return True, "更新好了，但没能自动打开"
         return True, "ok"
     except Exception as e:
         log("更新失败，已回滚：%r" % (e,))

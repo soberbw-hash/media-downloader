@@ -195,12 +195,15 @@ def _probe_all(endpoints, op, timeout):
     """
     got = {}
     lock = threading.Lock()
+    early = threading.Event()      # Release API 一成功就收工，不等备用地址
 
     def worker(key, url, headers):
         try:
             body, _, _ = _fetch(op, url, headers, timeout=timeout, tries=1)
             with lock:
                 got[key] = body
+            if key == "api":
+                early.set()
         except Exception as e:
             with lock:
                 got.setdefault(key + ".err", e)
@@ -212,7 +215,12 @@ def _probe_all(endpoints, op, timeout):
         threads.append(t)
     end = time.time() + timeout + 0.4
     for t in threads:
-        t.join(max(0.05, end - time.time()))
+        left = end - time.time()
+        if left <= 0:
+            break
+        t.join(left)
+        if early.is_set():
+            break                  # API 已经答了，备用地址的慢请求不用等
     return got
 
 

@@ -81,6 +81,16 @@ PLATFORMS = [
     # —— 直链 / HLS：没有固定域名，按后缀和参数判断，走 hls.py ——
     {"id": "direct", "name": "直链 / HLS", "level": "full", "hosts": []},
 ]
+# —— 网盘分享：域名多且各家的 id 由 netdisk.py 统一识别，这里只登记域名，
+#    让 find_urls 能认出裸域名；真正的平台归属在 detect_platform 里问 netdisk ——
+NETDISK_HOSTS = [
+    "pan.quark.cn", "drive.uc.cn", "pan.xunlei.com", "pan.baidu.com",
+    "yun.139.com", "123pan.com", "123865.com", "share.123pan.cn",
+    "115.com", "115cdn.com", "115rc.com", "guangyapan.com",
+    "lanzou.com", "lanzoui.com", "lanzouu.com", "lanzoup.com",
+    "lanzouw.com", "lanzoux.com", "lanzoub.com", "lanrar.com",
+    "ilanzou.com", "ilanzou.net",
+]
 PINFO = {p["id"]: p for p in PLATFORMS}
 
 #: (平台, 歌曲 id) → 一条能被 classify 认出来的链接
@@ -98,7 +108,8 @@ def music_song_url(platform, sid):
     return tpl % sid
 
 
-_ALL_HOSTS = sorted({h for p in PLATFORMS for h in p["hosts"]}, key=len, reverse=True)
+_ALL_HOSTS = sorted({h for p in PLATFORMS for h in p["hosts"]} | set(NETDISK_HOSTS),
+                    key=len, reverse=True)
 
 # RFC3986 可见字符，只吃 ASCII。老的 \w 会把后面的中文一起吞进链接
 _UCH = r"A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%"
@@ -152,6 +163,14 @@ def host_of(url):
 
 def detect_platform(url):
     """按域名精确匹配，避免 t.co 误伤 test.com 这类子串问题"""
+    # 网盘分享优先：域名多、规则各家不同，交给 netdisk 统一认
+    try:
+        import netdisk
+        nd = netdisk.parse_share(url)
+        if nd:
+            return "netdisk:" + nd["platform"], nd["name"], "full"
+    except Exception:
+        pass
     h = host_of(url)
     for p in PLATFORMS:
         for d in p["hosts"]:
@@ -1407,6 +1426,64 @@ def explain_error(msg):
     return "", ""
 
 
+def _netdisk_download(t, out_dir, progress):
+    """网盘分享下载。返回 (单文件路径, []) 或 (文件夹路径, 图片列表样式
+    的 [{'name','size'}])。文件夹按图集那样展示，卡片能列出每个文件。"""
+    import netdisk
+    progress(stage="正在解析分享链接…")
+    # t.url 里可能带 #pwd=（add_blocks 从整段文案补的提取码）
+    clean = t.url.split("#")[0]
+    frag = t.url.split("#", 1)[1] if "#" in t.url else ""
+    pwd_m = re.search(r"(?:^|&)pwd=([^&]+)", frag)
+    pwd = urllib.parse.unquote(pwd_m.group(1)) if pwd_m else ""
+    q = urllib.parse.parse_qs(urllib.parse.urlparse(clean).query)
+    pwd = pwd or (q.get("pwd") or [""])[0]
+
+    info = netdisk.resolve(clean, pwd, progress)
+    progress(title=info.get("title") or "", stage="解析出 %d 个文件" % len(info["files"]))
+
+    files = info["files"]
+    if len(files) == 1 and not info.get("is_folder"):
+        # 单文件：直接下成一个文件
+        direct, name, size, hdr = netdisk.get_direct(info, files[0], progress)
+        stem = safe_name(name or t.title or "网盘文件")
+        ext = os.path.splitext(urllib.parse.urlparse(direct).path)[1] or ""
+        # 标题自带 .mp3 这类后缀就别重复拼
+        if ext and stem.lower().endswith(ext.lower()):
+            ext = ""
+        out = unique_path(os.path.join(out_dir, stem + ext))
+        path, _ = stream_download([direct], out, progress, headers=hdr, min_bytes=1024)
+        return path, []
+
+    # 文件夹：建同名目录，逐个下载，返回列表让界面像图集那样显示
+    folder = unique_path(os.path.join(out_dir, safe_name(info.get("title") or "网盘文件夹")))
+    os.makedirs(folder, exist_ok=True)
+    shown = []
+    for i, f in enumerate(files):
+        progress(stage="正在下载 %d/%d" % (i + 1, len(files)), percent=int(100 * i / len(files)))
+        fname = f.get("name") or "文件"
+        try:
+            direct, name, size, hdr = netdisk.get_direct(info, f, progress)
+        except Exception as e:
+            # 单个文件取链失败不拖垮整夹，记一条说明
+            shown.append({"name": fname, "size": f.get("size") or 0, "error": str(e)[:60]})
+            continue
+        ext = os.path.splitext(urllib.parse.urlparse(direct).path)[1]
+        base = safe_name("%02d %s" % (i + 1, name or fname), 80)
+        if ext and base.lower().endswith(ext.lower()):
+            ext = ""
+        out = os.path.join(folder, base + ext)
+        try:
+            path, _ = stream_download([direct], out, progress, headers=hdr, min_bytes=1024)
+            shown.append({"name": os.path.basename(path),
+                          "size": os.path.getsize(path) if os.path.isfile(path) else (size or 0)})
+        except Exception as e:
+            shown.append({"name": fname, "size": size or 0, "error": str(e)[:60]})
+    if not shown:
+        raise RuntimeError("这个分享里的文件都没能下下来，可能链接过期或需要重新解析")
+    return folder, shown
+
+
 class Task(object):
     def __init__(self, tid, url, platform, platform_name, batch=0, key=""):
         self.id = tid
@@ -1751,6 +1828,8 @@ class Manager(object):
                 res = cn_sites.kuaishou_download(t.url, out_dir, progress, quality, cookies)
             else:
                 res = cn_sites.xhs_download(t.url, out_dir, progress, quality, cookies)
+        elif t.platform.startswith("netdisk:"):
+            res = _netdisk_download(t, out_dir, progress)
         else:
             # B站番剧/影视正片页 yt-dlp 只给「正片」，片名和作者都空着。
             # 先用 B站 pgc 接口把真名查出来，文件名和简介才像样
@@ -1965,6 +2044,16 @@ def add_blocks(manager, blocks):
                                     "reason": "这个歌单里没有能下的歌"})
                 continue
 
+            # 网盘：用户常把「链接 提取码:xxxx」整段粘进来，find_urls 只抽了链接，
+            # 提取码会丢。这里从整段文本里补回 ?pwd=，让后面的解析能用到
+            if pid.startswith("netdisk:") and "pwd=" not in u.lower():
+                try:
+                    import netdisk as _nd
+                    _p = _nd.parse_share(text)
+                    if _p and _p.get("pwd"):
+                        u += ("&" if "?" in u else "?") + "pwd=" + _p["pwd"]
+                except Exception:
+                    pass
             usable.append((u, pname, "", ""))
         if not usable:
             continue

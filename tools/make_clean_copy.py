@@ -24,6 +24,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 COPY_SKIP = {"cookies", "下载的文件", "__pycache__", "logs"}
@@ -137,8 +138,30 @@ def make_zip(dst, zip_path, arc_root="音视频下载器"):
         os.remove(zip_path)
     print("正在压缩（包不小，几分钟）…")
 
+    # 转成 DOS 时间元组；早于 1980 的（Windows 会显示成 1899-12-30）压到 1980-01-01
+    def dos_time(path):
+        t = time.localtime(os.path.getmtime(path))
+        if t.tm_year < 1980:
+            return (1980, 1, 1, 0, 0, 0)
+        return t[:6]
+
     count = 0
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
+        # 显式写目录条目，并带上真实时间戳。
+        # 只写文件的话，Windows 资源管理器预览 zip 时目录会显示成 1899-12-30。
+        for dirpath, dirnames, filenames in os.walk(base):
+            dirnames.sort()
+            rel = os.path.relpath(dirpath, base).replace(os.sep, "/")
+            arc = (arc_root + "/" + rel + "/") if rel != "." else (arc_root + "/")
+            zi = GbkZipInfo(arc)
+            zi.compress_type = zipfile.ZIP_STORED
+            zi.external_attr = 0o40775 << 16 | 0x10  # Unix 目录位 + DOS directory 标记
+            zi.date_time = dos_time(dirpath)
+            u8 = arc.encode("utf-8")
+            zi.extra = (struct.pack("<HH", 0x7075, 5 + len(u8)) + bytes([1])
+                        + struct.pack("<I", zlib.crc32(arc.encode("gbk"))) + u8)
+            z.writestr(zi, b"")
+
         for dirpath, dirnames, filenames in os.walk(base):
             dirnames.sort()
             filenames.sort()

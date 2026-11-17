@@ -27,7 +27,7 @@
   </div>
 
   <div class="composer" id="composer">
-    <textarea id="input" placeholder="粘贴链接，自动开始下载&#10;视频、音乐、歌单都认；整段分享文案、多条链接也能拆开"></textarea>
+    <textarea id="input" placeholder="粘贴链接，自动开始下载&#10;视频、音乐、歌单、网盘分享都认；整段分享文案、多条链接也能拆开"></textarea>
     <div class="composer-foot">
       <div class="foot-left"><div id="detected"></div></div>
       <div class="foot-right">
@@ -53,12 +53,11 @@
       <input id="mQuery" placeholder="歌名、歌手" autocomplete="off">
       <!-- 听歌识曲：不知道歌名的时候，录一段或者丢个文件进来 -->
       <button id="mRec" class="mrec-btn" title="听歌识曲" aria-label="听歌识曲">
-        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-          <rect x="9" y="2.6" width="6" height="11.2" rx="3"
-                fill="none" stroke="currentColor" stroke-width="1.9"/>
-          <path d="M5.4 11.2a6.6 6.6 0 0 0 13.2 0M12 17.8V21"
-                fill="none" stroke="currentColor" stroke-width="1.9"
-                stroke-linecap="round"/>
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none"
+             stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="7" y="4.3" width="5.65" height="9.2" rx="2.825"/>
+          <path d="M5.5 11.4Q5.5 16.2 9.1 16.2T12.65 11.4M9.1 16.2V18.6M6.6 18.6H11.9"/>
+          <path d="M17.36 8.7q2.3 3.3 0 6.6"/>
         </svg>
       </button>
       <button id="mGo">搜索</button>
@@ -140,17 +139,18 @@
 <audio id="auPlayer" preload="none"></audio>
 <div class="pbar" id="pBar" hidden>
   <button class="pb-btn" id="pbPrev" title="上一首" aria-label="上一首">
-    <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
-      <path d="M6 6v12M18 6.6L9.5 12l8.5 5.4z" fill="currentColor"/>
+    <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none">
+      <rect x="6.1" y="5.6" width="1.8" height="12.8" rx="0.9" fill="currentColor"/>
+      <path d="M18 5.8L10.2 12L18 18.2Z" fill="currentColor"/>
     </svg>
   </button>
   <button class="pb-btn" id="pbPlay" title="播放 / 暂停" aria-label="播放或暂停">
-    <svg class="ic-play" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
-      <path d="M8.5 5.6l10 6.4-10 6.4z" fill="currentColor"/>
+    <svg class="ic-play" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none">
+      <path d="M8 5L18 11.35Q19 12 18 12.65L8 19Q10.9 12 8 5Z" fill="currentColor"/>
     </svg>
-    <svg class="ic-pause" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
-      <path d="M9 5.5v13M15 5.5v13" fill="none" stroke="currentColor"
-            stroke-width="2.2" stroke-linecap="round"/>
+    <svg class="ic-pause" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none">
+      <rect x="7.4" y="5" width="2.8" height="14" rx="1.2" fill="currentColor"/>
+      <rect x="13.8" y="5" width="2.8" height="14" rx="1.2" fill="currentColor"/>
     </svg>
   </button>
   <div class="pb-info">
@@ -159,14 +159,14 @@
   </div>
   <span class="pb-time" id="pbTime">0:00</span>
   <button class="pb-btn" id="pbNext" title="下一首" aria-label="下一首">
-    <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
-      <path d="M18 6v12M6 6.6l8.5 5.4L6 17.4z" fill="currentColor"/>
+    <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none">
+      <rect x="16.1" y="5.6" width="1.8" height="12.8" rx="0.9" fill="currentColor"/>
+      <path d="M6 5.8L13.8 12L6 18.2Z" fill="currentColor"/>
     </svg>
   </button>
   <button class="pb-btn" id="pbStop" title="停止试听" aria-label="停止试听">
-    <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
-      <path d="M6.5 6.5l11 11M17.5 6.5l-11 11" fill="none" stroke="currentColor"
-            stroke-width="1.7" stroke-linecap="round"/>
+    <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none">
+      <rect x="6" y="6" width="12" height="12" rx="2.4" fill="currentColor"/>
     </svg>
   </button>
 </div>
@@ -178,16 +178,16 @@
  <div class="mcard set-card">
   <div class="drawer-head set-head">
     <button class="back-btn" id="setBack" hidden title="返回" aria-label="返回">
-      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-        <path d="M14.5 5.5L8 12l6.5 6.5" fill="none" stroke="currentColor"
-              stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none"
+           stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M10.5 5 4 12l6.5 7M4 12h16"/>
       </svg>
     </button>
     <h3 id="setTitle">设置</h3>
     <button class="drawer-x" id="closeSet" title="关闭" aria-label="关闭设置">
-      <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
-        <path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor"
-              stroke-width="1.7" stroke-linecap="round"/>
+      <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none"
+           stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+        <path d="M5 5l14 14M19 5 5 19"/>
       </svg>
     </button>
   </div>
@@ -352,9 +352,9 @@
   <div class="drawer-head">
     <h3>账号登录</h3>
     <button class="drawer-x" id="closeAcct" title="关闭" aria-label="关闭账号登录">
-      <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
-        <path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor"
-              stroke-width="1.7" stroke-linecap="round"/>
+      <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none"
+           stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+        <path d="M5 5l14 14M19 5 5 19"/>
       </svg>
     </button>
   </div>
@@ -369,10 +369,10 @@
     <div class="ext-card" id="extCard">
       <div class="ext-h">
         <span class="ext-ic" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="15" height="15">
-            <path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"
-                  fill="none" stroke="currentColor" stroke-width="1.7"
-                  stroke-linecap="round" stroke-linejoin="round"/>
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none"
+               stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3.8V13.5M7.2 8.9l4.8 4.6 4.8-4.6"/>
+            <path d="M5.4 17.85V19H18.6V17.85"/>
           </svg>
         </span>
         <b>装一次，以后自动登录</b>
@@ -414,9 +414,9 @@
   <div class="drawer-head">
     <h3>下载历史</h3>
     <button class="drawer-x" id="closeHist" title="关闭" aria-label="关闭历史">
-      <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
-        <path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor"
-              stroke-width="1.7" stroke-linecap="round"/>
+      <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none"
+           stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+        <path d="M5 5l14 14M19 5 5 19"/>
       </svg>
     </button>
   </div>

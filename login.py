@@ -39,14 +39,34 @@ EXT_DIR = (os.path.join(paths.data_dir(), "browser-extension")
 
 
 def _prepare_ext_dir():
+    """把随包扩展对齐到用户数据目录。
+
+    打包后程序包只读，扩展得留在用户目录才不会被升级冲掉。但**不能只复制
+    一次**：扩展里那份站点清单（PLATFORMS）是写死的，只复制一次的话，以后
+    新支持一个网站，用户那边的扩展永远是旧的，同步不过来。所以按文件内容
+    对齐一遍，不同才写。
+    """
     if not _FROZEN:
         return
+    src = os.path.join(BASE, "browser-extension")
+    if not os.path.isdir(src):
+        return
     try:
-        if os.path.isfile(os.path.join(EXT_DIR, "manifest.json")):
-            return
-        os.makedirs(os.path.dirname(EXT_DIR), exist_ok=True)
-        shutil.copytree(os.path.join(BASE, "browser-extension"),
-                        EXT_DIR, dirs_exist_ok=True)
+        for dirpath, _dirnames, filenames in os.walk(src):
+            rel = os.path.relpath(dirpath, src)
+            dst_dir = EXT_DIR if rel == "." else os.path.join(EXT_DIR, rel)
+            os.makedirs(dst_dir, exist_ok=True)
+            for fn in filenames:
+                a = os.path.join(dirpath, fn)
+                b = os.path.join(dst_dir, fn)
+                try:
+                    if os.path.isfile(b):
+                        with open(a, "rb") as fa, open(b, "rb") as fb:
+                            if fa.read() == fb.read():
+                                continue
+                except Exception:
+                    pass
+                shutil.copy2(a, b)
     except Exception:
         pass
 
@@ -108,6 +128,13 @@ SITES = {
         "domains": ["suno.com", "suno.ai"], "required": False,
         "overseas": True,
         "tip": "可选。登录后能下自己账号里的歌；不登录游客只给加密片段，下不了",
+    },
+    # 网盘：分享链接的取链接口要认账号，所以必须登录。登完扩展会自动同步，
+    # 之后贴分享链接就能直接下（netdisk.py 读 cookies/baidu.txt）
+    "baidu": {
+        "name": "百度网盘", "url": "https://pan.baidu.com/",
+        "need": ["BDUSS"], "domains": ["baidu.com"], "required": True,
+        "tip": "要登录。百度网盘的下载地址只给登录用户，不登录下不了",
     },
 }
 

@@ -717,8 +717,8 @@ const PLAT_LEVEL_TIP = {
 };
 /* 一行放得下的才列出来，剩下的用「等 N 个」带过；鼠标停在整个行上能看到全部 */
 const PLAT_ORDER = ["douyin", "bilibili", "xiaohongshu", "kuaishou", "weibo",
-  "ixigua", "youtube", "twitter", "tiktok", "instagram", "netease", "qqmusic", "suno"];
-const PLAT_SHOW_MAX = 13;
+  "ixigua", "netdisk", "youtube", "twitter", "tiktok", "instagram", "netease", "qqmusic", "suno"];
+const PLAT_SHOW_MAX = 14;
 
 function renderSupport(list) {
   if (supportRendered) return;

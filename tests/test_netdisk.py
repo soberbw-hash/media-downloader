@@ -61,11 +61,77 @@ def test_unsupported():
         netdisk.resolve(info["url"])
         raise AssertionError("应该抛错")
     except RuntimeError as e:
-        ok("还在做" in str(e) and "蓝奏云" in str(e), "说清还没做好 + 当前支持谁: " + str(e))
+        msg = str(e)
+        # 要么说清「缺账号/没调通」，要么说清「链接失效」，最后都要给出现在能下谁
+        ok(("蓝奏云" in msg) and ("登录" in msg or "失效" in msg or "还在做" in msg
+                                  or "没调通" in msg or "列不出" in msg),
+           "说清原因 + 当前支持谁: " + msg)
+
+    print("=== 失效链接不能说成「还在做」 ===")
+    # 不联网，直接打桩探测结果，钉死两条分支的文案
+    saved = netdisk._probe_share
+    try:
+        netdisk._probe_share = lambda info: "dead"
+        try:
+            netdisk.resolve("https://pan.quark.cn/s/abc123")
+            raise AssertionError("应该抛错")
+        except RuntimeError as e:
+            ok("失效" in str(e) and "还在做" not in str(e),
+               "失效链接说失效，不甩「还在做」: " + str(e))
+
+        netdisk._probe_share = lambda info: "alive"
+        try:
+            netdisk.resolve("https://pan.quark.cn/s/abc123")
+            raise AssertionError("应该抛错")
+        except RuntimeError as e:
+            ok("登录" in str(e), "能打开但缺登录态要说清: " + str(e))
+    finally:
+        netdisk._probe_share = saved
+
+    print("=== 百度网盘：没登录就先说登录，别去撞它的接口 ===")
+    try:
+        netdisk.resolve("https://pan.baidu.com/s/1abcDEFghiJKLmnoPQR")
+        raise AssertionError("应该抛错")
+    except RuntimeError as e:
+        msg = str(e)
+        ok("登录" in msg and "点「打开」" in msg, "指到具体入口: " + msg)
+
+
+def test_baidu_cookie():
+    print("=== 百度登录态：读文件 → 注入 CookieJar → 带进请求头 ===")
+    import tempfile, urllib.request
+    tmp = tempfile.mkdtemp(prefix="vdl_bd_ck_")
+    old = os.environ.get("VDL_DATA_DIR")
+    os.environ["VDL_DATA_DIR"] = tmp
+    try:
+        p = os.path.join(netdisk._cookie_dir(), "baidu.txt")
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w", encoding="utf-8") as f:
+            f.write("# Netscape HTTP Cookie File\n")
+            f.write(".baidu.com\tTRUE\t/\tTRUE\t0\tBDUSS\tfake_bduss\n")
+            f.write(".baidu.com\tTRUE\t/\tFALSE\t0\tSTOKEN\tfake_stoken\n")
+        hdr = netdisk.load_cookie_header("baidu")
+        ok("BDUSS=fake_bduss" in hdr and "STOKEN=fake_stoken" in hdr,
+           "读成 Cookie 头: " + hdr)
+        ok(netdisk.has_login("baidu"), "has_login 认得百度")
+        _, cj = netdisk._new_opener(hdr, netdisk.COOKIE_DOMAINS["baidu"])
+        ok(sorted(c.name for c in cj) == ["BDUSS", "STOKEN"],
+           "注入 CookieJar: %s" % [c.name for c in cj])
+        req = urllib.request.Request("https://pan.baidu.com/s/1abc")
+        cj.add_cookie_header(req)
+        got = req.get_header("Cookie") or ""
+        ok("BDUSS=" in got, "会自动带进请求头: " + got)
+        req2 = urllib.request.Request("https://d.pcs.baidu.com/file/x")
+        cj.add_cookie_header(req2)
+        ok("BDUSS=" in (req2.get_header("Cookie") or ""), "子域 d.pcs 也带得上")
+    finally:
+        if old is None:
+            os.environ.pop("VDL_DATA_DIR", None)
+        else:
+            os.environ["VDL_DATA_DIR"] = old
 
 
 LIVE_URL = "https://wwt.lanzouw.com/inAe108hg9de"   # 公开测试分享：配音文件.mp3
-
 
 def _resolve_live():
     res = netdisk.resolve(LIVE_URL, progress=lambda **kw: None)
@@ -133,6 +199,7 @@ if __name__ == "__main__":
     test_acw()
     test_size()
     test_unsupported()
+    test_baidu_cookie()
     test_detect_integration()
     if os.environ.get("LIVE") == "1":
         test_live()

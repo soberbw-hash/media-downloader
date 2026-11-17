@@ -1,85 +1,136 @@
 # -*- coding: utf-8 -*-
-"""生成桌面图标：黑底圆角 + 白色下载箭头。输出 icon.ico（多尺寸）和预览 png。
+"""从 SVG 母版生成应用图标：icon.ico / icon.png / icon.icns。
+
+母版：tools/assets/app-icon.svg（唯一真源，改图标只改这个文件）
+输出：tools/assets/icon.ico（16~256 九档）、icon.png（512）、icon-256.png、icon.icns
 
 用法：python tools/make_icon.py
+
+原理：SVG 只能靠浏览器精确栅格化，所以调用本机 Chrome/Edge 的 headless
+截图得到 1024px 透明母版，再用 Pillow 逐档 LANCZOS 缩放。
+找不到浏览器就报错退出——不会悄悄画出别的图标。
 """
 import os
-from PIL import Image, ImageDraw
+import platform
+import shutil
+import subprocess
+import tempfile
+
+from PIL import Image
 
 BASE = os.path.dirname(os.path.abspath(__file__))
-OUT_DIR = os.path.join(BASE, "assets")
-S = 1024          # 先按 4 倍画，缩下去更顺
+ASSETS = os.path.join(BASE, "assets")
+SVG = os.path.join(ASSETS, "app-icon.svg")
+S = 1024                      # 母版边长
+ICO_SIZES = [16, 20, 24, 32, 40, 48, 64, 128, 256]
+ICNS_SIZES = [16, 32, 64, 128, 256, 512, 1024]
 
-BG = (17, 17, 19, 255)        # 近黑
-FG = (255, 255, 255, 255)     # 白
-ACCENT = (255, 106, 61, 255)  # 珊瑚色小圆点，唯一彩色，屏幕上一眼能认出来
+
+def find_browser():
+    """定位本机 Chromium 系浏览器（能 headless 截图的那种）"""
+    env = os.environ.get("VDL_BROWSER", "")
+    if env and os.path.isfile(env):
+        return env
+    cands = []
+    if platform.system() == "Windows":
+        for root in (os.environ.get("PROGRAMFILES", r"C:\Program Files"),
+                     os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)"),
+                     os.environ.get("LOCALAPPDATA", "")):
+            for rel in (r"Google\Chrome\Application\chrome.exe",
+                        r"Microsoft\Edge\Application\msedge.exe",
+                        r"Chromium\Application\chrome.exe"):
+                if root:
+                    cands.append(os.path.join(root, rel))
+    elif platform.system() == "Darwin":
+        cands += ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                  "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+                  "/Applications/Chromium.app/Contents/MacOS/Chromium"]
+    else:
+        for n in ("google-chrome", "chromium", "chromium-browser", "microsoft-edge"):
+            p = shutil.which(n)
+            if p:
+                cands.append(p)
+    for p in cands:
+        if p and os.path.isfile(p):
+            return p
+    return ""
 
 
-def rounded(draw, box, r, fill):
-    draw.rounded_rectangle(box, radius=r, fill=fill)
+def render_master(svg_path, px, out_png):
+    """把 SVG 渲染成 px×px 透明 PNG"""
+    browser = find_browser()
+    if not browser:
+        raise RuntimeError("找不到 Chrome / Edge，没法把 SVG 渲染成图标。"
+                           "装一个浏览器，或用环境变量 VDL_BROWSER 指定路径。")
+    svg = open(svg_path, encoding="utf-8").read()
+    tmp = tempfile.mkdtemp(prefix="vdl_icon_")
+    try:
+        html = ('<!DOCTYPE html><html><head><meta charset="utf-8"><style>'
+                'html,body{margin:0;padding:0;background:transparent;overflow:hidden}'
+                'svg{display:block;width:%dpx;height:%dpx}</style></head><body>%s</body></html>'
+                % (px, px, svg))
+        hp = os.path.join(tmp, "r.html")
+        with open(hp, "w", encoding="utf-8") as f:
+            f.write(html)
+        args = [browser, "--headless=new", "--disable-gpu", "--no-sandbox",
+                "--hide-scrollbars", "--force-device-scale-factor=1",
+                "--default-background-color=00000000",
+                "--window-size=%d,%d" % (px, px),
+                "--virtual-time-budget=4000",
+                "--screenshot=" + os.path.abspath(out_png),
+                "file:///" + hp.replace("\\", "/")]
+        r = subprocess.run(args, capture_output=True, text=True, timeout=180)
+        if not os.path.isfile(out_png):
+            raise RuntimeError("浏览器截图失败：%s" % (r.stderr or "")[-300:])
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    return out_png
 
 
 def build():
-    img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
+    if not os.path.isfile(SVG):
+        raise RuntimeError("找不到图标母版：" + SVG)
+    os.makedirs(ASSETS, exist_ok=True)
 
-    # 底：圆角方块（留 6% 边距，符合 Windows 图标习惯）
-    pad = int(S * 0.055)
-    rounded(d, (pad, pad, S - pad, S - pad), int(S * 0.22), BG)
+    raw = os.path.join(ASSETS, "_master.png")
+    render_master(SVG, S, raw)
+    img = Image.open(raw).convert("RGBA")
+    try:
+        os.remove(raw)
+    except OSError:
+        pass
 
-    # 下载箭头：竖杆 + 三角头 + 底部托盘
-    cx = S // 2
-    shaft_w = int(S * 0.118)
-    shaft_top = int(S * 0.245)
-    shaft_bot = int(S * 0.535)
-    head_w = int(S * 0.285)
-    head_top = int(S * 0.495)
-    head_bot = int(S * 0.755)
-    radius = shaft_w // 2
+    if img.size != (S, S):
+        img = img.resize((S, S), Image.LANCZOS)
+    if img.getpixel((2, 2))[3] != 0:
+        # 圆角外必须是透明的，不然后面各档都会带一块白角
+        raise RuntimeError("母版四角不透明，渲染没吃到透明背景参数")
 
-    # 竖杆（两端圆头）
-    rounded(d, (cx - shaft_w // 2, shaft_top, cx + shaft_w // 2, shaft_bot),
-            radius, FG)
-    # 箭头（三角 + 小圆角近似：用多边形）
-    d.polygon([(cx - head_w // 2, head_top), (cx + head_w // 2, head_top),
-               (cx, head_bot)], fill=FG)
+    ico = os.path.join(ASSETS, "icon.ico")
+    frames = [img.resize((s, s), Image.LANCZOS) for s in ICO_SIZES]
+    frames[-1].save(ico, format="ICO", sizes=[(s, s) for s in ICO_SIZES],
+                    append_images=frames[:-1])
 
-    # 托盘：一条圆头横线
-    tray_y = int(S * 0.845)
-    tray_h = int(S * 0.092)
-    tray_w = int(S * 0.50)
-    rounded(d, (cx - tray_w // 2, tray_y - tray_h // 2,
-                cx + tray_w // 2, tray_y + tray_h // 2), tray_h // 2, FG)
-
-    # 右上角小圆点（唯一彩色）
-    r = int(S * 0.066)
-    dx, dy = int(S * 0.735), int(S * 0.255)
-    d.ellipse((dx - r, dy - r, dx + r, dy + r), fill=ACCENT)
-
-    os.makedirs(OUT_DIR, exist_ok=True)
-    png = os.path.join(OUT_DIR, "icon.png")
+    png = os.path.join(ASSETS, "icon.png")
     img.resize((512, 512), Image.LANCZOS).save(png)
+    img.resize((256, 256), Image.LANCZOS).save(os.path.join(ASSETS, "icon-256.png"))
 
-    ico_sizes = [(s, s) for s in (16, 20, 24, 32, 40, 48, 64, 128, 256)]
-    ico = os.path.join(OUT_DIR, "icon.ico")
-    img.save(ico, format="ICO", sizes=ico_sizes)
+    icns = os.path.join(ASSETS, "icon.icns")
+    iframes = [img.resize((s, s), Image.LANCZOS) for s in ICNS_SIZES]
+    iframes[-1].save(icns, format="ICNS", append_images=iframes[:-1])
 
-    # 单独导出 256 给网页 favicon 之类的场景
-    img.resize((256, 256), Image.LANCZOS).save(
-        os.path.join(OUT_DIR, "icon-256.png"))
-
-    # 小尺寸检查：把 16/32/48/64 按 4 倍最近邻放大拼一排，肉眼看会不会糊
+    # 小尺寸检查条：16/32/48/64 各放大 4 倍
     strip = Image.new("RGBA", (4 * 64 * 4 + 5 * 12, 64 * 4 + 24), (245, 245, 245, 255))
     x = 12
     for s in (16, 32, 48, 64):
         small = img.resize((s, s), Image.LANCZOS)
         strip.paste(small.resize((s * 4, s * 4), Image.NEAREST), (x, 12))
         x += s * 4 + 12
-    strip.save(os.path.join(OUT_DIR, "icon-small-preview.png"))
-    return ico, png
+    strip.save(os.path.join(ASSETS, "icon-small-preview.png"))
+    return ico, png, icns
 
 
 if __name__ == "__main__":
-    ico, png = build()
-    print("ico ->", ico, os.path.getsize(ico), "bytes")
-    print("png ->", png)
+    ico, png, icns = build()
+    for p in (ico, png, icns):
+        print(os.path.basename(p), "->", os.path.getsize(p), "bytes")

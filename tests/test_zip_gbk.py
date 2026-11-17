@@ -55,7 +55,8 @@ def test_gbk_zip():
     # ① Python zipfile 读回（走 0x7075）
     with zipfile.ZipFile(zpath) as z:
         got = z.namelist()
-        assert sorted(got) == sorted(NAMES), "Python 读回名字不对: %s" % got[:3]
+        files = [n for n in got if not n.endswith("/")]
+        assert sorted(files) == sorted(NAMES), "Python 读回名字不对: %s" % got[:3]
         for n in NAMES:
             assert z.read(n).startswith(b"hello "), "内容读不出: " + n
     log("  OK ① Python zipfile 读回正确（0x7075 生效）")
@@ -73,9 +74,19 @@ def test_gbk_zip():
         decoded.append(nbytes.decode("gbk"))
         flags_seen.add(flags)
         pos = j + 46
-    assert sorted(decoded) == sorted(NAMES), "GBK 解码结果不对: %s" % decoded[:3]
+    file_decoded = [n for n in decoded if not n.endswith("/")]
+    assert sorted(file_decoded) == sorted(NAMES), "GBK 解码结果不对: %s" % decoded[:3]
     assert 0x800 not in flags_seen, "还带着 UTF-8 标志位: %s" % [hex(f) for f in flags_seen]
     log("  OK ② 中文解压工具按 GBK 解码正确，无 UTF-8 标志位")
+
+    # ②b 目录条目也按 GBK 存名字，且时间戳不能是 1899（Windows 预览 zip 的老毛病）
+    with zipfile.ZipFile(zpath) as z:
+        dirs = [x for x in z.infolist() if x.filename.endswith("/")]
+    assert dirs, "没写目录条目，Windows 会把文件夹显示成 1899-12-30"
+    assert all(x.date_time[0] >= 1980 for x in dirs), \
+        "目录时间戳早于 1980: %s" % [(x.filename, x.date_time) for x in dirs]
+    assert all(x.external_attr & 0x10 for x in dirs), "目录条目缺目录标记"
+    log("  OK ②b 目录条目齐全、名字走 GBK、时间戳 >=1980（不再 1899）")
 
     # ③ updater 手工解析器路径
     for n in NAMES:

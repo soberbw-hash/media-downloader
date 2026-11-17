@@ -14,7 +14,8 @@ const PLATFORMS = [
   { id: "weibo",         domain: "weibo.com" },
   { id: "music_netease", domain: "music.163.com" },
   { id: "music_qqmusic", domain: "qq.com" },
-  { id: "suno",          domain: "suno.com" }
+  { id: "suno",          domain: "suno.com" },
+  { id: "baidu",         domain: "baidu.com" }
 ];
 
 const PORT_MIN = 8765;

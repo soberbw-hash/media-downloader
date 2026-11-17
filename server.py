@@ -39,7 +39,7 @@ import login as login_mod  # noqa: E402
 import picker  # noqa: E402
 import updater as updater_mod  # noqa: E402
 
-APP_VERSION = "1.24.6"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
+APP_VERSION = "1.24.7"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
 UPDATE_REPO = "soberbw-hash/media-downloader"
 
 # 识曲上传的上限（base64 长度）。20MB 原文件约 27MB base64，够一段音频了。
@@ -697,8 +697,11 @@ class Handler(BaseHTTPRequestHandler):
                 "push_key": PUSH_KEY,
                 # 诊断用：Mac 版随包的 ffmpeg 到底找没找到，一眼能看出来
                 "ffmpeg": paths_mod.ffmpeg_path(),
+                # 网盘解析不在 core.PLATFORMS 里（域名由 netdisk.py 单独认），
+                # 但要让用户在首屏「支持」行看到它，别以为这功能不存在
                 "platforms": [{"id": x["id"], "name": x["name"], "level": x["level"]}
-                              for x in core.PLATFORMS],
+                              for x in core.PLATFORMS]
+                             + [{"id": "netdisk", "name": "蓝奏云 / 百度网盘", "level": "full"}],
                 # 前端已有每秒一次的轮询，更新状态搭这趟车，不另开定时器
                 "update": update_status(),
             })

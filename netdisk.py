@@ -13,6 +13,7 @@ import json
 import os
 import re
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -38,7 +39,14 @@ PLATFORM_NAMES = {
 }
 
 # 已实现解析的平台（其余识别得到但会给出「还没做好」的明确提示）
-SUPPORTED = {P_LANZOU}
+SUPPORTED = {P_LANZOU, P_BAIDU}
+
+# 各平台登录态 cookie 的作用域（只在本机 cookies 目录里找这些站点的登录信息）
+COOKIE_DOMAINS = {
+    P_BAIDU: ".baidu.com", P_QUARK: ".quark.cn", P_UC: ".uc.cn",
+    P_115: ".115.com", P_123: ".123pan.com", P_XUNLEI: ".xunlei.com",
+    P_C139: ".139.com", P_GUANGYA: ".guangyapan.com", P_LANZOU: ".lanzou.com",
+}
 
 
 # ---------- 链接识别 ----------
@@ -104,9 +112,45 @@ def is_netdisk_url(text):
     return parse_share(text) is not None
 
 
+# ---------- 登录态 ----------
+def _cookie_dir():
+    try:
+        import paths
+        return paths.cookie_dir()
+    except Exception:
+        return os.path.join(os.path.dirname(os.path.abspath(__file__)), "cookies")
+
+
+def load_cookie_header(pid):
+    """读本机 cookies/<平台>.txt（浏览器扩展同步下来的），拼成 Cookie 请求头。
+    没有就返回空串 —— 调用方据此提示「先去登录」，别硬着头皮去撞。"""
+    parts = []
+    try:
+        with open(os.path.join(_cookie_dir(), "%s.txt" % pid),
+                  "r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                if line.startswith("#") or not line.strip():
+                    continue
+                cols = line.rstrip("\n").split("\t")
+                if len(cols) >= 7:
+                    parts.append("%s=%s" % (cols[5], cols[6]))
+    except Exception:
+        pass
+    return "; ".join(parts)
+
+
+def has_login(pid):
+    return bool(load_cookie_header(pid))
+
+
 # ---------- 通用 HTTP（带 CookieJar，能处理挑战 cookie 注入）----------
-def _new_opener():
+def _new_opener(cookie="", host=""):
     cj = http.cookiejar.CookieJar()
+    if cookie and host:
+        for kv in cookie.split(";"):
+            k, _, v = kv.strip().partition("=")
+            if k and v:
+                _set_cookie(cj, k.strip(), v.strip(), host)
     return urllib.request.build_opener(
         urllib.request.ProxyHandler({}),   # 服从环境里的系统代理，网盘不需要梯子
         urllib.request.HTTPCookieProcessor(cj),
@@ -420,7 +464,305 @@ def _probe_node(op, cj, node, node_host, share_url, progress):
     raise RuntimeError("蓝奏下载地址暂时不可用，请稍后再试")
 
 
+# ---------- 百度网盘 ----------
+# 分享页里嵌着 shareid / sign / timestamp / bdstoken，取直链全靠这几个；
+# 页面匿名能打开，但列目录和取直链一定要带着自己的登录态。
+_BAIDU_PAN = "https://pan.baidu.com"
+_BAIDU_DL_UA = "pan.baidu.com"     # 直链只认自家 UA，拿浏览器 UA 去请求会被拒
+_BAIDU_NO_LOGIN = ("百度网盘要先登录：设置 → 账号 → 百度网盘点「打开」，"
+                   "登完扩展会自动同步过来，再回来贴链接")
+
+_BAIDU_ERR = {
+    -9: "这个分享要提取码，把提取码一起贴进来（或写成 链接?pwd=xxxx）",
+    2: "百度说参数不对，链接可能被截断了",
+    112: "百度说页面过期了，重新贴一次链接再试",
+    118: "百度要求人工验证，先在浏览器里打开这个分享过一次再来",
+    31066: "文件不存在或已经被删了",
+}
+
+
+class _BaiduErr(Exception):
+    def __init__(self, errno, msg=""):
+        self.errno = errno
+        self.msg = msg
+        Exception.__init__(self, msg or str(errno))
+
+
+def _json_object_at(text, idx):
+    """从 idx（指向 '{'）开始按花括号配对截一个完整对象，字符串里的括号不算。"""
+    depth = 0
+    in_str = False
+    esc = False
+    end = min(len(text), idx + 200000)
+    for i in range(idx, end):
+        ch = text[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[idx:i + 1]
+    return ""
+
+
+def _json_at(text, pat):
+    m = re.search(pat, text)
+    if not m:
+        return {}
+    obj = _json_object_at(text, m.start(1))
+    if not obj:
+        return {}
+    try:
+        return json.loads(obj)
+    except Exception:
+        return {}
+
+
+def _baidu_state(html):
+    """把分享页里那几个关键字段扒出来。字段藏的位置各版本不一样，多路兜底。"""
+    st = {}
+    for pat in (r"locals\.mset\(\s*(\{)", r"window\.yunData\s*=\s*(\{)",
+                r"window\.__INITIAL_STATE__\s*=\s*(\{)"):
+        got = _json_at(html, pat)
+        if got:
+            st.update(got)
+            # 有些版本塞在子对象里
+            for v in got.values():
+                if isinstance(v, dict) and v.get("shareid"):
+                    st.update({k: v[k] for k in v if k not in st or not st[k]})
+    if not st.get("shareid"):
+        for k in ("shareid", "share_uk", "sign", "timestamp", "bdstoken"):
+            m = re.search(r'"%s"\s*:\s*"?([A-Za-z0-9_.\-]+)' % k, html)
+            if m:
+                st[k] = m.group(1)
+    return st
+
+
+def _baidu_verify(op, surl, pwd):
+    """过提取码，成功后 CookieJar 里会落下 BDCLND。"""
+    ts = int(time.time())
+    q = urllib.parse.urlencode({
+        "surl": surl, "t": ts, "channel": "chunlei", "web": 1,
+        "app_id": 250528, "clienttype": 0,
+    })
+    body = urllib.parse.urlencode({"pwd": pwd}).encode()
+    req = urllib.request.Request(
+        "%s/share/verify?%s" % (_BAIDU_PAN, q), data=body,
+        headers={"User-Agent": UA, "Referer": "%s/s/1%s" % (_BAIDU_PAN, surl),
+                 "Content-Type": "application/x-www-form-urlencoded"})
+    try:
+        j = json.loads(op.open(req, timeout=25).read().decode("utf-8", "ignore"))
+    except Exception:
+        raise RuntimeError("百度提取码校验没返回结果，稍后再试")
+    if j.get("errno") != 0:
+        if j.get("errno") == -12:
+            raise RuntimeError("提取码不对，核对一下再试")
+        raise RuntimeError("百度不让过提取码（%s），在浏览器里打开这个分享试试"
+                           % (j.get("errmsg") or j.get("errno")))
+    return j
+
+
+def _baidu_list(op, uk, shareid, bdstoken, dirpath):
+    ts = int(time.time())
+    q = urllib.parse.urlencode({
+        "uk": uk, "shareid": shareid, "order": "other", "desc": 1,
+        "showempty": 0, "web": 1, "page": 1, "num": 100, "dir": dirpath,
+        "t": ts, "channel": "chunlei", "app_id": 250528,
+        "bdstoken": bdstoken or "", "clienttype": 0,
+    })
+    _, raw = _get(op, "%s/share/list?%s" % (_BAIDU_PAN, q), _BAIDU_PAN + "/")
+    try:
+        j = json.loads(raw.decode("utf-8", "ignore"))
+    except Exception:
+        raise RuntimeError("百度没返回文件列表，稍后再试")
+    if j.get("errno"):
+        raise _BaiduErr(j.get("errno"), j.get("errmsg") or "")
+    return j.get("list") or []
+
+
+def _baidu_walk(op, uk, shareid, bdstoken, dirpath, depth=0, acc=None):
+    """递归摊平目录。百度文件夹能套很多层，超过 3 层就不再往里走。"""
+    acc = acc if acc is not None else []
+    for it in _baidu_list(op, uk, shareid, bdstoken, dirpath):
+        if len(acc) >= 300:
+            break
+        name = it.get("server_filename") or it.get("filename") or "文件"
+        if str(it.get("isdir")) == "1":
+            if depth < 3:
+                _baidu_walk(op, uk, shareid, bdstoken, it.get("path") or dirpath,
+                            depth + 1, acc)
+            continue
+        acc.append({"name": name, "size": int(it.get("size") or 0),
+                    "fid": str(it.get("fs_id") or "")})
+    return acc
+
+
+def _baidu_dlink(op, uk, shareid, sign, timestamp, bdstoken, fs_id):
+    q = urllib.parse.urlencode({
+        "sign": sign, "timestamp": timestamp, "bdstoken": bdstoken or "",
+        "channel": "chunlei", "clienttype": 0, "web": 1, "app_id": 250528,
+    })
+    body = urllib.parse.urlencode({
+        "encrypt": 0, "product": "share", "uk": uk,
+        "primaryid": shareid, "fid_list": json.dumps([int(fs_id)]),
+    }).encode()
+    req = urllib.request.Request(
+        "%s/api/sharedownload?%s" % (_BAIDU_PAN, q), data=body,
+        headers={"User-Agent": _BAIDU_DL_UA, "Referer": _BAIDU_PAN + "/",
+                 "Content-Type": "application/x-www-form-urlencoded"})
+    raw = op.open(req, timeout=30).read()
+    try:
+        j = json.loads(raw.decode("utf-8", "ignore"))
+    except Exception:
+        raise RuntimeError("百度没给出下载地址，稍后再试")
+    err = j.get("errno")
+    if err:
+        raise RuntimeError(_BAIDU_ERR.get(err) or
+                           "百度拒绝了取下载地址（%s），可能这条分享限制了下到本地" % err)
+    lst = j.get("list") or []
+    if not lst or not lst[0].get("dlink"):
+        raise RuntimeError("百度没给出下载地址，可能这个文件不让第三方下载")
+    return lst[0]["dlink"]
+
+
+def baidu_resolve(url, pwd="", progress=None):
+    cookie = load_cookie_header(P_BAIDU)
+    if not cookie:
+        raise RuntimeError(_BAIDU_NO_LOGIN)
+    op, _cj = _new_opener(cookie, COOKIE_DOMAINS[P_BAIDU])
+    if progress:
+        progress(stage="正在打开百度分享…")
+    _, raw = _get(op, url, _BAIDU_PAN + "/")
+    html = raw.decode("utf-8", "ignore")
+    if any(m in html for m in _DEAD_MARKS):
+        raise RuntimeError("这个百度分享已经失效了，换个还能打开的链接")
+
+    st = _baidu_state(html)
+    shareid = st.get("shareid")
+    uk = st.get("share_uk") or st.get("uk")
+    if not shareid or not uk:
+        raise RuntimeError("百度分享页没读出文件信息，可能被要求人工验证；"
+                           "在浏览器里打开这个分享过一次再回来贴")
+    surl = ""
+    m = re.search(r"/s/1([A-Za-z0-9_-]+)", url)
+    if m:
+        surl = m.group(1)
+    bdstoken = st.get("bdstoken") or ""
+
+    def _list_root():
+        return _baidu_walk(op, uk, shareid, bdstoken, "/")
+
+    try:
+        files = _list_root()
+    except _BaiduErr as e:
+        if e.errno != -9:
+            raise RuntimeError(_BAIDU_ERR.get(e.errno) or
+                               "百度列不出文件（%s），可能这条分享限制了下到本地" % e.errno)
+        # 要提取码：有就验一次，没有就让用户补
+        if not pwd:
+            raise RuntimeError(_BAIDU_ERR[-9])
+        _baidu_verify(op, surl, pwd)
+        try:
+            files = _list_root()
+        except _BaiduErr as e2:
+            raise RuntimeError(_BAIDU_ERR.get(e2.errno) or "百度列不出文件（%s）" % e2.errno)
+
+    if not files:
+        raise RuntimeError("这个百度分享里没看到文件（空文件夹，或者要提取码）")
+
+    title = ""
+    mt = re.search(r"<title>(.*?)</title>", html, re.S)
+    if mt:
+        title = re.sub(r"_?免费高速下载.*$", "", mt.group(1)).strip()
+    return {
+        "title": title, "platform": P_BAIDU, "url": url, "pwd": pwd,
+        "files": files, "is_folder": len(files) > 1,
+        "_uk": uk, "_shareid": shareid, "_sign": st.get("sign") or "",
+        "_timestamp": st.get("timestamp") or int(time.time()),
+        "_bdstoken": bdstoken,
+    }
+
+
+def _jar_header(cj):
+    return "; ".join("%s=%s" % (c.name, c.value) for c in cj)
+
+
+def baidu_direct(shot, file_info=None, progress=None):
+    cookie = load_cookie_header(P_BAIDU)
+    if not cookie:
+        raise RuntimeError(_BAIDU_NO_LOGIN)
+    op, cj = _new_opener(cookie, COOKIE_DOMAINS[P_BAIDU])
+    fi = file_info or (shot.get("files") or [{}])[0]
+    fid = fi.get("fid")
+    if not fid:
+        raise RuntimeError("没拿到这个文件在百度那边的编号，重新贴一次链接")
+    if progress:
+        progress(stage="正在向百度要下载地址…")
+    sign = shot.get("_sign")
+    if not sign:
+        raise RuntimeError("百度这个分享没给出签名，重新贴一次链接再试")
+    dlink = _baidu_dlink(op, shot["_uk"], shot["_shareid"], sign,
+                         shot.get("_timestamp"), shot.get("_bdstoken"), fid)
+    return (dlink, fi.get("name") or "", fi.get("size") or 0,
+            {"User-Agent": _BAIDU_DL_UA, "Cookie": _jar_header(cj),
+             "Referer": _BAIDU_PAN + "/"})
+
+
 # ---------- 统一入口 ----------
+# 没实现的平台，先花两秒看看分享本身还在不在：
+# 链接失效和「我们没做」是两回事，混成一句话用户只会觉得软件坏了。
+_DEAD_MARKS = ("页面不存在", "你访问的页面不存在", "分享的文件已经被取消",
+               "链接错误", "来晚了", "分享已过期", "文件已经删除", "该分享已失效")
+# 页面打得开、但取直链要登录态的站；如实说清缺什么，别让人以为点两下就能好
+_NEED_ACCOUNT = {
+    P_XUNLEI: "要登录迅雷账号才能下",
+    P_C139: "要登录 139 账号才能下",
+    P_115: "要登录 115 账号才能下",
+    P_123: "要登录后转存到自己网盘才能下",
+    P_GUANGYA: "要登录光鸭账号才能下",
+    P_QUARK: "游客态试过列不出文件",
+    P_UC: "游客态还没试通",
+}
+
+# 平台名后面已经带了站名，文案里别再重复一遍「百度网盘：百度网盘…」
+
+
+def _probe_share(info):
+    """看看分享页还活着没。返回 'dead' / 'alive' / 'unknown'，不抛异常。"""
+    url = info.get("url") or ""
+    try:
+        op, _ = _new_opener()
+        req = urllib.request.Request(url, headers={"User-Agent": UA})
+        try:
+            r = op.open(req, timeout=15)
+            raw = _read_resp(r)
+            code = getattr(r, "status", 200)
+        except urllib.error.HTTPError as e:
+            raw = e.read() or b""
+            code = e.code
+        html = raw.decode("utf-8", "ignore")
+        if any(m in html for m in _DEAD_MARKS):
+            return "dead"
+        # 百度/夸克这类失效页会直接给 404；其余站 404 也可能是路径变了，按 unknown 保守处理
+        if code == 404 and info.get("platform") in (P_BAIDU, P_QUARK, P_UC):
+            return "dead"
+        if 200 <= code < 400:
+            return "alive"
+    except Exception:
+        pass
+    return "unknown"
+
+
 def resolve(text, pwd="", progress=None):
     """解析分享链接，返回 {title, platform, files:[{name,size,fid}]}。"""
     info = parse_share(text)
@@ -428,7 +770,16 @@ def resolve(text, pwd="", progress=None):
         raise RuntimeError("没认出这是网盘分享链接")
     pid = info["platform"]
     if pid not in SUPPORTED:
-        raise RuntimeError("%s的解析还在做，暂时下不了；目前支持蓝奏云" % info["name"])
+        name = info["name"]
+        # 先分清「链接没了」和「我们没做」，这两种给用户的出路完全不同
+        if _probe_share(info) == "dead":
+            raise RuntimeError("%s这个分享已经失效了（对方页面说页面不存在/已取消），"
+                               "换个还能打开的链接再试" % name)
+        why = _NEED_ACCOUNT.get(pid)
+        if why:
+            raise RuntimeError("%s：%s，暂时还下不了；目前免登录就能下的是蓝奏云"
+                               % (name, why))
+        raise RuntimeError("%s的解析还在做，暂时下不了；目前支持蓝奏云" % name)
     pwd = pwd or info.get("pwd") or ""
     if pid == P_LANZOU:
         res = lanzou_resolve(info["url"], pwd, progress)
@@ -436,6 +787,8 @@ def resolve(text, pwd="", progress=None):
         res["url"] = info["url"]
         res["pwd"] = pwd
         return res
+    if pid == P_BAIDU:
+        return baidu_resolve(info["url"], pwd, progress)
     raise RuntimeError("这个网盘暂时不支持")
 
 
@@ -445,4 +798,6 @@ def get_direct(share_info, file_info=None, progress=None):
     if pid == P_LANZOU:
         return lanzou_direct(share_info["url"], share_info.get("pwd") or "",
                              file_info, progress)
+    if pid == P_BAIDU:
+        return baidu_direct(share_info, file_info, progress)
     raise RuntimeError("这个网盘暂时不支持下载")

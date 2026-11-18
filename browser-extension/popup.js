@@ -11,11 +11,12 @@ async function render() {
   }
 }
 
-$("#sync").onclick = async () => {
-  const b = $("#sync");
-  b.disabled = true;
-  $("#out").className = "";
-  $("#out").textContent = "正在同步…";
+async function doSync(showBtn) {
+  if (showBtn) {
+    $("#sync").disabled = true;
+    $("#out").className = "";
+    $("#out").textContent = "正在同步…";
+  }
   try {
     const r = await chrome.runtime.sendMessage({ type: "sync" });
     const ok = !!(r && r.ok);
@@ -26,9 +27,10 @@ $("#sync").onclick = async () => {
     $("#out").className = "bad";
     $("#out").textContent = "✗ " + String(e);
   }
-  b.disabled = false;
-  render();
-};
+  $("#sync").disabled = false;
+}
+
+$("#sync").onclick = () => doSync(true);
 
 $("#auto").onchange = async e => {
   try {
@@ -38,4 +40,13 @@ $("#auto").onchange = async e => {
   }
 };
 
-render();
+/* 点开图标就顺手同步一次：重载扩展之后不用再琢磨点哪个按钮。
+   刚同步过 5 秒内的不重复跑，免得来回点把列表刷花。 */
+async function autoSync() {
+  const d = await chrome.storage.local.get(["auto", "lastSync"]);
+  if (d.auto === false) return;
+  if (d.lastSync && Date.now() - d.lastSync < 5000) return;
+  await doSync(false);
+}
+
+render().then(autoSync);

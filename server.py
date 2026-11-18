@@ -899,6 +899,7 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(items, list):
                 items = [{"platform": data.get("platform"),
                           "cookies": data.get("cookies")}]
+            login_mod.note_extension(data)
             results = []
             for it in items[:40]:
                 if not isinstance(it, dict):

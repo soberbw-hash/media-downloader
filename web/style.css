@@ -1331,6 +1331,7 @@ body.playing .toast { bottom: 84px; }
   background: #f2f0ee; color: #a8a29e; font-size: 10px; letter-spacing: .2px;
 }
 .ext-badge.on { background: #eaf6ee; color: #15803d; }
+.ext-badge.warn { background: #fdf3e7; color: #b45309; }
 .ext-card .primary {
   margin-left: auto; flex-shrink: 0;
   height: 26px; padding: 0 11px;

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "音视频下载器 · 登录态同步",
   "short_name": "下载器同步",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "把浏览器里已登录的账号同步到本机音视频下载器。",
   "permissions": ["cookies", "storage", "alarms"],
   "host_permissions": [
@@ -19,7 +19,19 @@
     "*://*.qq.com/*", "*://qq.com/*",
     "*://*.suno.com/*", "*://suno.com/*",
     "*://*.suno.ai/*", "*://suno.ai/*",
-    "*://*.baidu.com/*", "*://baidu.com/*"
+    "*://*.baidu.com/*", "*://baidu.com/*",
+    "*://*.quark.cn/*", "*://quark.cn/*",
+    "*://*.uc.cn/*", "*://uc.cn/*",
+    "*://*.xunlei.com/*", "*://xunlei.com/*",
+    "*://*.123pan.com/*", "*://123pan.com/*",
+    "*://*.123865.com/*", "*://123865.com/*",
+    "*://*.123684.com/*", "*://123684.com/*",
+    "*://*.123pan.cn/*", "*://123pan.cn/*",
+    "*://*.115.com/*", "*://115.com/*",
+    "*://*.115cdn.com/*", "*://115cdn.com/*",
+    "*://*.139.com/*", "*://139.com/*",
+    "*://*.guangyapan.com/*", "*://guangyapan.com/*",
+    "*://*.guangyapan.cn/*", "*://guangyapan.cn/*"
   ],
   "background": { "service_worker": "background.js" },
   "icons": {

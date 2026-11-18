@@ -728,11 +728,14 @@ _NEED_ACCOUNT = {
     P_XUNLEI: "要登录迅雷账号才能下",
     P_C139: "要登录 139 账号才能下",
     P_115: "要登录 115 账号才能下",
-    P_123: "要登录后转存到自己网盘才能下",
+    P_123: "123 的取链接口换过一版，还在重写",
     P_GUANGYA: "要登录光鸭账号才能下",
-    P_QUARK: "游客态试过列不出文件",
-    P_UC: "游客态还没试通",
+    P_QUARK: "目录能列出来，但拿下载地址必须登录夸克账号",
+    P_UC: "目录能列出来，但拿下载地址必须登录 UC 账号",
 }
+
+# 已经能真下的平台（文案里用来告诉用户「现在能下什么」）
+CAN_DOWNLOAD = "蓝奏云、百度网盘（百度要登录）"
 
 # 平台名后面已经带了站名，文案里别再重复一遍「百度网盘：百度网盘…」
 
@@ -777,9 +780,10 @@ def resolve(text, pwd="", progress=None):
                                "换个还能打开的链接再试" % name)
         why = _NEED_ACCOUNT.get(pid)
         if why:
-            raise RuntimeError("%s：%s，暂时还下不了；目前免登录就能下的是蓝奏云"
-                               % (name, why))
-        raise RuntimeError("%s的解析还在做，暂时下不了；目前支持蓝奏云" % name)
+            raise RuntimeError("%s：%s，暂时还下不了；现在能下的是%s"
+                               % (name, why, CAN_DOWNLOAD))
+        raise RuntimeError("%s的解析还在做，暂时下不了；现在能下的是%s"
+                           % (name, CAN_DOWNLOAD))
     pwd = pwd or info.get("pwd") or ""
     if pid == P_LANZOU:
         res = lanzou_resolve(info["url"], pwd, progress)

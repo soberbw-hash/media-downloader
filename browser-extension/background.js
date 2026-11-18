@@ -5,23 +5,33 @@
  * 不上传、不落盘到别处。服务端口是 8765~8785 里实际在跑的那个。
  */
 
+const EXT_VERSION = "1.1.0";
+
 const PLATFORMS = [
-  { id: "xiaohongshu",   domain: "xiaohongshu.com" },
-  { id: "instagram",     domain: "instagram.com" },
-  { id: "douyin",        domain: "douyin.com" },
-  { id: "kuaishou",      domain: "kuaishou.com" },
-  { id: "bilibili",      domain: "bilibili.com" },
-  { id: "weibo",         domain: "weibo.com" },
-  { id: "music_netease", domain: "music.163.com" },
-  { id: "music_qqmusic", domain: "qq.com" },
-  { id: "suno",          domain: "suno.com" },
-  { id: "baidu",         domain: "baidu.com" }
+  { id: "xiaohongshu",   domains: ["xiaohongshu.com"] },
+  { id: "instagram",     domains: ["instagram.com"] },
+  { id: "douyin",        domains: ["douyin.com"] },
+  { id: "kuaishou",      domains: ["kuaishou.com"] },
+  { id: "bilibili",      domains: ["bilibili.com"] },
+  { id: "weibo",         domains: ["weibo.com", "weibo.cn"] },
+  { id: "music_netease", domains: ["music.163.com"] },
+  { id: "music_qqmusic", domains: ["qq.com"] },
+  { id: "suno",          domains: ["suno.com", "suno.ai"] },
+  /* 网盘：cookie 名各站不同，但都很长一串；只在本机存，用来取分享直链 */
+  { id: "baidu",         domains: ["baidu.com"] },
+  { id: "quark",         domains: ["quark.cn"] },
+  { id: "uc",            domains: ["uc.cn"] },
+  { id: "xunlei",        domains: ["xunlei.com"] },
+  { id: "123pan",        domains: ["123pan.com", "123865.com", "123684.com", "123pan.cn"] },
+  { id: "pan115",        domains: ["115.com", "115cdn.com"] },
+  { id: "c139",          domains: ["139.com"] },
+  { id: "guangya",       domains: ["guangyapan.com", "guangyapan.cn"] }
 ];
 
 const PORT_MIN = 8765;
 const PORT_MAX = 8785;
 const ALARM = "vdl-sync";
-const MAX_PER_SITE = 300;
+const MAX_PER_SITE = 400;
 
 async function probe(port) {
   const ctl = new AbortController();
@@ -50,23 +60,34 @@ async function findPort() {
 async function collect() {
   const items = [];
   for (const s of PLATFORMS) {
-    try {
-      const cs = await chrome.cookies.getAll({ domain: s.domain });
-      if (!cs || !cs.length) continue;
-      items.push({
-        platform: s.id,
-        cookies: cs.slice(0, MAX_PER_SITE).map(c => ({
-          name: c.name,
-          value: c.value,
-          domain: c.domain,
-          path: c.path,
-          secure: !!c.secure,
-          expirationDate: c.expirationDate || 0
-        }))
-      });
-    } catch (e) {
-      // 某个站点没授权 / 没登录，跳过就行，别让整批失败
+    const seen = new Set();
+    const list = [];
+    for (const dom of s.domains) {
+      // 按域取一次、再按站点 URL 取一次：百度这类登录态挂在 .baidu.com 上，
+      // 单靠 domain 查询在个别版本上会漏，两种查法合起来最稳
+      for (const q of [{ domain: dom }, { url: `https://${dom}/` }]) {
+        try {
+          const cs = await chrome.cookies.getAll(q);
+          for (const c of cs || []) {
+            const key = c.name + "|" + c.domain + "|" + c.path;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            list.push({
+              name: c.name,
+              value: c.value,
+              domain: c.domain,
+              path: c.path,
+              secure: !!c.secure,
+              expirationDate: c.expirationDate || 0
+            });
+          }
+        } catch (e) {
+          // 某个站点没授权 / 没登录，跳过就行，别让整批失败
+        }
+      }
     }
+    if (!list.length) continue;
+    items.push({ platform: s.id, cookies: list.slice(0, MAX_PER_SITE) });
   }
   return items;
 }
@@ -79,17 +100,16 @@ async function syncAll() {
     return out;
   }
   const items = await collect();
-  if (!items.length) {
-    const out = { ok: false, msg: "浏览器里还没读到任何站点 cookie，先去网站登一次", results: [] };
-    await chrome.storage.local.set({ lastSync: Date.now(), lastMsg: out.msg });
-    return out;
-  }
   let out;
   try {
     const r = await fetch(`http://127.0.0.1:${port}/api/login/extension`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-VDL-Ext": "1" },
-      body: JSON.stringify({ items })
+      body: JSON.stringify({
+        ext_version: EXT_VERSION,
+        platforms: PLATFORMS.map(p => p.id),
+        items
+      })
     });
     out = await r.json();
   } catch (e) {
@@ -141,7 +161,7 @@ let lastSyncAt = 0;
 
 function isWatched(domain) {
   const d = (domain || "").toLowerCase().replace(/^\./, "");
-  return PLATFORMS.some(p => d === p.domain || d.endsWith("." + p.domain));
+  return PLATFORMS.some(p => p.domains.some(x => d === x || d.endsWith("." + x)));
 }
 
 function queueSync() {

@@ -1057,20 +1057,31 @@ async function setupExt() {
 function renderExt() {
   const card = $("#extCard");
   if (!card) return;
-  const on = !!(extInfo && extInfo.synced);
+  const synced = !!(extInfo && extInfo.synced);
+  // 扩展报过自己的站点清单、清单里却没有新加的站点 → 装的是旧扩展，
+  // 光重新登录没用，得在扩展页点一次刷新
+  const stale = !!(extInfo && extInfo.stale);
   const badge = $("#extBadge");
   if (badge) {
-    badge.textContent = on ? "已连上" : "第一次要装";
-    badge.className = on ? "ext-badge on" : "ext-badge";
+    badge.textContent = stale ? "扩展要更新" : (synced ? "已连上" : "第一次要装");
+    badge.className = stale ? "ext-badge warn" : (synced ? "ext-badge on" : "ext-badge");
   }
   const btn = $("#btnExtSetup");
   if (btn) {
-    btn.textContent = on ? "重新检查" : "选中扩展文件夹";
-    btn.onclick = on ? () => { loadLogins(true); toast("已重新检查"); } : setupExt;
+    btn.textContent = stale ? "更新扩展" : (synced ? "重新检查" : "选中扩展文件夹");
+    btn.onclick = stale
+      ? refreshExt
+      : (synced ? () => { loadLogins(true); toast("已重新检查"); } : setupExt);
   }
   const how = $("#extHow");
-  if (how) how.hidden = on;      // 装好就别再占着位置
+  if (how) how.hidden = synced && !stale;   // 装好就别再占着位置
   card.classList.toggle("missing", !!(extInfo && !extInfo.exists));
+}
+
+/* 扩展更新：Chrome 不会热更新「加载未打包」的扩展代码，必须手点一次刷新。
+   浏览器地址栏 chrome:// 外部程序打不开，只能把话说清楚，让他自己点两下。 */
+function refreshExt() {
+  toast("浏览器地址栏进 chrome://extensions，找到「下载器同步」，点它右下角的刷新箭头，回来点「重新检查」", 12000);
 }
 
 function loginRow(s, status, busy) {

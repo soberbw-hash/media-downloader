@@ -130,17 +130,60 @@ SITES = {
         "tip": "可选。登录后能下自己账号里的歌；不登录游客只给加密片段，下不了",
     },
     # 网盘：分享链接的取链接口要认账号，所以必须登录。登完扩展会自动同步，
-    # 之后贴分享链接就能直接下（netdisk.py 读 cookies/baidu.txt）
+    # 之后贴分享链接就能直接下（netdisk.py 读 cookies/<id>.txt）
     "baidu": {
         "name": "百度网盘", "url": "https://pan.baidu.com/",
         "need": ["BDUSS"], "domains": ["baidu.com"], "required": True,
         "tip": "要登录。百度网盘的下载地址只给登录用户，不登录下不了",
+    },
+    "quark": {
+        "name": "夸克网盘", "url": "https://pan.quark.cn/",
+        "need": ["__puus", "__pus", "b-user-id"],
+        "domains": ["quark.cn"], "required": True,
+        "tip": "要登录。夸克分享的直链只给登录用户，不登录拿不到",
+    },
+    "uc": {
+        "name": "UC网盘", "url": "https://drive.uc.cn/",
+        "need": ["__puus", "__pus", "UC_AT"],
+        "domains": ["uc.cn"], "required": True,
+        "tip": "要登录。UC 网盘和夸克同一套账号体系，登过一次就能下",
+    },
+    "xunlei": {
+        "name": "迅雷网盘", "url": "https://pan.xunlei.com/",
+        "need": ["sub", "uid", "sessionid"],
+        "domains": ["xunlei.com"], "required": True,
+        "tip": "要登录迅雷账号，分享的下载地址按账号下发",
+    },
+    "123pan": {
+        "name": "123云盘", "url": "https://www.123pan.com/",
+        "need": ["authorToken", "token"],
+        "domains": ["123pan.com", "123865.com", "123684.com", "123pan.cn"],
+        "required": False,
+        "tip": "可选。公开分享不登录也能下；登录后能下自己网盘里的分享",
+    },
+    "pan115": {
+        "name": "115网盘", "url": "https://115.com/",
+        "need": ["SEID", "UID", "CID"],
+        "domains": ["115.com", "115cdn.com"], "required": True,
+        "tip": "要登录 115 账号，分享的下载地址只在登录态里给",
+    },
+    "c139": {
+        "name": "139云盘", "url": "https://yun.139.com/",
+        "need": [], "domains": ["139.com"], "required": False,
+        "tip": "可选。登录中国移动云盘后自动同步",
+    },
+    "guangya": {
+        "name": "光鸭云盘", "url": "https://www.guangyapan.com/",
+        "need": [], "domains": ["guangyapan.com", "guangyapan.cn"],
+        "required": False,
+        "tip": "可选。登录后自动同步",
     },
 }
 
 STATE = {"state": "idle", "platform": "", "msg": "", "since": 0}
 _LOCK = threading.Lock()
 _EXT_SYNC = {"at": 0, "count": 0}
+_EXT_REPORT = {"version": "", "platforms": [], "at": 0}
 
 
 def _set(state, platform="", msg=""):
@@ -318,7 +361,24 @@ def mark_synced(count):
         _EXT_SYNC.update(at=int(time.time()), count=count)
 
 
+def note_extension(data):
+    """扩展每次同步会报自己的版本和站点清单。用它判断「装的是旧扩展」：
+    旧扩展的清单里没有新加的站点，那种情况光让用户重新登录是没用的，
+    得先把扩展重新加载一次。"""
+    if not isinstance(data, dict):
+        return
+    ver = str(data.get("ext_version") or "").strip()
+    plats = data.get("platforms")
+    if ver:
+        _EXT_REPORT["version"] = ver[:20]
+    if isinstance(plats, list):
+        _EXT_REPORT["platforms"] = [str(x) for x in plats][:60]
+    _EXT_REPORT["at"] = int(time.time())
+
+
 def extension_info():
+    have = set(_EXT_REPORT["platforms"])
+    missing = [s["name"] for pid, s in SITES.items() if pid not in have]
     return {
         "dir": EXT_DIR,
         "exists": os.path.isdir(EXT_DIR) and os.path.isfile(
@@ -326,6 +386,11 @@ def extension_info():
         "synced": _EXT_SYNC["at"] > 0,
         "synced_at": _EXT_SYNC["at"],
         "synced_count": _EXT_SYNC["count"],
+        "version": _EXT_REPORT["version"],
+        "platforms": _EXT_REPORT["platforms"],
+        "missing": missing,
+        # 报过清单、又缺站点 → 装的是旧扩展，要重新加载一次
+        "stale": bool(_EXT_REPORT["at"] and missing),
     }
 
 

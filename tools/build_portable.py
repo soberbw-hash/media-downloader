@@ -169,6 +169,15 @@ def main():
     out_dir = os.path.join(dst, "下载的文件")
     os.makedirs(out_dir, exist_ok=True)
 
+    # 应用图标：桌面快捷方式读的是 程序\assets\icon.ico，不从源码同步的话
+    # 换过图标的老用户会一直看到上一版的图标（缓存里那份）
+    ico_src = os.path.join(BASE, "tools", "assets", "icon.ico")
+    if os.path.isfile(ico_src):
+        ico_dst = os.path.join(app, "assets")
+        os.makedirs(ico_dst, exist_ok=True)
+        shutil.copy2(ico_src, os.path.join(ico_dst, "icon.ico"))
+        print("应用图标 ->", os.path.join(ico_dst, "icon.ico"))
+
     # 源码的 config.json 指向开发机路径，照搬过去别人会「下完找不到文件」；
     # 只在路径明显不对时改，用户自己设过的目录不动。
     import json

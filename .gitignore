@@ -47,3 +47,6 @@ Thumbs.db
 .workbuddy/
 _accept_info.json
 _accept_shots/
+
+# 扩展上次上报的版本/站点清单（本机状态，不进仓库）
+ext_state.json

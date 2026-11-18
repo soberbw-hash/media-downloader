@@ -16,6 +16,7 @@
 Chrome 127+ 还有 App-Bound 加密，硬读既不稳也不体面（实测读不出来）。
 扩展是用户主动授权、能读到 HttpOnly、且跨机器通用的干净通道。
 """
+import json
 import os
 import re
 import sys
@@ -184,6 +185,8 @@ STATE = {"state": "idle", "platform": "", "msg": "", "since": 0}
 _LOCK = threading.Lock()
 _EXT_SYNC = {"at": 0, "count": 0}
 _EXT_REPORT = {"version": "", "platforms": [], "at": 0}
+# 扩展上次上报的版本/站点清单，落盘一份：重启后还认得「装的是旧扩展」
+_EXT_STATE = os.path.join(paths.data_dir(), "ext_state.json")
 
 
 def _set(state, platform="", msg=""):
@@ -364,7 +367,11 @@ def mark_synced(count):
 def note_extension(data):
     """扩展每次同步会报自己的版本和站点清单。用它判断「装的是旧扩展」：
     旧扩展的清单里没有新加的站点，那种情况光让用户重新登录是没用的，
-    得先把扩展重新加载一次。"""
+    得先把扩展重新加载一次。
+
+    这份记录要落盘：程序重启之后还没收到上报的那几秒，也得能告诉用户
+    「扩展该更新了」，不然他会一直点「重新检查」看百度还是未登录。
+    """
     if not isinstance(data, dict):
         return
     ver = str(data.get("ext_version") or "").strip()
@@ -374,11 +381,54 @@ def note_extension(data):
     if isinstance(plats, list):
         _EXT_REPORT["platforms"] = [str(x) for x in plats][:60]
     _EXT_REPORT["at"] = int(time.time())
+    _save_ext_report()
+
+
+def _save_ext_report():
+    try:
+        os.makedirs(os.path.dirname(_EXT_STATE), exist_ok=True)
+        with open(_EXT_STATE, "w", encoding="utf-8") as f:
+            json.dump({"version": _EXT_REPORT["version"],
+                       "platforms": _EXT_REPORT["platforms"],
+                       "at": _EXT_REPORT["at"]}, f, ensure_ascii=False)
+    except Exception:
+        pass
+
+
+def _load_ext_report():
+    try:
+        with open(_EXT_STATE, encoding="utf-8") as f:
+            d = json.load(f)
+        _EXT_REPORT["version"] = str(d.get("version") or "")[:20]
+        plat = d.get("platforms")
+        if isinstance(plat, list):
+            _EXT_REPORT["platforms"] = [str(x) for x in plat][:60]
+        _EXT_REPORT["at"] = int(d.get("at") or 0)
+    except Exception:
+        pass
+
+
+_load_ext_report()
+
+
+def _has_any_cookie():
+    try:
+        for fn in os.listdir(COOKIE_DIR):
+            if fn.endswith(".txt") and os.path.getsize(
+                    os.path.join(COOKIE_DIR, fn)) > 64:
+                return True
+    except Exception:
+        pass
+    return False
 
 
 def extension_info():
     have = set(_EXT_REPORT["platforms"])
     missing = [s["name"] for pid, s in SITES.items() if pid not in have]
+    # 还没收到带清单的上报（刚重启/装完）时，用「本机已经有 cookie」推断
+    # 扩展以前是能用的 → 现在缺站点就是扩展旧了，宁可多提示一次，
+    # 也别让人盯着「未登录」一直点重新检查
+    known = bool(_EXT_REPORT["at"]) or _has_any_cookie()
     return {
         "dir": EXT_DIR,
         "exists": os.path.isdir(EXT_DIR) and os.path.isfile(
@@ -389,8 +439,7 @@ def extension_info():
         "version": _EXT_REPORT["version"],
         "platforms": _EXT_REPORT["platforms"],
         "missing": missing,
-        # 报过清单、又缺站点 → 装的是旧扩展，要重新加载一次
-        "stale": bool(_EXT_REPORT["at"] and missing),
+        "stale": bool(missing) and known,
     }
 
 

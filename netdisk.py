@@ -39,7 +39,8 @@ PLATFORM_NAMES = {
 }
 
 # 已实现解析的平台（其余识别得到但会给出「还没做好」的明确提示）
-SUPPORTED = {P_LANZOU, P_BAIDU}
+# 夸克列目录已实测可用；取直链要登录转存，见 quark_direct
+SUPPORTED = {P_LANZOU, P_BAIDU, P_QUARK}
 
 # 各平台登录态 cookie 的作用域（只在本机 cookies 目录里找这些站点的登录信息）
 COOKIE_DOMAINS = {
@@ -545,6 +546,16 @@ def _baidu_state(html):
             m = re.search(r'"%s"\s*:\s*"?([A-Za-z0-9_.\-]+)' % k, html)
             if m:
                 st[k] = m.group(1)
+    # sign 现在多藏在内嵌 file_list 的每个文件条目上（顶层没有），
+    # 取第一个非空 sign 兜底。真正的签名取链时会用 tplconfig 现拿，这里只是备用。
+    if not st.get("sign"):
+        m = re.search(r'"sign"\s*:\s*"([A-Za-z0-9]{20,})"', html)
+        if m:
+            st["sign"] = m.group(1)
+    if not st.get("timestamp"):
+        m = re.search(r'"timestamp"\s*:\s*(\d{9,})', html)
+        if m:
+            st["timestamp"] = m.group(1)
     return st
 
 
@@ -607,15 +618,52 @@ def _baidu_walk(op, uk, shareid, bdstoken, dirpath, depth=0, acc=None):
     return acc
 
 
-def _baidu_dlink(op, uk, shareid, sign, timestamp, bdstoken, fs_id):
+def _baidu_fresh_sign(op, surl):
+    """从 tplconfig 现拿 sign + timestamp（只对登录态有效，约 5 分钟过期）。
+
+    分享页里的 sign 经常会缺（尤其需要提取码的分享，过了码页面才给），
+    取链这一步统一现拿，成功率比复用页面里的旧值高得多。
+    拿不到就返回空，调用方退回用页面里的值，不把路堵死。
+    """
+    if not surl:
+        return "", ""
     q = urllib.parse.urlencode({
-        "sign": sign, "timestamp": timestamp, "bdstoken": bdstoken or "",
+        "surl": surl, "fields": "sign,timestamp", "channel": "chunlei",
+        "web": 1, "app_id": 250528, "clienttype": 0,
+    })
+    req = urllib.request.Request(
+        "%s/share/tplconfig?%s" % (_BAIDU_PAN, q),
+        headers={"User-Agent": _BAIDU_DL_UA, "Referer": _BAIDU_PAN + "/"})
+    try:
+        j = json.loads(op.open(req, timeout=25).read().decode("utf-8", "ignore"))
+        if not j.get("errno"):
+            return str(j.get("sign") or ""), str(j.get("timestamp") or "")
+    except Exception:
+        pass
+    return "", ""
+
+
+def _baidu_dlink(op, uk, shareid, sign, timestamp, bdstoken, fs_id,
+                 randsk="", surl=""):
+    fresh_sign, fresh_ts = _baidu_fresh_sign(op, surl)
+    if fresh_sign:
+        sign, timestamp = fresh_sign, fresh_ts
+    if not sign:
+        raise RuntimeError("百度这个分享没给出签名，先在浏览器里打开一次这个链接再来")
+    q = urllib.parse.urlencode({
+        "sign": sign, "timestamp": timestamp or int(time.time()),
+        "bdstoken": bdstoken or "",
         "channel": "chunlei", "clienttype": 0, "web": 1, "app_id": 250528,
     })
-    body = urllib.parse.urlencode({
+    form = {
         "encrypt": 0, "product": "share", "uk": uk,
         "primaryid": shareid, "fid_list": json.dumps([int(fs_id)]),
-    }).encode()
+    }
+    # 有提取码的分享，verify 下发的 randsk 要作为 sekey 带回去，
+    # 否则百度会当没过码（errno -9 / 9019）
+    if randsk:
+        form["extra"] = json.dumps({"sekey": randsk})
+    body = urllib.parse.urlencode(form).encode()
     req = urllib.request.Request(
         "%s/api/sharedownload?%s" % (_BAIDU_PAN, q), data=body,
         headers={"User-Agent": _BAIDU_DL_UA, "Referer": _BAIDU_PAN + "/",
@@ -626,6 +674,8 @@ def _baidu_dlink(op, uk, shareid, sign, timestamp, bdstoken, fs_id):
     except Exception:
         raise RuntimeError("百度没给出下载地址，稍后再试")
     err = j.get("errno")
+    if err == 9019:
+        raise RuntimeError("百度要求账号安全验证，先在浏览器里打开这个分享过一次再来")
     if err:
         raise RuntimeError(_BAIDU_ERR.get(err) or
                            "百度拒绝了取下载地址（%s），可能这条分享限制了下到本地" % err)
@@ -633,6 +683,58 @@ def _baidu_dlink(op, uk, shareid, sign, timestamp, bdstoken, fs_id):
     if not lst or not lst[0].get("dlink"):
         raise RuntimeError("百度没给出下载地址，可能这个文件不让第三方下载")
     return lst[0]["dlink"]
+
+
+def _baidu_files_from_page(html):
+    """从过了提取码的分享页内嵌 file_list 里读文件。
+
+    百度把文件信息直接塞进过码后的页面里，字段和 /share/list 返回基本一致，
+    接口被风控挡住时用它兜底。返回空列表表示页面里没有。
+    """
+    m = re.search(r'"file_list"\s*:\s*(\[)', html)
+    if not m:
+        return []
+    start = m.start(1)
+    depth = 0
+    in_str = False
+    esc = False
+    end = None
+    for i in range(start, len(html)):
+        ch = html[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth -= 1
+            if depth == 0:
+                end = i + 1
+                break
+    if not end:
+        return []
+    try:
+        arr = json.loads(html[start:end])
+    except Exception:
+        return []
+    out = []
+    for it in arr:
+        if not isinstance(it, dict) or str(it.get("isdir")) == "1":
+            continue
+        fs = it.get("fs_id")
+        if not fs:
+            continue
+        out.append({"name": it.get("server_filename") or it.get("filename") or "文件",
+                    "size": int(it.get("size") or 0), "fid": str(fs),
+                    "sign": it.get("sign") or ""})
+    return out
 
 
 def baidu_resolve(url, pwd="", progress=None):
@@ -658,6 +760,7 @@ def baidu_resolve(url, pwd="", progress=None):
     if m:
         surl = m.group(1)
     bdstoken = st.get("bdstoken") or ""
+    randsk = ""
 
     def _list_root():
         return _baidu_walk(op, uk, shareid, bdstoken, "/")
@@ -671,11 +774,22 @@ def baidu_resolve(url, pwd="", progress=None):
         # 要提取码：有就验一次，没有就让用户补
         if not pwd:
             raise RuntimeError(_BAIDU_ERR[-9])
-        _baidu_verify(op, surl, pwd)
+        vj = _baidu_verify(op, surl, pwd)
+        randsk = vj.get("randsk") or ""
+        # 过了码以后分享页会内嵌 file_list（含 fs_id / sign），
+        # 比再打 /share/list 稳——后者现在经常回 errno=2/9019
+        _, raw2 = _get(op, url, _BAIDU_PAN + "/")
+        html = raw2.decode("utf-8", "ignore")
+        st = _baidu_state(html)
         try:
             files = _list_root()
         except _BaiduErr as e2:
-            raise RuntimeError(_BAIDU_ERR.get(e2.errno) or "百度列不出文件（%s）" % e2.errno)
+            if e2.errno == -9:
+                # 列目录接口还是过不去，直接用页面内嵌的文件列表
+                files = _baidu_files_from_page(html)
+            else:
+                raise RuntimeError(_BAIDU_ERR.get(e2.errno) or
+                                   "百度列不出文件（%s）" % e2.errno)
 
     if not files:
         raise RuntimeError("这个百度分享里没看到文件（空文件夹，或者要提取码）")
@@ -689,7 +803,7 @@ def baidu_resolve(url, pwd="", progress=None):
         "files": files, "is_folder": len(files) > 1,
         "_uk": uk, "_shareid": shareid, "_sign": st.get("sign") or "",
         "_timestamp": st.get("timestamp") or int(time.time()),
-        "_bdstoken": bdstoken,
+        "_bdstoken": bdstoken, "_randsk": randsk, "_surl": surl,
     }
 
 
@@ -710,12 +824,193 @@ def baidu_direct(shot, file_info=None, progress=None):
         progress(stage="正在向百度要下载地址…")
     sign = shot.get("_sign")
     if not sign:
-        raise RuntimeError("百度这个分享没给出签名，重新贴一次链接再试")
+        # 页面没给签名不要紧，_baidu_dlink 会去 tplconfig 现拿；
+        # 只有连 tplconfig 也拿不到才报这个错
+        pass
     dlink = _baidu_dlink(op, shot["_uk"], shot["_shareid"], sign,
-                         shot.get("_timestamp"), shot.get("_bdstoken"), fid)
+                         shot.get("_timestamp"), shot.get("_bdstoken"), fid,
+                         randsk=shot.get("_randsk") or "",
+                         surl=shot.get("_surl") or "")
     return (dlink, fi.get("name") or "", fi.get("size") or 0,
             {"User-Agent": _BAIDU_DL_UA, "Cookie": _jar_header(cj),
              "Referer": _BAIDU_PAN + "/"})
+
+
+# ---------- 夸克网盘 ----------
+# 实测（2026-11-18）：游客态 token + detail 能列出完整文件树（文件名/大小/fid/
+# share_fid_token 都有）；但取直链的 sharepage/download 已下线（404），
+# 现在必须登录 + save 转存到自己网盘 + task 轮询 + file/download。
+# 所以 resolve 用游客态列目录（真能用），direct 要登录（按公开接口写，
+# 本机没夸克账号，端到端未实测，失败会说清楚在哪一步）。
+_QCK_API = "https://drive-pc.quark.cn/1/clouddrive"
+_QCK_REF = "https://pan.quark.cn/"
+_QCK_NO_LOGIN = ("夸克网盘取下载地址要登录：设置 → 账号 → 夸克网盘点「打开」，"
+                 "登完扩展会自动同步过来，再贴一次链接")
+
+
+def _qck_api(op, path, obj=None, params=None):
+    """夸克接口统一走 JSON。obj 有值用 POST，否则 GET。返回 data 或抛错。"""
+    url = _QCK_API + path
+    if params:
+        url += "?" + urllib.parse.urlencode(params)
+    h = {"User-Agent": UA, "Referer": _QCK_REF}
+    if obj is not None:
+        req = urllib.request.Request(url, data=json.dumps(obj).encode(),
+                                     headers=dict(h, **{"Content-Type": "application/json"}))
+    else:
+        req = urllib.request.Request(url, headers=h)
+    try:
+        raw = _read_resp(op.open(req, timeout=25))
+        j = json.loads(raw.decode("utf-8", "ignore"))
+    except Exception:
+        raise RuntimeError("夸克没返回数据，稍后再试")
+    # 夸克用 status=200 / code=0 表示成功；code 非 0 是业务错
+    code = j.get("code")
+    if j.get("status") != 200 or (code not in (None, 0)):
+        raise RuntimeError(_qck_err(j))
+    return j.get("data") or j
+
+
+def _qck_err(j):
+    msg = str(j.get("message") or "")
+    code = j.get("code")
+    if code in (41002, 41003, 41006) or "密码" in msg or "passcode" in msg.lower():
+        return "这个夸克分享要提取码，把提取码一起贴进来（或写成 链接?pwd=xxxx）"
+    if code in (31000, 31001, -1) or "login" in msg.lower():
+        return _QCK_NO_LOGIN
+    return "夸克说：%s（%s）" % (msg or "分享可能失效了", code or j.get("status"))
+
+
+def _qck_detail(op, pwd_id, stoken, pdir_fid):
+    return _qck_api(op, "/share/sharepage/detail", params={
+        "pr": "ucpro", "fr": "pc", "pwd_id": pwd_id, "stoken": stoken,
+        "pdir_fid": pdir_fid, "force": "0", "_page": 1, "_size": 100,
+        "_fetch_total": 1, "_sort": "file_type:asc,updated_at:desc",
+    }).get("list") or []
+
+
+def quark_resolve(url, pwd="", progress=None):
+    """游客态列目录：token 拿 stoken + detail 递归拿文件。取链留给 quark_direct。"""
+    info = parse_share(url) or {}
+    pwd_id = info.get("share_id") or ""
+    if not pwd_id:
+        raise RuntimeError("没认出夸克分享链接")
+    op, _cj = _new_opener()
+    if progress:
+        progress(stage="正在打开夸克分享…")
+    try:
+        tok = _qck_api(op, "/share/sharepage/token",
+                       {"pwd_id": pwd_id, "passcode": pwd or ""},
+                       {"pr": "ucpro", "fr": "pc", "uc_param_str": ""})
+    except RuntimeError:
+        raise RuntimeError("这个夸克分享打不开或已经失效了，换个链接再试")
+    stoken = tok.get("stoken") or ""
+    if not stoken:
+        raise RuntimeError("夸克没给出访问凭证，稍后再试")
+    files = []
+    seen = set()
+
+    def walk(fid, depth):
+        if depth > 5 or len(files) >= 300:
+            return
+        for it in _qck_detail(op, pwd_id, stoken, fid):
+            f = str(it.get("fid") or "")
+            if not f or f in seen:
+                continue
+            seen.add(f)
+            if str(it.get("dir")) in ("1", "True", "true") or it.get("dir") is True:
+                walk(f, depth + 1)
+            else:
+                files.append({
+                    "name": it.get("file_name") or "文件",
+                    "size": int(it.get("size") or 0), "fid": f,
+                    "share_fid_token": it.get("share_fid_token") or "",
+                })
+
+    try:
+        walk("0", 0)
+    except RuntimeError as e:
+        if not files:
+            raise
+        # 部分目录取不到就先给已经拿到的，取链时会再说
+    if not files:
+        raise RuntimeError("这个夸克分享里没看到文件（可能要提取码，或已经被删了）")
+    return {
+        "title": tok.get("title") or "夸克分享", "platform": P_QUARK,
+        "url": url, "pwd": pwd, "files": files, "is_folder": len(files) > 1,
+        "_pwd_id": pwd_id, "_stoken": stoken,
+    }
+
+
+def quark_direct(share_info, file_info=None, progress=None):
+    """取直链：必须登录。save 转存 → task 轮询 → file/download。
+
+    save 会把文件复制进用户自己的网盘（夸克的硬要求），完成后不删——
+    夸克的 task 里删文件要另走接口，贸然删可能把用户自己的同名文件删掉。
+    端到端需要真实夸克登录态，本机没有，代码按公开接口写，失败会说清哪一步。
+    """
+    cookie = load_cookie_header(P_QUARK)
+    if not cookie:
+        raise RuntimeError(_QCK_NO_LOGIN)
+    op, _cj = _new_opener(cookie, COOKIE_DOMAINS[P_QUARK])
+    fi = file_info or (share_info.get("files") or [{}])[0]
+    fid = fi.get("fid")
+    if not fid:
+        raise RuntimeError("没拿到这个文件在夸克那边的编号，重新贴一次链接")
+    if progress:
+        progress(stage="正在转存到你的夸克网盘…")
+    pwd_id = share_info.get("_pwd_id") or ""
+    stoken = share_info.get("_stoken") or ""
+    # 1) 转存到自己网盘根目录
+    try:
+        save = _qck_api(op, "/share/sharepage/save", {
+            "fid_list": [fid],
+            "fid_token_list": [fi.get("share_fid_token") or ""],
+            "to_pdir_fid": "0", "pwd_id": pwd_id, "stoken": stoken,
+            "pdir_fid": "0", "scene": "link",
+        }, {"pr": "ucpro", "fr": "pc", "uc_param_str": ""})
+    except RuntimeError as e:
+        raise RuntimeError("夸克转存失败：%s" % str(e))
+    task_id = save.get("task_id") if isinstance(save, dict) else ""
+    if not task_id:
+        raise RuntimeError("夸克没给转存任务号，取下载地址失败，稍后再试")
+    # 2) 轮询任务，拿转存后的新 fid
+    new_fid = ""
+    for _ in range(20):
+        try:
+            t = _qck_api(op, "/task", params={
+                "pr": "ucpro", "fr": "pc", "task_id": task_id, "retry_index": 0})
+        except RuntimeError:
+            break
+        if str(t.get("status")) == "2":   # 2 = 完成
+            info = t.get("save_as") or t.get("data") or {}
+            fids = info.get("save_as_top_fids") or info.get("fid_list") or []
+            if fids:
+                new_fid = str(fids[0])
+            break
+        if str(t.get("status")) in ("3", "4"):   # 失败/取消
+            break
+        time.sleep(1)
+    if not new_fid:
+        raise RuntimeError("夸克转存还没完成或失败了，稍后再贴一次链接重试")
+    # 3) 拿直链
+    if progress:
+        progress(stage="正在取下载地址…")
+    try:
+        got = _qck_api(op, "/file/download", {"fids": [new_fid]},
+                       {"pr": "ucpro", "fr": "pc", "uc_param_str": ""})
+    except RuntimeError as e:
+        raise RuntimeError("夸克取下载地址失败：%s" % str(e))
+    items = got if isinstance(got, list) else (got.get("list") or [])
+    dlink = ""
+    for it in items:
+        if isinstance(it, dict) and (it.get("download_url") or it.get("url")):
+            dlink = it.get("download_url") or it.get("url")
+            break
+    if not dlink:
+        raise RuntimeError("夸克没给出下载地址，可能这个文件不让下，稍后再试")
+    return (dlink, fi.get("name") or "", fi.get("size") or 0,
+            {"User-Agent": UA, "Referer": _QCK_REF})
 
 
 # ---------- 统一入口 ----------
@@ -730,12 +1025,11 @@ _NEED_ACCOUNT = {
     P_115: "要登录 115 账号才能下",
     P_123: "123 的取链接口换过一版，还在重写",
     P_GUANGYA: "要登录光鸭账号才能下",
-    P_QUARK: "目录能列出来，但拿下载地址必须登录夸克账号",
     P_UC: "目录能列出来，但拿下载地址必须登录 UC 账号",
 }
 
 # 已经能真下的平台（文案里用来告诉用户「现在能下什么」）
-CAN_DOWNLOAD = "蓝奏云、百度网盘（百度要登录）"
+CAN_DOWNLOAD = "蓝奏云、百度网盘（百度要登录）、夸克（列目录免登录，下载要登录）"
 
 # 平台名后面已经带了站名，文案里别再重复一遍「百度网盘：百度网盘…」
 
@@ -793,6 +1087,11 @@ def resolve(text, pwd="", progress=None):
         return res
     if pid == P_BAIDU:
         return baidu_resolve(info["url"], pwd, progress)
+    if pid == P_QUARK:
+        res = quark_resolve(info["url"], pwd, progress)
+        res["url"] = info["url"]
+        res["pwd"] = pwd
+        return res
     raise RuntimeError("这个网盘暂时不支持")
 
 
@@ -804,4 +1103,6 @@ def get_direct(share_info, file_info=None, progress=None):
                              file_info, progress)
     if pid == P_BAIDU:
         return baidu_direct(share_info, file_info, progress)
+    if pid == P_QUARK:
+        return quark_direct(share_info, file_info, progress)
     raise RuntimeError("这个网盘暂时不支持下载")

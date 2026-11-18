@@ -55,8 +55,9 @@ def test_size():
 
 
 def test_unsupported():
+    # 夸克已接入，用 UC 当「未实现平台」的例子
     print("=== 未实现平台的提示 ===")
-    info = netdisk.parse_share("https://pan.quark.cn/s/abc123")
+    info = netdisk.parse_share("https://drive.uc.cn/s/abc123")
     try:
         netdisk.resolve(info["url"])
         raise AssertionError("应该抛错")
@@ -73,7 +74,7 @@ def test_unsupported():
     try:
         netdisk._probe_share = lambda info: "dead"
         try:
-            netdisk.resolve("https://pan.quark.cn/s/abc123")
+            netdisk.resolve("https://drive.uc.cn/s/abc123")
             raise AssertionError("应该抛错")
         except RuntimeError as e:
             ok("失效" in str(e) and "还在做" not in str(e),
@@ -81,7 +82,7 @@ def test_unsupported():
 
         netdisk._probe_share = lambda info: "alive"
         try:
-            netdisk.resolve("https://pan.quark.cn/s/abc123")
+            netdisk.resolve("https://drive.uc.cn/s/abc123")
             raise AssertionError("应该抛错")
         except RuntimeError as e:
             ok("登录" in str(e), "能打开但缺登录态要说清: " + str(e))
@@ -194,12 +195,141 @@ def test_detect_integration():
     core.add_blocks(FakeMgr(), [{"text": LIVE_URL + " 提取码: abcd"}])
 
 
+def test_baidu_real_page_fix():
+    """百度取链的隐藏 bug：需提取码的分享页没顶层 sign，文件在内嵌 file_list。
+    全部打桩，不联网。"""
+    print("=== 百度真实页面结构兼容 ===")
+    import json as _json
+    # 过码后的页面：sign 藏在 file_list 条目里，没有顶层 timestamp
+    page = ('<title>某个分享_免费高速下载</title>'
+            '<script>locals.mset({"shareid":"12345","share_uk":"6789",'
+            '"bdstoken":"",'
+            '"file_list":[{"fs_id":991,"server_filename":"测试.mp4",'
+            '"size":1234,"isdir":0,"sign":"abcdefghij0123456789"}]});</script>')
+    st = netdisk._baidu_state(page)
+    ok(st.get("shareid") == "12345" and st.get("share_uk") == "6789",
+       "过码页能读出 shareid/share_uk")
+    ok(st.get("sign") == "abcdefghij0123456789", "sign 从内嵌 file_list 兜底读出")
+
+    files = netdisk._baidu_files_from_page(page)
+    ok(len(files) == 1 and files[0]["fid"] == "991" and files[0]["size"] == 1234,
+       "file_list 能读成文件列表")
+    ok(files[0]["sign"] == "abcdefghij0123456789", "文件自带 sign 保留")
+
+    # 目录条目要跳过
+    page2 = page.replace('"isdir":0', '"isdir":1')
+    ok(netdisk._baidu_files_from_page(page2) == [], "目录条目不当成文件")
+
+    # _baidu_dlink：tplconfig 现拿 sign，randsk 进 extra.sekey
+    saved_tpl = netdisk._baidu_fresh_sign
+    captured = {}
+
+    class FakeResp:
+        def read(self):
+            return _json.dumps({"errno": 0, "list": [{"dlink": "http://d/l"}]}).encode()
+
+    class FakeOp:
+        def open(self, req, timeout=0):
+            captured["url"] = req.full_url
+            body = req.data.decode() if req.data else ""
+            captured["body"] = body
+            return FakeResp()
+
+    try:
+        netdisk._baidu_fresh_sign = lambda op, surl: ("freshsign", "9999")
+        link = netdisk._baidu_dlink(FakeOp(), "uk", "sid", "oldsign", "111",
+                                    "", "991", randsk="rand%3D", surl="abc")
+        ok(link == "http://d/l", "dlink 能从返回里取出")
+        ok("sign=freshsign" in captured["url"] and "timestamp=9999" in captured["url"],
+           "tplconfig 的新 sign/timestamp 被用上")
+        extra = _json.loads([v for k, v in __import__("urllib.parse", fromlist=["parse_qs"]).parse_qs(captured["body"]).items() if k == "extra"][0][0])
+        ok(extra.get("sekey") == "rand%3D", "提取码 randsk 进了 extra.sekey")
+    finally:
+        netdisk._baidu_fresh_sign = saved_tpl
+
+    # 9019 有明确提示，不甩通用「参数不对」
+    class ErrResp:
+        def read(self):
+            return _json.dumps({"errno": 9019}).encode()
+
+    class ErrOp:
+        def open(self, req, timeout=0):
+            return ErrResp()
+
+    try:
+        netdisk._baidu_fresh_sign = lambda op, surl: ("", "")
+        try:
+            netdisk._baidu_dlink(ErrOp(), "uk", "sid", "s", "1", "", "991")
+            ok(False, "9019 应该抛错")
+        except RuntimeError as e:
+            ok("安全验证" in str(e), "9019 提示账号安全验证: " + str(e))
+    finally:
+        netdisk._baidu_fresh_sign = saved_tpl
+
+
+def test_quark():
+    """夸克列目录实测可用、取链要登录。打桩覆盖关键分支，不联网。"""
+    print("=== 夸克网盘 ===")
+    ok(netdisk.P_QUARK in netdisk.SUPPORTED, "夸克已接入解析")
+
+    # 列目录：token + detail 递归，打桩验证递归和字段映射
+    saved_api = netdisk._qck_api
+    saved_new = netdisk._new_opener
+    calls = []
+
+    def fake_api(op, path, obj=None, params=None):
+        calls.append(path)
+        if "token" in path:
+            return {"stoken": "tok123", "title": "测试分享"}
+        if "detail" in path:
+            fid = params.get("pdir_fid")
+            if fid == "0":
+                return {"list": [{"fid": "dir1", "dir": True, "file_name": "子目录"}]}
+            return {"list": [{"fid": "f1", "dir": False, "file_name": "a.mp4",
+                              "size": 999, "share_fid_token": "sft1"}]}
+        return {}
+
+    try:
+        netdisk._qck_api = fake_api
+        netdisk._new_opener = lambda *a, **k: (object(), object())
+        shot = netdisk.quark_resolve("https://pan.quark.cn/s/abc123")
+        ok(shot["title"] == "测试分享" and len(shot["files"]) == 1,
+           "夸克列目录拿到文件: %s" % shot["files"])
+        ok(shot["files"][0]["fid"] == "f1" and shot["files"][0]["size"] == 999,
+           "文件名/大小/fid 映射正确")
+        ok(shot["files"][0]["share_fid_token"] == "sft1", "share_fid_token 保留给取链")
+        ok(any("detail" in c for c in calls), "递归调用了 detail 接口")
+    finally:
+        netdisk._qck_api = saved_api
+        netdisk._new_opener = saved_new
+
+    # 没登录就取链 → 明确指到设置入口
+    saved_cookie = netdisk.load_cookie_header
+    try:
+        netdisk.load_cookie_header = lambda pid: ""
+        try:
+            netdisk.quark_direct({"files": [{"fid": "f1"}]})
+            ok(False, "没登录应抛错")
+        except RuntimeError as e:
+            ok("设置" in str(e) and "夸克" in str(e), "没登录指到设置: " + str(e))
+    finally:
+        netdisk.load_cookie_header = saved_cookie
+
+    # 业务错误码 → 提取码/登录分流文案
+    ok("提取码" in netdisk._qck_err({"code": 41006, "message": "need passcode"}),
+       "夸克提取码错误给提取码提示")
+    ok("登录" in netdisk._qck_err({"code": 31001, "message": "require login"}),
+       "夸克未登录错误给登录提示")
+
+
 if __name__ == "__main__":
     test_parse()
     test_acw()
     test_size()
     test_unsupported()
     test_baidu_cookie()
+    test_baidu_real_page_fix()
+    test_quark()
     test_detect_integration()
     if os.environ.get("LIVE") == "1":
         test_live()

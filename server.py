@@ -701,7 +701,8 @@ class Handler(BaseHTTPRequestHandler):
                 # 但要让用户在首屏「支持」行看到它，别以为这功能不存在
                 "platforms": [{"id": x["id"], "name": x["name"], "level": x["level"]}
                               for x in core.PLATFORMS]
-                             + [{"id": "netdisk", "name": "蓝奏云 / 百度网盘", "level": "full"}],
+                             + [{"id": "netdisk",
+                                 "name": "蓝奏云 / 百度网盘 / 夸克", "level": "full"}],
                 # 前端已有每秒一次的轮询，更新状态搭这趟车，不另开定时器
                 "update": update_status(),
             })

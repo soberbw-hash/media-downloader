@@ -822,6 +822,50 @@ def _mac_replace(archive, app_dir):
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+def refresh_icon_cache(target):
+    """让 Windows 重读图标，否则更新换了 icon.ico 后桌面还是旧图。
+
+    Windows 按「文件名 + 时间戳」缓存图标。热更把 assets/icon.ico 覆盖了，
+    但文件名没变、快捷方式也没重写，系统就一直端着缓存里的旧图标 —— 用户
+    更新完看还是老样子，以为没更新成功。这里做两件事：
+      1) 给快捷方式文件改个时间戳，逼系统重新解析它指向的 ico
+      2) SHChangeNotify 广播「关联图标变了」，让桌面和资源管理器一起刷新
+
+    这是温和刷新，不删缓存库、不重启 explorer。失败无所谓（图标最迟下次
+    登录会刷新），绝不能因为刷图标把一次成功的更新弄成失败。
+    """
+    if not IS_WIN:
+        return 0
+    touched = 0
+    # 快捷方式不在程序目录里：一个在「音视频下载器/」里，一个在桌面根。
+    # target 是程序目录，往上两级找，只认本软件的快捷方式名，绝不碰别的。
+    parent = os.path.dirname(os.path.abspath(target or "")) if target else ""
+    lnk_name = "音视频下载器-公司.lnk"
+    candidates = []
+    if parent:
+        candidates.append(os.path.join(parent, lnk_name))                    # 程序的上级：音视频下载器/
+        candidates.append(os.path.join(os.path.dirname(parent), lnk_name))   # 再上级：桌面/
+    for p in candidates:
+        try:
+            if os.path.isfile(p):
+                os.utime(p, None)          # 时间戳推到当前，触发重新解析
+                touched += 1
+        except OSError:
+            pass
+    try:
+        import ctypes
+        shell32 = ctypes.windll.shell32
+        shell32.SHChangeNotify.argtypes = [ctypes.c_int, ctypes.c_uint,
+                                           ctypes.c_void_p, ctypes.c_void_p]
+        shell32.SHChangeNotify.restype = None
+        SHCNE_ASSOCCHANGED = 0x08000000
+        SHCNF_IDLIST = 0x0000
+        shell32.SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, None, None)
+    except Exception:
+        pass
+    return touched
+
+
 def _notify(msg):
     """重启失败时把人叫醒：这时候主程序已经退了，界面上的字没人看得见。"""
     try:
@@ -905,6 +949,12 @@ def run_helper(plan_path):
         else:
             raise IOError("不支持的更新方式")
         if not IS_MAC:
+            # 换了 icon.ico 后让桌面重读图标，不然别人更新完还是旧图
+            try:
+                n = refresh_icon_cache(plan.get("target") or "")
+                log("已刷新 %d 个快捷方式的图标缓存" % n)
+            except Exception:
+                pass                      # 刷图标失败也要算更新成功
             _clean_workdir(plan_path)
         if not plan.get("no_restart"):
             ok, why = launch_app(plan)

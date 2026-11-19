@@ -20,11 +20,13 @@ import json
 import os
 import re
 import sys
+import json
 import shlex
 import shutil
 import subprocess
 import threading
 import time
+import urllib.request
 
 import paths
 
@@ -208,6 +210,112 @@ def cookie_file(pid):
     return p if os.path.exists(p) and os.path.getsize(p) > 0 else None
 
 
+# 真·登录态探测：cookie 文件在 ≠ 还有效。小红书的 web_session 会被服务端
+# 悄悄作废，光看文件在不在，界面会一直骗人「已登录」，直到下载失败才发现。
+# 音乐站已有 music.account，这里给视频站补一个轻量探测，带缓存扛住轮询。
+_ACC = {}                 # pid -> (时间, 结果)
+_ACC_TTL = 90             # 秒。账号面板 1.5 秒轮询，不能每次真发请求
+_XHS_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+           "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+
+
+def _read_netscape(path):
+    """Netscape cookie 文件读成 Cookie 请求头字符串"""
+    parts = []
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                if line.startswith("#") or not line.strip():
+                    continue
+                c = line.rstrip("\n").split("\t")
+                if len(c) >= 7:
+                    parts.append("%s=%s" % (c[5], c[6]))
+    except Exception:
+        pass
+    return "; ".join(parts)
+
+
+def _probe_xhs():
+    """真问一次小红书：这份 cookie 服务端还认不认。
+    返回 {"ok":..,"error":..,"name":..}。error 里带「失效」前端会标红。
+    探测失败（网络/改版）时不写「失效」——宁可不提示，也不能误伤还没过期的用户。"""
+    f = cookie_file("xiaohongshu")
+    if not f:
+        return {"ok": False, "error": "没登录"}
+    ck = _read_netscape(f)
+    if not ck:
+        return {"ok": False, "error": "没登录"}
+    try:
+        req = urllib.request.Request(
+            "https://www.xiaohongshu.com/user/profile/",
+            headers={"User-Agent": _XHS_UA, "Cookie": ck,
+                     "Referer": "https://www.xiaohongshu.com/"})
+        html = urllib.request.urlopen(req, timeout=6).read().decode("utf-8", "ignore")
+    except Exception:
+        return {}     # 网络不通就算了，别在界面上乱报失效
+
+    idx = html.find("__INITIAL_STATE__")
+    if idx < 0:
+        return {}     # 页面结构变了，拿不到判据，不瞎说
+    try:
+        start = html.find("{", idx)
+        depth = 0
+        in_str = False
+        esc = False
+        end = -1
+        for i in range(start, len(html)):
+            ch = html[i]
+            if in_str:
+                if esc:
+                    esc = False
+                elif ch == "\\":
+                    esc = True
+                elif ch == '"':
+                    in_str = False
+                continue
+            if ch == '"':
+                in_str = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    end = i + 1
+                    break
+        if end < 0:
+            return {}
+        blob = html[start:end]
+        blob = re.sub(r"new Map\(\s*\[\s*\]\s*\)", "{}", blob)
+        blob = re.sub(r"new Set\(\s*\[\s*\]\s*\)", "[]", blob)
+        blob = blob.replace("undefined", "null")
+        state = json.loads(blob)
+    except Exception:
+        return {}
+
+    user = state.get("user") or {}
+    info = user.get("userInfo") or {}
+    if user.get("loggedIn") is True:
+        return {"ok": True, "name": info.get("nickname") or ""}
+    if user.get("loggedIn") is False:
+        # 服务端明确说没登录 → 这份 cookie 过期了
+        return {"ok": False, "error": "登录已失效，去「设置 → 账号」重新登录一次"}
+    return {}
+
+
+def account(pid, fresh=False):
+    """查这个平台登录态是否真的有效。音乐站交给 music，小红书本地探测。
+    带缓存；fresh=True 用于刚导入 cookie 后立刻复查。"""
+    if pid not in ("xiaohongshu",):
+        return {}                      # 其它站沿用「cookie 文件在不在」判断
+    if not fresh:
+        hit = _ACC.get(pid)
+        if hit and time.time() - hit[0] < _ACC_TTL:
+            return hit[1]
+    r = _probe_xhs()
+    _ACC[pid] = (time.time(), r)
+    return r
+
+
 def sites():
     out = []
     for pid, site in SITES.items():
@@ -218,6 +326,12 @@ def sites():
             try:
                 import music as music_mod
                 acc = music_mod.account(mpid)      # 自带 90 秒缓存，轮询扛得住
+            except Exception:
+                acc = {}
+        elif pid == "xiaohongshu":
+            # 真探一次：cookie 过期了就标「已失效」，别一直骗「已登录」
+            try:
+                acc = account(pid)
             except Exception:
                 acc = {}
         out.append({
@@ -283,6 +397,7 @@ def import_cookie(pid, raw):
                            "domain": site["domains"][0], "path": "/",
                            "secure": True, "expires": 0} for p in pairs],
                     "手动导入")
+    _ACC.pop(pid, None)                # 新 cookie 立刻复查，别端着旧的「失效」
     return True, "已导入 %s 的 cookie" % site["name"]
 
 
@@ -355,6 +470,7 @@ def import_cookies_bulk(pid, cookies):
         except Exception as e:
             return False, "同步失败：%s" % str(e)[:120]
     _write_netscape(pid, picked, "由浏览器扩展从你日常的浏览器同步")
+    _ACC.pop(pid, None)                # 新 cookie 立刻复查，别端着旧的「失效」
     return True, "已同步 %s 登录态（%d 项）" % (site["name"], len(picked))
 
 

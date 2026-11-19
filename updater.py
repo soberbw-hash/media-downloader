@@ -866,6 +866,34 @@ def refresh_icon_cache(target):
     return touched
 
 
+def refresh_icon_once(version):
+    """每个版本首次启动时补刷一次图标缓存。
+
+    为什么要单独做：从旧版热更新上来的用户，跑的是「更新前」那版 updater，
+    那时还没有 run_helper 里的刷新逻辑，所以这一版升级完图标还是旧的。
+    新版启动后主动补刷一次，同一个版本只做一次（标记写数据目录，重启不丢）。
+
+    只在 Windows 生效，任何失败都吞掉——刷图标是锦上添花，绝不能让启动失败。
+    返回刷了几个快捷方式（0 = 没刷 / 已刷过 / 非 Windows）。
+    """
+    if not IS_WIN:
+        return 0
+    marker = ""
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import paths
+        paths.ensure_data_dir()
+        marker = os.path.join(paths.data_dir(), ".icon_refresh_" + str(version))
+        if os.path.exists(marker):
+            return 0
+        n = refresh_icon_cache(os.path.dirname(os.path.abspath(__file__)))
+        with open(marker, "w", encoding="utf-8") as _f:
+            _f.write("ok")
+        return n
+    except Exception:
+        return 0
+
+
 def _notify(msg):
     """重启失败时把人叫醒：这时候主程序已经退了，界面上的字没人看得见。"""
     try:

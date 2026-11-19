@@ -39,7 +39,7 @@ import login as login_mod  # noqa: E402
 import picker  # noqa: E402
 import updater as updater_mod  # noqa: E402
 
-APP_VERSION = "1.24.7"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
+APP_VERSION = "1.24.8"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
 UPDATE_REPO = "soberbw-hash/media-downloader"
 
 # 识曲上传的上限（base64 长度）。20MB 原文件约 27MB base64，够一段音频了。
@@ -1670,6 +1670,13 @@ def main():
 
     _SRV = srv
     blog("bound ok")
+    # 从旧版升上来的用户跑的是旧更新器，没有刷新图标那一步；新版启动后
+    # 自己补刷一次（每个版本只一次），否则更新完桌面还是旧图标。异步、失败不影响启动。
+    try:
+        threading.Thread(target=updater_mod.refresh_icon_once,
+                         args=(APP_VERSION,), daemon=True).start()
+    except Exception:
+        pass
     # 回归测试用：把真正监听的端口写出来。本机 8765 常常被用户正在用的那份占着，
     # 测试要是靠扫端口，就会连到它身上，跑出来全是假结果。
     _pf = os.environ.get("VDL_PORT_FILE")

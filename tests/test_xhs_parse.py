@@ -184,10 +184,65 @@ def test_core_wrapper_not_misleading():
     cn_sites.xhs_download = real
 
 
+def test_expired_short_link():
+    """失效短链跳 404 时，必须当场报错，不能返回空 ID 含糊过去。"""
+    real = cn_sites.http_get
+    try:
+        class R:
+            def geturl(self):
+                return "https://www.xiaohongshu.com/404/sec_x?source=xhs_sec_server"
+
+            def read(self, *a):
+                return b""
+
+        cn_sites.http_get = lambda *a, **k: R()
+        try:
+            cn_sites.xhs_resolve("https://xhslink.com/o/deadlink")
+            raise AssertionError("失效短链应该抛错")
+        except RuntimeError as e:
+            assert "失效" in str(e) or "重新" in str(e), str(e)
+            log("✓ 失效短链 →", str(e))
+
+        # 短链打开了却没跳到笔记页，也要说清楚
+        class R2:
+            def geturl(self):
+                return "https://www.xiaohongshu.com/explore"
+
+            def read(self, *a):
+                return b""
+
+        cn_sites.http_get = lambda *a, **k: R2()
+        try:
+            cn_sites.xhs_resolve("https://xhslink.cn/o/weird")
+            raise AssertionError("没笔记ID的短链应该抛错")
+        except RuntimeError as e:
+            assert "重新" in str(e) or "失效" in str(e), str(e)
+            log("✓ 短链没指向笔记 →", str(e))
+    finally:
+        cn_sites.http_get = real
+
+
+def test_login_expired_wording():
+    """页面正常、但 loggedIn=false 且无笔记数据 → 明确说登录过期。"""
+    html = (
+        '<html><script>window.__INITIAL_STATE__='
+        '{"user":{"loggedIn":false},"note":{"noteDetailMap":{}}}'
+        '</script></html>'
+    )
+    try:
+        cn_sites._xhs_note_from_html(html, "6a7c4784000000003300a1bc")
+        raise AssertionError("登录墙应该抛错")
+    except RuntimeError as e:
+        assert "登录过期" in str(e) and "设置" in str(e), str(e)
+        log("✓ 登录墙 →", str(e))
+
+
 if __name__ == "__main__":
     test_sanitize()
     test_parse_dirty_state()
     test_error_wording()
     test_video_urls_new_codec_keys()
     test_core_wrapper_not_misleading()
+    test_expired_short_link()
+    test_login_expired_wording()
     print("ALL PASS", flush=True)

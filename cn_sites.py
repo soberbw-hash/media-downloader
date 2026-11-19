@@ -285,8 +285,17 @@ def xhs_resolve(url):
         except Exception:
             pass
 
+    # 失效/被删的短链会跳到 /404/ 中间页，这时 URL 里根本没有笔记 ID。
+    # 以前这里返回空 ID 不报错，走到后面才含糊地说「没拿到笔记内容」，
+    # 用户不知道是链接废了还是自己登录过期 —— 在这里就说清楚。
+    short = "xhslink.com" in url or "xhslink.cn" in url
+    if short and "/404" in final:
+        raise RuntimeError("这条小红书分享链接失效了（笔记被删或改私密）。让对方重新分享一条，再贴进来")
     m = XHS_NOTE_RE.search(final) or XHS_NOTE_RE.search(url)
     note_id = m.group(1) if m else ""
+    if not note_id and short:
+        # 短链能打开但没跳到笔记页：多半也是失效，或者复制时带了多余文字
+        raise RuntimeError("这条小红书短链没指向具体笔记，可能失效了。从 App 里重新点「分享 → 复制链接」，只贴链接本身再试")
     qs = urllib.parse.parse_qs(urllib.parse.urlparse(final).query)
     token = (qs.get("xsec_token") or [""])[0]
     if not token:
@@ -330,6 +339,11 @@ def _xhs_note_from_html(html, note_id):
             if note:
                 break
     if not note:
+        # 页面能打开、state 也能解析，但就是没有笔记数据，且登录态是假的 ——
+        # 这是登录过期，不是链接失效。实测带/不带 cookie 返回完全一样即此情况。
+        logged = (state.get("user") or {}).get("loggedIn")
+        if logged is False:
+            raise RuntimeError("小红书登录过期了，去「设置 → 账号」重新登录一次，再贴链接就能下")
         raise RuntimeError("没拿到笔记内容：可能已删除、设为私密，或要登录")
     return note
 

@@ -7,7 +7,7 @@
 
 验证点：
   1. 账号面板可见文字里没有 F12 / Application / DevTools / 任何 cookie 键名
-  2. 每行只剩「打开」，旧「粘贴」按钮和旧弹窗都不在了
+  2. 每行只剩「登录」，旧「粘贴」「退出」按钮和旧弹窗都不在了
   3. 手动贴 Cookie 兜底已整个删除，面板上不留入口
   4. 安装只留一个大按钮，三步说明直接摊着（不折叠），点一下接口通并给出动作
   5. 扩展一送登录态进来，界面自己变「已连上」并提示一声
@@ -82,13 +82,17 @@ def main():
             assert not left, "账号面板还有术语: %s" % left
             log("  ✓ 面板里没有 F12 / 键名 / 技术弹窗文案")
 
-            # ---- 2. 主流程只剩「打开」 ----
+            # ---- 2. 主流程只剩「登录」 ----
             assert pg.locator('#logins [data-act="paste"]').count() == 0, \
                 "每行还留着「粘贴」按钮"
             assert pg.locator("#ckModal").count() == 0, "旧弹窗还在 DOM 里"
+            assert pg.locator('#logins [data-act="out"]').count() == 0, \
+                "每行还留着「退出」按钮"
             n = pg.locator('#logins [data-act="login"]').count()
-            assert n >= 8, "打开按钮少了: %d" % n
-            log("  ✓ 每行只剩「打开」（%d 个），粘贴弹窗已删" % n)
+            assert n >= 8, "登录按钮少了: %d" % n
+            assert pg.locator('#logins [data-act="login"]').first.inner_text().strip() == "登录", \
+                "按钮文案不是「登录」"
+            log("  ✓ 每行只剩「登录」（%d 个），粘贴弹窗和退出按钮已删" % n)
 
             # ---- 3. 手动贴 Cookie 兜底整个删掉 ----
             for i in ("manualBox", "ckSite", "ckInput", "ckSave"):

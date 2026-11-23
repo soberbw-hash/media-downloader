@@ -202,10 +202,19 @@ const ICON_ALIAS = {
   music_qqmusic: "qqmusic",
 };
 
+/* 账号面板两列布局下每列只有半屏宽，长平台名会把后面的登录账号挤没。
+   这里只改显示名，不动数据源——历史记录和文件名还用完整名。 */
+const ACCT_SHORT_NAME = { music_netease: "网易云" };
+function acctName(s) {
+  return ACCT_SHORT_NAME[s && s.id] || (s && s.name) || "";
+}
+
 /* 平台图标：品牌色矢量图形，加载失败也不影响布局 */
 function iconHTML(pid) {
-  const key = ICON_ALIAS[pid] || pid || "unknown";
-  const ic = (typeof ICONS !== "undefined" && (ICONS[key] || ICONS.unknown)) || null;
+  const platform = (pid || "").replace(/^netdisk:/, "");
+  const key = ICON_ALIAS[platform] || platform || "unknown";
+  const fallback = (pid || "").startsWith("netdisk:") ? "netdisk" : "unknown";
+  const ic = (typeof ICONS !== "undefined" && (Object.hasOwn(ICONS, key) ? ICONS[key] : ICONS[fallback])) || null;
   if (!ic) return `<span class="fav"><span class="sr">${esc(pid || "")}</span></span>`;
   return `<span class="fav" style="color:${ic.c}">`
     + `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${ic.svg}</svg></span>`;
@@ -228,6 +237,8 @@ function makeCard(t) {
     </div>
     <div class="acts">
       <button class="open" title="打开所在文件夹">打开</button>
+      <button class="fix" hidden></button>
+      <button class="diagnose" title="复制诊断（不含链接或账号信息）" aria-label="复制诊断" hidden>诊断</button>
       <button class="retry" title="重试">重试</button>
       <button class="cancel" title="取消">取消</button>
     </div>
@@ -235,9 +246,39 @@ function makeCard(t) {
   el.querySelector(".open").onclick = () => post("/api/open", { id: t.id }).then((r) => {
     if (!r.ok) toast(r.error || "文件还没下载好");
   });
-  el.querySelector(".retry").onclick = () => post("/api/retry", { id: t.id });
-  el.querySelector(".cancel").onclick = () => post("/api/cancel", { id: t.id });
+  el.querySelector(".retry").onclick = async (ev) => {
+    const btn = ev.currentTarget;
+    btn.disabled = true;
+    try {
+      const r = await post("/api/retry", { id: t.id });
+      if (!r.ok) toast(r.error || "这条任务暂时不能重试");
+      await poll();
+    } catch (e) { toast("连不上下载器，稍后再试"); }
+    finally { btn.disabled = false; }
+  };
+  el.querySelector(".cancel").onclick = async () => {
+    try { await post("/api/cancel", { id: t.id }); await poll(); }
+    catch (e) { toast("连不上下载器，稍后再试"); }
+  };
   return el;
+}
+
+const FIX_LABELS = { login: "去登录", bad_link: "换链接", directory: "换目录" };
+
+function focusLinkBox() {
+  applyTab("video");
+  input.scrollIntoView({ block: "nearest" });
+  input.focus();
+}
+
+async function copyTaskDiagnosis(t) {
+  const word = (s) => /^[a-z0-9:_-]{1,40}$/i.test(s || "") ? s : "unknown";
+  const ver = /^\d+(?:\.\d+){1,3}$/.test(appVersion) ? appVersion : "未知";
+  const phase = /收尾|合并|转码/.test(t.failure_stage) ? "收尾" :
+    /下载|取链|转存/.test(t.failure_stage) ? "下载" : "准备或解析";
+  const text = `音视频下载器 ${ver}\n平台：${word(t.platform)}\n阶段：${phase}\n错误分类：${word(t.error_code)}`;
+  try { await navigator.clipboard.writeText(text); toast("已复制诊断，不含链接和账号信息"); }
+  catch (e) { toast("没能写入剪贴板，请检查浏览器权限"); }
 }
 
 /* 后端有些错误是「人话（原始异常）」的格式，卡片上只留人话，原始信息塞进 tooltip */
@@ -265,15 +306,17 @@ function shortUrl(u) {
 function updateCard(el, t) {
   el.hidden = !passFilter(t);
   el.classList.toggle("done", t.status === "done");
+  el.classList.toggle("partial", t.status === "partial");
   el.classList.toggle("running", t.status === "running" || t.status === "queued");
   el.classList.toggle("canceled", t.status === "canceled");
   el.classList.toggle("error", t.status === "error");
 
+  const openable = t.status === "done" || t.status === "partial";
   const title = el.querySelector(".title");
   const text = t.title || (t.status === "error" ? shortUrl(t.url) : (t.stage || t.url));
   if (title.textContent !== text) title.textContent = text;
-  title.title = t.status === "done" ? "点开所在文件夹" : (t.title || t.url);
-  title.onclick = t.status === "done"
+  title.title = openable ? "点开所在文件夹" : (t.title || t.url);
+  title.onclick = openable
     ? () => post("/api/open", { id: t.id }).then((r) => {
         if (!r.ok) toast(r.error || "文件还没下载好");
       })
@@ -292,7 +335,7 @@ function updateCard(el, t) {
   if (metaEl.textContent !== mt) metaEl.textContent = mt;
 
   const bar = el.querySelector(".bar i");
-  const pct = t.status === "error" ? 100 : t.percent || 0;
+  const pct = t.percent || 0;
   bar.style.width = pct + "%";
   if (t.status === "done") bar.style.width = "100%";
   // 字节下完、正在合并 / 收尾：别再挂个不动的「100.0%」像卡死，
@@ -319,20 +362,40 @@ function updateCard(el, t) {
       + (tip ? `<em>${esc(tip)}</em>` : "") + "</span>";
   } else if (t.status === "canceled") {
     line = "已取消";
-  } else if (t.status === "done") {
-    line = `已完成${t.size ? " · " + fmtSize(t.size) : ""}`;
+  } else if (openable) {
+    const failed = t.kind === "files" ? (t.images || []).filter((f) => f.error).length : 0;
+    line = t.status === "partial" ? `部分完成 · 已下 ${t.count - failed} 个 · ${failed} 个失败` :
+      `${esc(t.stage || "已完成")}${t.size ? " · " + fmtSize(t.size) : ""}`;
   } else {
-    line = `${t.stage || STATUS_TEXT[t.status]}${t.percent && !wrapping ? " " + t.percent.toFixed(1) + "%" : ""}`;
+    line = `${esc(t.stage || STATUS_TEXT[t.status])}${t.percent && !wrapping ? " " + t.percent.toFixed(1) + "%" : ""}`;
     if (t.speed && !wrapping) line += ` · ${t.speed.toFixed(1)} MB/s`;
     if (t.size) line += ` · ${fmtSize(t.size)}`;
   }
   if (st.innerHTML !== line) st.innerHTML = line;
 
-  el.querySelector(".retry").style.display =
-    t.status === "error" || t.status === "canceled" ? "" : "none";
+  const failed = t.status === "error";
+  const fix = el.querySelector(".fix");
+  const label = failed && FIX_LABELS[t.error_code];
+  fix.hidden = !label;
+  if (label) {
+    fix.textContent = label;
+    fix.onclick = () => {
+      if (t.error_code === "login") openAcct();
+      else if (t.error_code === "directory") { openDrawer(); $("#cfgOut").focus(); }
+      else focusLinkBox();
+    };
+  }
+  const diagnosis = el.querySelector(".diagnose");
+  diagnosis.hidden = !failed;
+  diagnosis.onclick = failed ? () => copyTaskDiagnosis(t) : null;
+  const retry = el.querySelector(".retry");
+  const canRetry = (failed && t.error_code !== "bad_link") || t.status === "canceled";
+  retry.style.display = canRetry ? "" : "none";
+  retry.textContent = t.error_code === "interrupted" ? "继续下载" : "重试";
+  retry.title = retry.textContent;
   el.querySelector(".cancel").style.display =
-    t.status === "queued" || t.status === "running" ? "" : "none";
-  el.querySelector(".open").style.display = t.status === "done" ? "" : "none";
+    t.can_cancel !== false && (t.status === "queued" || t.status === "running") ? "" : "none";
+  el.querySelector(".open").style.display = openable ? "" : "none";
 
   const fav = el.querySelector(".fav");
   // 图集没有封面，就拿第一张当缩略图
@@ -507,34 +570,43 @@ function setFilter(f) {
   taskFilter = f;
   localStorage.setItem("taskFilter", f);
   document.querySelectorAll("#filters .flt").forEach((b) => {
-    b.classList.toggle("on", b.dataset.f === f);
+    const active = b.dataset.f === f;
+    b.classList.toggle("on", active);
+    b.setAttribute("aria-pressed", String(active));
   });
   refreshLast();
 }
 
 function renderStats(tasks) {
-  const c = { all: tasks.length, live: 0, done: 0, error: 0 };
+  const c = { all: tasks.length, live: 0, done: 0, partial: 0, error: 0 };
   tasks.forEach((t) => {
     if (t.status === "queued" || t.status === "running") c.live++;
     else if (c[t.status] !== undefined) c[t.status]++;
   });
-  const live = c.live;
   const ca = $("#cancelAll");
   const cb = $("#clearBtn");
   const lhRight = document.querySelector(".list-head .lh-right");
   const filters = $("#filters");
   if (lhRight) lhRight.style.display = tasks.length ? "" : "none";
   if (filters) filters.hidden = !tasks.length;
-  if (ca) ca.disabled = live === 0;
-  if (cb) cb.disabled = c.done + tasks.filter((t) => t.status === "canceled").length === 0;
+  if (ca) {
+    ca.hidden = taskFilter !== "all" && taskFilter !== "live";
+    ca.disabled = !tasks.some((t) => (t.status === "queued" || t.status === "running") && t.can_cancel !== false);
+  }
+  if (cb) {
+    cb.hidden = taskFilter !== "all";
+    cb.disabled = !tasks.some((t) => ["done", "partial", "canceled"].includes(t.status));
+  }
   const rf = $("#retryFailed");
   if (rf) {
-    rf.hidden = c.error === 0;
-    rf.textContent = `重试失败 ${c.error}`;
+    const retryable = tasks.filter((t) => t.status === "error" && t.error_code !== "bad_link").length;
+    rf.hidden = retryable === 0 || (taskFilter !== "all" && taskFilter !== "error");
+    rf.textContent = `重试失败 ${retryable}`;
   }
 
   document.querySelectorAll("#filters .flt").forEach((b) => {
     const n = c[b.dataset.f] || 0;
+    if (b.dataset.f === "partial") b.hidden = n === 0 && taskFilter !== "partial";
     b.dataset.n = String(n);
     b.classList.toggle("zero", n === 0);
   });
@@ -549,8 +621,9 @@ function syncTitle(tasks, c) {
   let t = "音视频下载器";
   if (c.live > 0) {
     t = `↓ ${c.done}/${c.done + c.live} · 音视频下载器`;
-  } else if (c.error > 0) {
-    t = `⚠ ${c.error} 项失败 · 音视频下载器`;
+  } else if (c.error || c.partial) {
+    const status = [c.error && `${c.error} 项失败`, c.partial && `${c.partial} 项部分完成`].filter(Boolean);
+    t = `${status.join(" · ")} · 音视频下载器`;
   } else if (liveBefore > 0 && c.done) {
     // 刚刚全部跑完，闪一下「完成」，免得用户一直盯着等
     t = `✓ ${c.done} 项已完成`;
@@ -665,6 +738,7 @@ async function post(url, body) {
 }
 
 let pollGap = 2500;
+let appVersion = "";
 
 async function poll() {
   try {
@@ -677,6 +751,7 @@ async function poll() {
     renderUpdateStatus(d.update);
     // 版本号先填本地的，别等联网检查时先闪一个「v—」
     if (d.version) {
+      appVersion = d.version;
       const cv = $("#curVer");
       if (cv && (cv.textContent === "v—" || !cv.textContent)) cv.textContent = "v" + d.version;
     }
@@ -776,9 +851,13 @@ async function warnOverseas(urls) {
 }
 
 async function submitBlocks(blocks, localUrls) {
-  // 粘贴、拖放、全局 Ctrl+V、剪贴板自动收都走这儿，统一一道闸防重复提交
-  if (inflight > 0) return;
+  // 请求正忙时保留手动粘贴的内容，下次可以直接提交。
+  if (inflight > 0) {
+    if (localUrls && localUrls.length) restoreLinkDraft(blocks);
+    return;
+  }
   inflight++;
+  $("#submit").disabled = true;
   try {
     await ensureDir();
     const r = await post("/api/add", { blocks });
@@ -804,10 +883,20 @@ async function submitBlocks(blocks, localUrls) {
     warnOverseas(localUrls);      // 不挡下载：只是提前打个招呼
     poll();
   } catch (e) {
-    toast("连接失败，服务可能已经关了");
+    if (localUrls && localUrls.length) restoreLinkDraft(blocks);
+    toast(localUrls && localUrls.length ? "没能提交下载，链接还在输入框里，可以再试" : "没能提交下载，稍后再试");
   } finally {
     inflight--;
     $("#submit").disabled = inflight > 0;
+  }
+}
+
+function restoreLinkDraft(blocks) {
+  const draft = blocks.map((b) => b.text).filter(Boolean).join("\n");
+  if (draft && !input.value.includes(draft)) {
+    input.value = [input.value, draft].filter(Boolean).join("\n");
+    autoGrow();
+    renderDetected(urlsIn(input.value));
   }
 }
 
@@ -921,12 +1010,10 @@ if (mQuery) {
     if (autoPaste) {
       flashComposer();
       submitBlocks([{ text }], urls);
-      toast("认出是链接，已直接开始下载");
     } else {
-      input.value = (input.value ? input.value + "\n" : "") + text;
-      autoGrow();
-      renderDetected(urlsIn(input.value));
-      toast("认出是链接，点「开始下载」就行");
+      restoreLinkDraft([{ text }]);
+      input.focus();
+      toast("链接已放进下载框，点「开始下载」");
     }
   });
 }
@@ -936,30 +1023,6 @@ $("#autoPaste").addEventListener("change", (e) => {
   localStorage.setItem("autoPaste", autoPaste ? "1" : "0");
   renderDetected(urlsIn(input.value));
   toast(autoPaste ? "粘贴后自动开始下载" : "粘贴后点「开始下载」");
-});
-
-/* ---------- 剪贴板：切回窗口时自动收一次链接 ---------- */
-let lastClip = "";
-async function grabClipboard() {
-  if (!autoPaste) return;                     // 尊重「粘贴即下载」开关
-  if (!navigator.clipboard || !navigator.clipboard.readText) return;
-  try {
-    const text = (await navigator.clipboard.readText()) || "";
-    if (!text || text === lastClip) return;   // 同一条只自动收一次
-    const urls = urlsIn(text);
-    if (!urls.length) return;
-    lastClip = text;
-    submitBlocks([{ text }], urls);
-    toast("剪贴板里的链接已加入下载");
-  } catch (e) {
-    // 浏览器没给剪贴板权限就安安静静当没这功能，原来的 Ctrl+V 照常用
-  }
-}
-window.addEventListener("focus", () => {
-  if (!document.hidden) setTimeout(() => grabClipboard(), 150);
-});
-document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) grabClipboard();
 });
 
 /* ---------- 账号登录 ---------- */
@@ -1079,9 +1142,35 @@ function renderExt() {
 }
 
 /* 扩展更新：Chrome 不会热更新「加载未打包」的扩展代码，必须手点一次刷新。
-   浏览器地址栏 chrome:// 外部程序打不开，只能把话说清楚，让他自己点两下。 */
+   点按钮时就顺手把地址写进剪贴板，弹出提示直接说「已复制」；
+   复制失败才退回手动按钮，长串地址始终不塞进提示正文。 */
+function copyExtAddress() {
+  if (!navigator.clipboard || !navigator.clipboard.writeText) return Promise.reject(new Error("clipboard unavailable"));
+  return navigator.clipboard.writeText("chrome://extensions");
+}
+async function retryCopyExt() {
+  try {
+    await copyExtAddress();
+    toast("已复制，粘到浏览器地址栏回车打开", 5500);
+  } catch (e) {
+    toast("复制没成功，再点一次按钮试试", 6500);
+  }
+}
 function refreshExt() {
-  toast("浏览器地址栏进 chrome://extensions，找到「下载器同步」，点它右下角的刷新箭头，回来点「重新检查」", 12000);
+  // 复制必须趁点击手势还在时发起，不能先渲染提示再等
+  const pending = copyExtAddress();
+  toast("地址已复制，去扩展页点刷新箭头再回来检查", 14000, {
+    label: "再复制",
+    fn: retryCopyExt,
+  });
+  pending.catch(() => {
+    const tip = $("#toast");
+    if (!tip.classList.contains("on") || !tip.textContent.startsWith("地址已复制")) return;
+    toast("去扩展页点「下载器同步」的刷新箭头，再回来点重新检查", 14000, {
+      label: "复制地址",
+      fn: retryCopyExt,
+    });
+  });
 }
 
 function loginRow(s, status, busy) {
@@ -1095,26 +1184,23 @@ function loginRow(s, status, busy) {
   const stCls = running ? "st run" : (dead ? "st bad" : (on ? "st ok" : "st"));
   const stText = running ? "等待中" : (dead ? "已失效" : (on ? "已登录" : "未登录"));
   // 账号名和会员徽标跟在平台名后面：一行读完，不再多占一行把列表撑高
-  const who = on && acc.ok && acc.name ? `<i class="acc">${esc(acc.name)}</i>` : "";
-  const vip = on && acc.ok && acc.vip ? `<em class="vip">${esc(acc.detail || "VIP")}</em>` : "";
-  const out = s.logged_in || acc.ok
-    ? `<button type="button" class="ghost" data-act="out">退出</button>` : "";
+  const who = on && acc.ok && acc.name
+    ? `<i class="acc" title="账号：${esc(acc.name)}">${esc(acc.name)}</i>` : "";
+  const vip = on && acc.ok && acc.vip
+    ? `<em class="vip" title="${esc(acc.detail || "VIP")}">${esc(acc.detail || "VIP")}</em>` : "";
+  // 已登录的站点也保留「登录」按钮：换号、刷新登录态都靠它。
+  // 不再单独放「退出」——占位置，且用户在网站里退出后会重新同步覆盖，没必要在这多一个按钮。
   row.innerHTML = iconHTML(s.id)
-    + `<span class="nm">${esc(s.name)}${who}${vip}</span>`
+    + `<span class="nm"><span class="nm-p">${esc(acctName(s))}</span>${who}${vip}</span>`
     + `<span class="${stCls}">${stText}</span>`
     + `<span class="acts">`
-    + `<button type="button" data-act="login" title="用${esc(dailyName())}打开">打开</button>`
-    + `${out}</span>`;
+    + `<button type="button" data-act="login" title="打开${esc(acctName(s))}登录页，登录完这边会自动显示">登录</button>`
+    + `</span>`;
   row.title = acc.ok && acc.error ? acc.error : (s.tip || "");
 
   const lb = row.querySelector('[data-act="login"]');
   lb.disabled = busy;
   lb.onclick = () => startLogin(s.id);
-  const ob = row.querySelector('[data-act="out"]');
-  if (ob) {
-    ob.disabled = busy;
-    ob.onclick = () => logoutSite(s);
-  }
   return row;
 }
 
@@ -1154,8 +1240,9 @@ function renderLoginBar(status, busy) {
 
 async function startLogin(pid) {
   const r = await post("/api/login/start", { platform: pid });
-  toast(r.ok ? (r.msg || `已在 ${dailyName()} 打开`)
-             : (r.error || "打不开浏览器"));
+  // 别把后端那句「已在 Chrome 里打开 X」原样念出来，说清楚下一步：
+  // 去网站登录，回来这边会自动认到。
+  toast(r.ok ? "已打开登录页，登录完这边会自动显示" : (r.error || "打不开浏览器"));
   loadLogins(true);
 }
 
@@ -1269,10 +1356,21 @@ function setPane(adv) {
   if (body) body.scrollTop = 0;   // 每页都从头看
 }
 
-function openDrawer() {
+let drawerTrigger = null;
+
+function showDrawer(selector, initialFocus) {
+  if (!$(".modal.on")) drawerTrigger = document.activeElement;
   closeAllDrawers(true);
+  const drawer = $(selector);
+  drawer.inert = false;
+  $(".wrap").inert = true;
   $("#mask").classList.add("on");
-  $("#drawer").classList.add("on");
+  drawer.classList.add("on");
+  $(initialFocus).focus({ preventScroll: true });
+}
+
+function openDrawer() {
+  showDrawer("#drawer", "#closeSet");
   setPane(false);
   $("#cfgOut").value = cfg.out_dir || "";
   $("#cfgQuality").value = cfg.quality || "best";
@@ -1288,9 +1386,7 @@ function openDrawer() {
 }
 
 function openAcct() {
-  closeAllDrawers(true);
-  $("#mask").classList.add("on");
-  $("#acctDrawer").classList.add("on");
+  showDrawer("#acctDrawer", "#closeAcct");
   loadLogins(true);
 }
 
@@ -1300,6 +1396,7 @@ function closeAllDrawers(instant) {
   ["#drawer", "#acctDrawer", "#histDrawer"].forEach((s) => {
     const el = $(s);
     if (!el) return;
+    el.inert = true;
     if (instant && el.classList.contains("on")) {
       el.classList.add("instant");
       el.classList.remove("on");
@@ -1310,6 +1407,11 @@ function closeAllDrawers(instant) {
     }
   });
   $("#mask").classList.remove("on");
+  if (!instant) {
+    $(".wrap").inert = false;
+    if (drawerTrigger?.isConnected) drawerTrigger.focus({ preventScroll: true });
+    drawerTrigger = null;
+  }
 }
 
 $("#openDir").onclick = async () => {
@@ -1614,12 +1716,23 @@ $("#saveCfg").onclick = async () => {
   else toast(r.error || "保存失败", 3600);
 };
 
-$("#clearBtn").onclick = async () => { await post("/api/clear", {}); poll(); };
+$("#clearBtn").onclick = async () => {
+  if (taskFilter !== "all") return;
+  try {
+    const r = await post("/api/clear", {});
+    if (!r.ok) { toast(r.error || "没能移除已结束的任务，稍后再试"); return; }
+    await poll();
+  } catch (e) { toast("连不上下载器，稍后再试"); }
+};
 
 $("#cancelAll").onclick = async () => {
-  const r = await post("/api/cancel_all", {});
-  toast(r.count ? `已取消 ${r.count} 条` : "没有正在跑的任务");
-  poll();
+  if (taskFilter !== "all" && taskFilter !== "live") return;
+  try {
+    const r = await post("/api/cancel_all", {});
+    if (!r.ok) { toast(r.error || "没能取消下载，稍后再试"); return; }
+    toast(r.count ? `已取消 ${r.count} 条` : "没有可取消的任务");
+    await poll();
+  } catch (e) { toast("连不上下载器，稍后再试"); }
 };
 
 const touchOnly = window.matchMedia("(hover: none)").matches;
@@ -1684,7 +1797,7 @@ let mItems = [];
 // 空列表时说什么：平常是「换个关键词」，单源连不上时换成具体原因
 let mEmptyText = "";
 let mSel = new Set();
-let searching = false;
+let searchRound = 0;
 
 /* 搜索结果 ↔ 下载任务的对应关系。
    key = 平台|歌曲ID，这样换一批结果、同一个歌再搜一次，状态都认得。
@@ -1752,6 +1865,8 @@ const SOURCE_GUIDE = {
 // 留着旧的计数和旧的列表，界面就会说「共 24 条」而下面空空，
 // 或者列表里还是别的来源的东西。
 function resetResults() {
+  ++searchRound;
+  $("#mGo").disabled = false;
   mItems = [];
   mEmptyText = "";
   mSel.clear();
@@ -1957,11 +2072,12 @@ async function pullMore() {
   // 早换了，这份旧结果必须丢掉，否则会把上一批 B站 / Mixkit 的东西
   // 画到「YouTube」「电影」的列表里，看着就像分类乱了。
   const tok = vToken;
+  const round = searchRound;
   vPulls++;
   try {
     const r = await fetch("/api/search/more?token=" + encodeURIComponent(tok))
       .then((x) => x.json());
-    if (tok !== vToken || !isAggMode()) return;
+    if (round !== searchRound || tok !== vToken || !isAggMode()) return;
     if (!r.ok) { vToken = ""; return; }
     mItems = r.items || [];
     mEmptyText = "";
@@ -1979,7 +2095,7 @@ async function pullMore() {
     if (!r.done && vPulls < 8) vPullTimer = setTimeout(pullMore, 2200);
     else vToken = "";
   } catch (e) {
-    if (tok === vToken) vToken = "";
+    if (round === searchRound && tok === vToken) vToken = "";
   }
 }
 
@@ -2876,23 +2992,22 @@ function showEpisodes(m, eps) {
 async function movieSearch(q) {
   q = (q || $("#mQuery").value || "").trim();
   if (!q) { $("#mQuery").focus(); return; }
-  $("#mResults").innerHTML = "";
-  $("#mBar").hidden = true;
+  resetResults();
+  const round = searchRound;
   $("#mHint").textContent = `电影搜索「${q}」…`;
-  searching = true;
   $("#mGo").disabled = true;
   try {
     const r = await post("/api/movie/search", { q, limit: 10 });
+    if (round !== searchRound) return;
     if (!r.ok) { $("#mHint").textContent = r.error || "搜索失败"; return; }
     mItems = r.items || [];
     renderMovies();
     const errs = (r.errors || []).join("；");
     $("#mHint").textContent = mItems.length ? errs : (errs || "没搜到，换个片名或简称试试");
   } catch (e) {
-    $("#mHint").textContent = "没连上，稍等一下再搜一次";
+    if (round === searchRound) $("#mHint").textContent = "没连上，稍等一下再搜一次";
   } finally {
-    searching = false;
-    $("#mGo").disabled = false;
+    if (round === searchRound) $("#mGo").disabled = false;
   }
 }
 
@@ -2927,22 +3042,14 @@ async function musicSearch(q) {
   q = (q || $("#mQuery").value || "").trim();
   if (!q) { $("#mQuery").focus(); return; }
   if (mMode === "movie") return movieSearch(q);
+  resetResults();
+  const round = searchRound;
   const agg = isAggMode();
-  $("#mResults").innerHTML = "";
-  $("#mBar").hidden = true;
   const where = mMode === "sfx" ? ""
     : agg ? (vPlat === "all" ? "所有来源" : sourceName(vPlat))
       : (PLAT_NAME[mPlat] || "全网");
   $("#mHint").textContent = where ? `${where} 搜索「${q}」…` : `正在找「${q}」的音效…`;
-  mSel.clear();
-  if (agg) {
-    vLastQuery = q;
-    clearTimeout(vPullTimer);
-    vToken = "";
-    const sh = $("#vSrcHint");
-    if (sh) { sh.innerHTML = ""; sh.hidden = true; }
-  }
-  searching = true;
+  if (agg) vLastQuery = q;
   $("#mGo").disabled = true;
   try {
     const r = agg
@@ -2952,6 +3059,7 @@ async function musicSearch(q) {
             : (mMode === "sfx" ? sfxSourceIds() : videoSourceIds()),
         })
       : await post("/api/music/search", { platform: mPlat, q, limit: 24 });
+    if (round !== searchRound) return;
     if (!r.ok) { $("#mHint").textContent = r.error || "搜索失败"; return; }
     mItems = r.items || [];
     mEmptyText = singleSourceProblem(r);
@@ -2970,10 +3078,9 @@ async function musicSearch(q) {
         : (bad || errs || "没搜到，换个关键词或换个来源");
     }
   } catch (e) {
-    $("#mHint").textContent = "没连上，稍等一下再搜一次";
+    if (round === searchRound) $("#mHint").textContent = "没连上，稍等一下再搜一次";
   } finally {
-    searching = false;
-    $("#mGo").disabled = false;
+    if (round === searchRound) $("#mGo").disabled = false;
   }
 }
 
@@ -3129,6 +3236,8 @@ if ($("#mBatch")) {
 
 /* ================= 历史 ================= */
 let histItems = [];
+let historyRequest = 0;
+const historyDate = new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short" });
 
 function histRow(x, i) {
   // 跟搜索结果一样用 span 装着 img，图没出来时占位还在
@@ -3136,44 +3245,55 @@ function histRow(x, i) {
     + (x.thumb ? '<img src="' + esc(imgUrl(x.thumb)) + '" alt="" loading="lazy"'
       + ' onerror="this.remove()">' : "")
     + "</span>";
-  const sub = [x.platform_name || "", x.author || "", fmtSize(x.size || 0)]
+  const done = new Date(Number(x.done_at) * 1000);
+  const sub = [x.platform_name || "", x.author || "", x.size ? fmtSize(x.size) : "",
+    x.done_at && Number.isFinite(done.getTime()) ? historyDate.format(done) : "",
+    x.failed_count ? `部分完成 · ${x.failed_count} 个失败` : ""]
     .filter(Boolean).join(" · ");
-  return '<div class="hitem" data-i="' + i + '">' + cov +
-    '<div class="hmeta"><div class="ht">' + esc(x.title || x.url || "未命名") + "</div>" +
-    '<div class="hs">' + esc(sub) + "</div></div></div>";
+  const title = esc(x.title || x.url || "未命名");
+  const meta = cov + '<span class="hmeta"><span class="ht" title="' + title + '">' + title + '</span>' +
+    '<span class="hs">' + esc(sub) + '</span></span>';
+  if (!x.path) return '<div class="hitem">' + meta + '</div>';
+  return '<button type="button" class="hitem hlocate" data-i="' + i + '">' + meta +
+    '<span class="hlocate-label">定位</span></button>';
 }
 
-function renderHistory() {
+function renderHistory(q) {
   const box = $("#histList");
   if (!histItems.length) {
-    box.innerHTML = '<div class="mempty">还没有下载记录</div>';
+    box.innerHTML = `<div class="mempty">${q ? "没有匹配的下载记录" : "还没有下载记录"}</div>`;
     return;
   }
   box.innerHTML = histItems.map(histRow).join("");
-  box.querySelectorAll(".hitem").forEach((el) => {
+  box.querySelectorAll(".hlocate").forEach((el) => {
+    const x = histItems[+el.dataset.i];
     el.onclick = async () => {
-      const x = histItems[+el.dataset.i];
-      const r = await post("/api/open", { path: x.path });
-      if (!r.ok) toast(r.error || "文件已经不在了");
+      try {
+        const r = await post("/api/open", { path: x.path });
+        if (!r.ok) toast(r.error || "文件已经不在了");
+      } catch (e) {
+        toast("没能定位文件，检查下载器是否还在运行");
+      }
     };
   });
 }
 
 async function loadHistory(q) {
+  const id = ++historyRequest;
   try {
-    const r = await fetch("/api/history?q=" + encodeURIComponent(q || ""))
-      .then((x) => x.json());
-    histItems = r.items || [];
-    renderHistory();
+    const r = await fetch("/api/history?q=" + encodeURIComponent(q || ""));
+    if (!r.ok) throw new Error("history request failed");
+    const data = await r.json();
+    if (id !== historyRequest) return;
+    histItems = data.items || [];
+    renderHistory(q);
   } catch (e) {
-    $("#histList").innerHTML = '<div class="mempty">读不到历史</div>';
+    if (id === historyRequest) $("#histList").innerHTML = '<div class="mempty">读不到历史，稍后再试</div>';
   }
 }
 
 function openHist() {
-  closeAllDrawers(true);
-  $("#mask").classList.add("on");
-  $("#histDrawer").classList.add("on");
+  showDrawer("#histDrawer", "#closeHist");
   loadHistory($("#histQ").value.trim());
 }
 
@@ -3182,6 +3302,7 @@ if ($("#closeHist")) $("#closeHist").onclick = closeAllDrawers;
 if ($("#histQ")) {
   let ht = 0;
   $("#histQ").addEventListener("input", () => {
+    ++historyRequest;
     clearTimeout(ht);
     ht = setTimeout(() => loadHistory($("#histQ").value.trim()), 220);
   });

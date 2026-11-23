@@ -39,7 +39,7 @@ import login as login_mod  # noqa: E402
 import picker  # noqa: E402
 import updater as updater_mod  # noqa: E402
 
-APP_VERSION = "1.24.8"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
+APP_VERSION = "1.24.9"          # 改版本号记得同步 version.txt 和 GitHub 上的 version.txt
 UPDATE_REPO = "soberbw-hash/media-downloader"
 
 # 识曲上传的上限（base64 长度）。20MB 原文件约 27MB base64，够一段音频了。
@@ -210,8 +210,8 @@ def _set_upd(**kw):
 def _busy_tasks():
     """还有任务在跑就先别重启，免得把人家下到一半的东西打断。"""
     try:
-        idle = ("done", "error", "canceled", "cancelled", "")
-        return any((t.get("status") or "") not in idle for t in MANAGER.snapshot())
+        with MANAGER.lock:
+            return bool(MANAGER.workers)
     except Exception:
         return False
 
@@ -321,8 +321,7 @@ def _update_worker(wait_idle=True):
                  detail="新版已下好，等当前任务结束就自动更新")
         prepared = dict(version=info["latest"], staged=staged, files=files,
                         archive=archive, mode=mode, workdir=workdir)
-        end = time.time() + 600
-        while wait_idle and time.time() < end and _busy_tasks():
+        while wait_idle and _busy_tasks():
             time.sleep(3)
         _apply_update(prepared)
     except Exception as e:
@@ -378,10 +377,7 @@ def note_activity():
 
 
 def _do_quit():
-    try:
-        MANAGER.cancel_all()
-    except Exception:
-        pass
+    # 队列已在任务加入时落盘；退出 != 用户主动取消，启动后让用户继续。
     try:
         if _SRV is not None:
             _SRV.shutdown()
@@ -941,7 +937,7 @@ class Handler(BaseHTTPRequestHandler):
 
         elif p == "/api/retry":
             ok = MANAGER.retry(str(data.get("id")))
-            self._json({"ok": ok})
+            self._json({"ok": ok, "error": "这条任务暂时不能重试，等它停下来再试" if not ok else ""})
 
         elif p == "/api/retry_failed":
             self._json({"ok": True, "count": MANAGER.retry_failed()})
@@ -1001,13 +997,9 @@ class Handler(BaseHTTPRequestHandler):
                 url = _music_url(plat, sid)
                 if not url:
                     continue
-                t, why = MANAGER.add(url, batch=batch)
+                t, why = MANAGER.add(url, batch=batch, title=str(it.get("title") or ""),
+                                     author=str(it.get("artist") or ""))
                 if t:
-                    # 名字先在界面上占住，下载器后面还会再查一次做校正
-                    if it.get("title"):
-                        t.title = str(it["title"])
-                    if it.get("artist"):
-                        t.author = str(it["artist"])
                     added.append(t.id)
                     # 回一份「哪首歌对应哪个任务」，前端才能在搜索结果行里
                     # 直接显示这首的进度，不用翻到底部任务区才知道下好没有
@@ -1035,19 +1027,10 @@ class Handler(BaseHTTPRequestHandler):
                 url = str(it.get("url") or "").strip()
                 if not url.startswith("http"):
                     continue
-                t, why = MANAGER.add(url, batch=batch)
+                title = str(it.get("title") or "").strip()
+                t, why = MANAGER.add(url, batch=batch, title=title, title_hint=title,
+                                     author=str(it.get("author") or "").strip(), audio_label="音效")
                 if t:
-                    title = str(it.get("title") or "").strip()
-                    if title:
-                        # 直链的默认标题是网址拼的，这里锁死搜索到的名字：
-                        # title_hint 管文件名模板，title_locked 挡住解析阶段改名
-                        t.title = title
-                        t.title_hint = title
-                        t.title_locked = True
-                    t.author = str(it.get("author") or "").strip()
-                    t.kind = "audio"
-                    # 文件名模板里的 {platform} 用它：写「直链 / HLS」太吓人
-                    t.platform_name = "音效"
                     added.append(t.id)
                     # 前端靠这个在结果行里显示「下载中 / 已下好」
                     pairs.append({"tid": t.id,
@@ -1265,17 +1248,21 @@ class Handler(BaseHTTPRequestHandler):
             if tid:
                 with MANAGER.lock:
                     t = MANAGER.tasks.get(str(tid))
-                    if t and t.filepath:
-                        target = t.filepath
+                    target = t.filepath if t and t.status in ("done", "partial") else ""
+                if not target:
+                    self._json({"ok": False, "error": "这条任务还没有可打开的文件"})
+                    return
             try:
-                if target and os.path.exists(target):
-                    if os.path.isfile(target):
-                        _open_path(os.path.dirname(target))
-                    else:
-                        _open_path(target)
-                    self._json({"ok": True})
+                if target and os.path.isfile(target):
+                    _reveal_file(target)
+                elif target and os.path.isdir(target):
+                    _open_path(target)
                 else:
-                    self._json({"ok": False, "error": "路径不存在"})
+                    error = ("找不到原文件，可能已移动、改名或删除" if tid or data.get("path")
+                             else "下载目录不存在，请在设置里选择目录")
+                    self._json({"ok": False, "error": error})
+                    return
+                self._json({"ok": True})
             except Exception as e:
                 self._json({"ok": False, "error": str(e)})
 
@@ -1554,10 +1541,22 @@ def _open_path(target):
     if IS_WIN:
         os.startfile(target)                # noqa: 只有 Windows 有
         return
+    subprocess.Popen(["open" if IS_MAC else "xdg-open", os.path.abspath(target)], close_fds=True)
+
+
+def _reveal_file(target):
+    """定位下载成品，不用默认程序执行或播放它。"""
+    target = os.path.abspath(target)
     try:
-        subprocess.Popen(["open" if IS_MAC else "xdg-open", target], close_fds=True)
-    except Exception:
+        if IS_WIN:
+            subprocess.Popen(["explorer.exe", "/select," + target], close_fds=True)
+            return
+        if IS_MAC:
+            subprocess.Popen(["open", "-R", target], close_fds=True)
+            return
+    except OSError:
         pass
+    _open_path(os.path.dirname(target))
 
 
 def fail_box(msg):

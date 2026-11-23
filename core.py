@@ -3,6 +3,7 @@
 
 平台识别 / 抖音解析 / yt-dlp 封装 / 任务队列
 """
+import errno
 import json
 import os
 import re
@@ -784,14 +785,18 @@ def resumable_download(url, out_path, progress, open_fn=None, headers=None,
     try:
         r = _open_with_range()
     except urllib.error.HTTPError as e:
-        # 416 = 断点已经顶到文件尾，上次其实下完了
-        if e.code == 416 and have and (old_total == have or not old_total):
-            e.close()
+        if e.code != 416 or not have:
+            raise
+        # 只有服务端确认全长等于断点时才能转正，不能把未知长度的半截当成成品。
+        advertised = re.fullmatch(r"bytes\s+\*/(\d+)", e.headers.get("Content-Range", ""), re.I)
+        e.close()
+        if advertised and int(advertised.group(1)) == have == old_total and have >= min_bytes:
             os.replace(part, out_path)
             _rm_quiet(src)
             progress(done=have, total=have, speed=0, percent=100, stage=label)
             return out_path
-        raise
+        have = 0
+        r = _open_with_range()
 
     code = getattr(r, "status", None) or getattr(r, "code", 0) or 200
     if code != 206:                  # 服务器不认 Range、整份重发 → 丢掉半截重写
@@ -811,6 +816,14 @@ def resumable_download(url, out_path, progress, open_fn=None, headers=None,
         if code != 206:
             have = 0
         total = _total_of(r, have)
+
+    if code == 206:
+        content_range = re.fullmatch(r"bytes\s+(\d+)-(\d+)/(\d+)",
+                                    r.headers.get("Content-Range", ""), re.I)
+        if (not content_range or int(content_range.group(1)) != have
+                or int(content_range.group(2)) != int(content_range.group(3)) - 1):
+            r.close()
+            raise RuntimeError("服务器返回的续传范围不对，请重试")
 
     try:
         with open(src, "w", encoding="utf-8") as f:
@@ -847,7 +860,7 @@ def resumable_download(url, out_path, progress, open_fn=None, headers=None,
 
     size = os.path.getsize(part) if os.path.exists(part) else 0
     # 连接硬断时 read() 可能安静地返回空串，光看循环结束判断不出来
-    if total and size < total:
+    if total and size != total:
         raise RuntimeError("下载中断了（%d/%d 字节）" % (size, total))
     if not size:
         _rm_quiet(part)
@@ -1426,9 +1439,77 @@ def explain_error(msg):
     return "", ""
 
 
+def task_failure(exc, raw):
+    # 先判本地文件错误，不让平台提示盖掉真正原因。
+    text = raw.split("\n", 1)[0].lower()
+    number = getattr(exc, "errno", None)
+    win = getattr(exc, "winerror", None)
+    if number == errno.ENOSPC or win in (39, 112) or "no space left" in text:
+        return "directory", "磁盘空间不足\n换一个下载目录再试"
+    if number in (errno.EACCES, errno.EPERM, errno.ENOTDIR, errno.EROFS) or win in (5, 32, 33):
+        return "directory", "写不进下载目录\n换一个下载目录再试"
+    if "提取码" in text and any(s in text for s in ("不对", "需要", "要提取码", "核对")):
+        return "bad_link", "需要正确的提取码\n把分享链接和提取码一起粘贴"
+    if any(s in text for s in ("链接失效", "分享失效", "分享已经失效", "重新分享", "404", "已删除")):
+        if "可能" in text and "要登录" in text:
+            return "download", raw
+        return "bad_link", "这个链接可能失效了\n换一个在浏览器里能打开的分享链接"
+    if "暂时还下不了" in text or "还没调通" in text:
+        return "unsupported", raw
+    if "蓝奏验证没通过" in text:
+        return "verification", "蓝奏云没通过验证\n先在浏览器打开分享链接，再回来重试"
+    if any(s in text for s in ("登录过期", "登录已失效", "登录失效", "登录态过期")):
+        return "login", "登录过期了\n重新登录并同步后，重试这条任务"
+    if any(s in text for s in ("需要登录", "要先登录", "要登录", "未登录", "没登录", "请先登录", "sign in", "log in", "login required")):
+        return "login", "需要登录\n在设置的账号页登录并同步后，重试这条任务"
+    if isinstance(exc, TimeoutError) or any(s in text for s in ("timed out", "timeout", "超时", "connection reset")):
+        return "network", "连接超时或中断\n检查网络后重试"
+    if "下载中断" in text:
+        return "interrupted", "下载中断了\n点击继续；来源支持续传时会接着下"
+    if sum(1 for ch in text if "\u4e00" <= ch <= "\u9fff") < 3 and not explain_error(text)[0]:
+        return "download", "这次没下成功\n可以重试；一直失败时，请复制诊断反馈"
+    return "download", raw or "这次没下成功，请重试"
+
+
+class DownloadCanceled(RuntimeError):
+    pass
+
+
+def _netdisk_filename(name, direct):
+    # 分享列表提供的文件名比带签名的 CDN 路径可信；只给无后缀的文件补扩展名。
+    base = safe_name(name or "网盘文件", 100)
+    tail = os.path.splitext(urllib.parse.urlsplit(direct).path)[1]
+    if not os.path.splitext(base)[1] and re.fullmatch(r"\.[A-Za-z0-9]{1,12}", tail):
+        base += tail
+    return base
+
+
+def _netdisk_fetch(url, out, headers, size, progress):
+    expected = int(size or 0)
+
+    def open_file(u, h, timeout):
+        r = http_get(u, h, timeout=timeout)
+        mime = (r.headers.get("Content-Type") or "").split(";")[0].lower().strip()
+        ext = os.path.splitext(out)[1].lower()
+        if ((mime in ("text/html", "application/xhtml+xml") and ext not in (".html", ".htm", ".xhtml"))
+                or (mime == "application/json" and ext not in (".json", ".map"))):
+            r.close()
+            raise RuntimeError("网盘返回了网页或错误信息，没拿到文件")
+        if expected:
+            if getattr(r, "status", None) == 206:
+                length = (r.headers.get("Content-Range") or "").rsplit("/", 1)[-1]
+            else:
+                length = r.headers.get("Content-Length", "")
+            if length.isdigit() and int(length) != expected:
+                r.close()
+                raise RuntimeError("网盘返回的大小与分享文件不一致，重新解析后再试")
+        return r
+
+    return resumable_download(url, out, progress, open_file, headers)
+
+
 def _netdisk_download(t, out_dir, progress):
-    """网盘分享下载。返回 (单文件路径, []) 或 (文件夹路径, 图片列表样式
-    的 [{'name','size'}])。文件夹按图集那样展示，卡片能列出每个文件。"""
+    """返回本地文件路径，或文件夹及每项结果。网盘文件不使用音视频大小/类型门槛。"""
     import netdisk
     progress(stage="正在解析分享链接…")
     # t.url 里可能带 #pwd=（add_blocks 从整段文案补的提取码）
@@ -1444,43 +1525,42 @@ def _netdisk_download(t, out_dir, progress):
 
     files = info["files"]
     if len(files) == 1 and not info.get("is_folder"):
-        # 单文件：直接下成一个文件
         direct, name, size, hdr = netdisk.get_direct(info, files[0], progress)
-        stem = safe_name(name or t.title or "网盘文件")
-        ext = os.path.splitext(urllib.parse.urlparse(direct).path)[1] or ""
-        # 标题自带 .mp3 这类后缀就别重复拼
-        if ext and stem.lower().endswith(ext.lower()):
-            ext = ""
-        out = unique_path(os.path.join(out_dir, stem + ext))
-        path, _ = stream_download([direct], out, progress, headers=hdr, min_bytes=1024)
-        return path, []
+        base = _netdisk_filename(name or files[0].get("name") or t.title, direct)
+        out = unique_path(os.path.join(out_dir, base))
+        # 蓝奏列表的体积可能是四舍五入的显示值；以实际响应的长度为准。
+        expected = 0 if t.platform == "netdisk:lanzou" else (size or files[0].get("size"))
+        return _netdisk_fetch(direct, out, hdr, expected, progress), []
 
-    # 文件夹：建同名目录，逐个下载，返回列表让界面像图集那样显示
+    # 真的取到一个直链才建目录；失败项不塞进图集，也不虚报大小。
     folder = unique_path(os.path.join(out_dir, safe_name(info.get("title") or "网盘文件夹")))
-    os.makedirs(folder, exist_ok=True)
-    shown = []
+    shown, last_error = [], None
     for i, f in enumerate(files):
         progress(stage="正在下载 %d/%d" % (i + 1, len(files)), percent=int(100 * i / len(files)))
         fname = f.get("name") or "文件"
         try:
             direct, name, size, hdr = netdisk.get_direct(info, f, progress)
+            base = _netdisk_filename("%02d %s" % (i + 1, name or fname), direct)
+            os.makedirs(folder, exist_ok=True)
+            out = os.path.join(folder, base)
+
+            def item_progress(**kw):
+                if "percent" in kw:
+                    kw["percent"] = (i * 100 + kw["percent"]) / len(files)
+                kw.pop("total", None)
+                kw["stage"] = "正在下载 %d/%d" % (i + 1, len(files))
+                progress(**kw)
+
+            expected = 0 if t.platform == "netdisk:lanzou" else (size or f.get("size"))
+            path = _netdisk_fetch(direct, out, hdr, expected, item_progress)
+            shown.append({"name": os.path.basename(path), "size": os.path.getsize(path)})
+        except DownloadCanceled:
+            raise
         except Exception as e:
-            # 单个文件取链失败不拖垮整夹，记一条说明
-            shown.append({"name": fname, "size": f.get("size") or 0, "error": str(e)[:60]})
-            continue
-        ext = os.path.splitext(urllib.parse.urlparse(direct).path)[1]
-        base = safe_name("%02d %s" % (i + 1, name or fname), 80)
-        if ext and base.lower().endswith(ext.lower()):
-            ext = ""
-        out = os.path.join(folder, base + ext)
-        try:
-            path, _ = stream_download([direct], out, progress, headers=hdr, min_bytes=1024)
-            shown.append({"name": os.path.basename(path),
-                          "size": os.path.getsize(path) if os.path.isfile(path) else (size or 0)})
-        except Exception as e:
-            shown.append({"name": fname, "size": size or 0, "error": str(e)[:60]})
-    if not shown:
-        raise RuntimeError("这个分享里的文件都没能下下来，可能链接过期或需要重新解析")
+            last_error = e
+            shown.append({"name": fname, "size": 0, "error": True})
+    if not any(not f.get("error") for f in shown):
+        raise last_error or RuntimeError("这个分享里没有能下载的文件")
     return folder, shown
 
 
@@ -1509,7 +1589,10 @@ class Task(object):
         self.size = 0
         self.stage = "排队中"
         self.error = ""
+        self.error_code = ""
+        self.failure_stage = ""
         self.filepath = ""
+        self.finishing = False
         self.proxy = ""
         self.kind = "video"         # video / images
         self.images = []            # [{i, name, size}]
@@ -1525,6 +1608,8 @@ class Task(object):
             "stage": self.stage, "error": self.error, "filepath": self.filepath,
             "batch": self.batch, "kind": self.kind,
             "images": self.images, "count": len(self.images),
+            "error_code": self.error_code, "failure_stage": self.failure_stage,
+            "can_cancel": not self.finishing,
         }
         if self.status == "error" and self.error:
             # 允许「标题 \n 建议 \n 详情」三段式：
@@ -1557,11 +1642,71 @@ class Manager(object):
         self.batch_seq = 0
         self.max_workers = 3
         self.running = 0
+        self.workers = set()
         paths.ensure_data_dir()
         self.history_file = paths.history_path()
+        self.queue_file = os.path.join(os.path.dirname(self.history_file), "queue.json")
         self.history = []
         self._load_history()
+        self._load_queue()
         self._apply_cfg()
+
+    _QUEUE_FIELDS = ("id", "url", "platform", "platform_name", "batch", "key", "created",
+                     "title", "title_hint", "title_locked", "author", "kind", "status",
+                     "stage", "error", "error_code", "failure_stage")
+
+    def _load_queue(self):
+        try:
+            with open(self.queue_file, encoding="utf-8") as f:
+                rows = json.load(f)
+        except (OSError, ValueError):
+            return
+        # 历史先落盘，随后移除队列。进程恰好在两步之间退出时，不恢复已完成的工作。
+        finished = {(r.get("id"), r.get("url"), r.get("created")) for r in self.history}
+        for row in rows if isinstance(rows, list) else []:
+            if not isinstance(row, dict):
+                continue
+            try:
+                tid, url, created = str(int(row["id"])), row["url"], float(row["created"])
+                batch = int(row.get("batch", 0))
+                stamp = int(created)
+                if not isinstance(url, str) or not url:
+                    continue
+            except (KeyError, ValueError, TypeError, OverflowError):
+                continue
+            self.seq = max(self.seq, int(tid))
+            self.batch_seq = max(self.batch_seq, batch)
+            if (tid, url, stamp) in finished:
+                continue
+            t = Task(tid, url, row.get("platform") or "unknown", row.get("platform_name") or "未知平台",
+                     batch, row.get("key") or "")
+            for key in ("title", "title_hint", "title_locked", "author", "kind",
+                        "status", "stage", "error", "error_code", "failure_stage"):
+                if key in row:
+                    setattr(t, key, row[key])
+            t.created = created
+            if t.status in ("queued", "running"):
+                t.failure_stage = t.stage
+                t.status, t.stage, t.error_code = "error", "下载中断", "interrupted"
+                t.error = "上次下载没完成\n点击继续；来源支持续传时会接着下"
+            if t.status in ("error", "canceled"):
+                self.tasks[tid] = t
+
+    def _save_queue_locked(self):
+        rows = [{key: getattr(t, key) for key in self._QUEUE_FIELDS}
+                for t in self.tasks.values() if t.status not in ("done", "partial")]
+        self._save_json(self.queue_file, rows)
+
+    @staticmethod
+    def _save_json(path, data):
+        tmp = path + ".tmp"
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=1)
+            os.replace(tmp, path)
+            return True
+        except OSError:
+            return False
 
     # ---------- 历史（关掉软件也还在） ----------
     def _load_history(self):
@@ -1582,13 +1727,7 @@ class Manager(object):
             self._save_history()
 
     def _save_history(self):
-        try:
-            tmp = self.history_file + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(self.history, f, ensure_ascii=False, indent=1)
-            os.replace(tmp, self.history_file)
-        except Exception:
-            pass
+        return self._save_json(self.history_file, self.history)
 
     def _push_history(self, t):
         rec = {
@@ -1596,27 +1735,33 @@ class Manager(object):
             "platform": t.platform, "platform_name": t.platform_name,
             "path": t.filepath, "size": t.size, "duration": t.duration,
             "thumb": t.thumb, "kind": t.kind, "count": len(t.images),
+            "failed_count": sum(bool(x.get("error")) for x in t.images),
             "key": t.key, "created": int(t.created), "done_at": int(time.time()),
         }
         with self.lock:
             self.history.insert(0, rec)
             del self.history[self.HIST_MAX:]
-        self._save_history()
+            if self._save_history():
+                self._save_queue_locked()
 
     def history_snapshot(self, q="", limit=200):
         with self.lock:
             items = list(self.history)
-        q = (q or "").strip().lower()
-        if q:
-            items = [x for x in items
-                     if q in ("%s %s %s" % (x.get("title", ""), x.get("author", ""),
-                                            x.get("platform_name", ""))).lower()]
+        terms = (q or "").casefold().split()
+        if terms:
+            def matches(item):
+                filename = str(item.get("path") or "").replace("\\", "/").rsplit("/", 1)[-1]
+                fields = [item.get(key) for key in ("title", "author", "platform_name")]
+                searchable = " ".join(str(value or "") for value in [*fields, filename]).casefold()
+                return all(term in searchable for term in terms)
+
+            items = [item for item in items if matches(item)]
         return items[:limit]
 
     def clear_history(self):
         with self.lock:
             self.history = []
-        self._save_history()
+            self._save_history()
 
     def _apply_cfg(self):
         try:
@@ -1639,7 +1784,7 @@ class Manager(object):
             self.batch_seq += 1
             return self.batch_seq
 
-    def add(self, url, batch=0):
+    def add(self, url, batch=0, title="", title_hint="", author="", audio_label=""):
         """加入一条任务，返回 (task, 跳过原因)"""
         key = video_key(url)
         pid, pname, level, why = classify(url)
@@ -1647,24 +1792,31 @@ class Manager(object):
         with self.lock:
             if key:
                 for x in self.tasks.values():
-                    if x.key == key and x.status in ("queued", "running", "done"):
+                    if x.key == key and (x.id in self.workers or x.status == "queued"
+                                         or (x.status == "done" and os.path.exists(x.filepath))):
                         return None, "这条已经在列表里了"
                 # 以前下过、文件还在 → 别重复下。文件被删了则照常重下
                 for h in self.history:
                     if h.get("key") == key:
                         p = h.get("path") or ""
-                        if p and os.path.exists(p):
+                        if p and not h.get("failed_count") and os.path.exists(p):
                             return None, "这条以前下过了，历史里能找到"
-                        break
             self.seq += 1
-            t = Task(str(self.seq), url, pid, pname, batch=batch, key=key)
+            t = Task(str(self.seq), url, pid, audio_label or pname, batch=batch, key=key)
+            t.title, t.title_hint, t.author = title, title_hint, author
+            t.title_locked = bool(audio_label and title)
+            if audio_label:
+                t.kind = "audio"
             if why:
                 t.status = "error"
                 t.stage = "不支持"
                 t.error = why
+                t.error_code = "bad_link"
             else:
                 start = True
+                self.workers.add(t.id)
             self.tasks[t.id] = t
+            self._save_queue_locked()
         if start:
             threading.Thread(target=self._run_wrapper, args=(t,), daemon=True).start()
         return t, ""
@@ -1684,75 +1836,51 @@ class Manager(object):
         n = 0
         with self.lock:
             for t in self.tasks.values():
-                if t.status in ("queued", "running"):
+                if t.status in ("queued", "running") and not t.finishing:
                     t.status = "canceled"
                     t.stage = "已取消"
                     n += 1
+            if n:
+                self._save_queue_locked()
         return n
 
-    def _wait_slot(self):
+    def _wait_slot(self, t):
         while True:
             with self.lock:
+                if t.status == "canceled":
+                    return False
                 if self.running < self.max_workers:
                     self.running += 1
-                    return
-            time.sleep(0.4)
+                    t.status, t.stage = "running", "准备下载…"
+                    return True
+            time.sleep(0.2)
 
     def _run_wrapper(self, t):
-        self._wait_slot()
+        acquired = False
         try:
-            with self.lock:
-                if t.status == "canceled":   # 排队期间就被取消了，别再开跑
-                    return
-            self._run(t)
+            acquired = self._wait_slot(t)
+            if acquired:
+                self._run(t)
         except Exception as e:
             raw = str(e)[:200]
             with self.lock:
                 # 用户点了取消，别把它改写成「失败」
                 if t.status == "canceled":
                     return
-            msg = raw
-            # 卡片上只有一行位置，原因说清楚就够，建议跟一句，别写成小作文
-            if t.platform == "kuaishou":
-                msg = "快手要登录才能解析。去「设置 → 账号」登一次再重试。（%s）" % raw
-            elif t.platform == "xiaohongshu":
-                # cn_sites 的报错已经写清原因和出路，别再一律安「要登录」把人带偏
-                msg = raw if any(k in raw for k in
-                                 ("登录", "重试", "反馈", "分享", "删除", "图片")) \
-                    else "小红书解析失败，重试一次看看。（%s）" % raw
-            elif t.platform == "instagram":
-                msg = "Instagram 要登录 cookies + 代理，配好再试。"
-            elif t.platform == "reddit":
-                if ("403" in raw or "Blocked" in raw or "authentication" in raw.lower()):
-                    msg = "Reddit 拒绝了这台机器的出口 IP，换个代理再试。（%s）" % raw
-                else:
-                    msg = "连不上 Reddit，先把梯子（VPN）打开再试。（%s）" % raw
-            elif t.platform in ("tiktok", "youtube", "twitter", "vimeo", "twitch"):
-                # 以前一律说"代理没开"，但链接失效、要登录也是同样的报错，会把方向带偏
-                low = raw.lower()
-                if any(k in low for k in ("unavailable", "removed", "not available",
-                                          "deleted", "no longer")):
-                    msg = "视频不可用：已删除、私密或地区限制。（%s）" % raw
-                elif any(k in low for k in ("sign in", "login", "log in", "members-only",
-                                            "confirm your age", "cookies", "age-restricted")):
-                    msg = "要登录才能看，设置里登录后重试。（%s）" % raw
-                elif any(k in low for k in ("timed out", "timeout", "temporary failure")):
-                    msg = "网络超时，重试一次通常就好。（%s）" % raw
-                elif any(k in low for k in ("geo", "region", "country", "not made this video available")):
-                    msg = "地区限制，换个出口再试。（%s）" % raw
-                else:
-                    msg = "连不上。这个站在境外，先把梯子（VPN）打开再试。（%s）" % raw
-            elif t.platform == "unknown":
-                msg = "这个站点解析不了，可能要登录或用强加密。（%s）" % raw
-            elif "Unsupported URL" in raw:
-                msg = "页面结构识别不了，可能是合集页或要登录。"
+            code, msg = task_failure(e, raw)
             with self.lock:
-                t.status = "error"
-                t.error = msg
-                t.stage = "失败"
+                if t.status == "canceled":
+                    return
+                t.failure_stage = t.stage
+                t.status, t.stage = "error", "失败"
+                t.error, t.error_code = msg, code
+                t.finishing = False
+                self._save_queue_locked()
         finally:
             with self.lock:
-                self.running -= 1
+                if acquired:
+                    self.running -= 1
+                self.workers.discard(t.id)
 
     def _run(self, t):
         out_dir = self.cfg.get("out_dir") or os.path.join(os.path.expanduser("~"), "Downloads")
@@ -1770,14 +1898,17 @@ class Manager(object):
                 cookies = None
 
         with self.lock:
+            if t.status == "canceled":
+                return
             t.status = "running"
             t.stage = "解析中…"
             t.proxy = proxy
+            self._save_queue_locked()
 
         def progress(**kw):
             with self.lock:
                 if t.status == "canceled":
-                    raise RuntimeError("已取消")
+                    raise DownloadCanceled("已取消")
                 if kw.get("title") and not t.title_locked:
                     t.title = kw["title"]
                 if kw.get("author"):
@@ -1861,37 +1992,48 @@ class Manager(object):
         # Mac 专属：QuickTime 播不了的格式，下完顺手转成能双击播的 mp4。
         # 放这儿而不是某个下载器里，直链 / HLS / 抖音 / B站 走哪条路都覆盖到。
         compat_note = ""
-        if sys.platform == "darwin" and not imgs:
+        if sys.platform == "darwin" and not imgs and not t.platform.startswith("netdisk:"):
             path, compat_note = ensure_mac_playable(path, progress)
 
+        if not path or not os.path.exists(path):
+            raise RuntimeError("没找到下载文件，请重试")
+        if os.path.isfile(path) and not os.path.getsize(path):
+            raise RuntimeError("下载的文件是空的，请重试")
+
+        is_netdisk = t.platform.startswith("netdisk:")
+        failed_items = sum(bool(f.get("error")) for f in imgs) if is_netdisk else 0
         with self.lock:
-            t.filepath = path
-            if imgs:
+            if t.status == "canceled":
+                return
+            t.finishing = True
+            t.stage, t.speed = "正在收尾…", 0
+            if is_netdisk:
+                t.kind = "files" if imgs else "file"
+            elif imgs:
                 t.kind = "images"
             elif t.kind != "audio":
                 t.kind = "video"
             t.images = imgs or []
-            t.status = "done"
-            t.stage = "已完成" if not imgs else "已完成 · %d 张" % len(imgs)
-            if compat_note:
-                t.stage += " · " + compat_note
-            t.percent = 100.0
-            t.speed = 0
-            if imgs:
-                t.size = sum(int(x.get("size") or 0) for x in imgs)
-            elif not t.size and os.path.isfile(path):
-                t.size = os.path.getsize(path)
+            t.size = (sum(int(x.get("size") or 0) for x in imgs) if imgs
+                      else os.path.getsize(path) if os.path.isfile(path) else 0)
             if not t.title:
                 t.title = os.path.splitext(os.path.basename(path))[0]
 
-        # 收尾：按模板改名、顺手存封面。都是锦上添花，失败了也不影响任务本身。
-        try:
-            new_path = self._post_process(t, path)
-            if new_path and new_path != path:
-                with self.lock:
-                    t.filepath = new_path
-        except Exception:
-            pass
+        # 在文件名确定后才显示完成，避免用户打开到收尾前的旧路径。
+        if not is_netdisk:
+            try:
+                path = self._post_process(t, path) or path
+            except Exception:
+                pass
+        with self.lock:
+            t.filepath, t.finishing = path, False
+            if failed_items:
+                t.status, t.stage = "partial", "部分完成"
+            else:
+                t.status, t.stage = "done", "已完成"
+                if compat_note:
+                    t.stage += " · " + compat_note
+                t.percent = 100.0
         self._push_history(t)
 
     def _post_process(self, t, path):
@@ -1945,9 +2087,10 @@ class Manager(object):
     def cancel(self, tid):
         with self.lock:
             t = self.tasks.get(tid)
-            if t and t.status in ("queued", "running"):
+            if t and t.status in ("queued", "running") and not t.finishing:
                 t.status = "canceled"
                 t.stage = "已取消"
+                self._save_queue_locked()
                 return True
         return False
 
@@ -1955,27 +2098,31 @@ class Manager(object):
         """把当前所有失败的重新排一遍。断网/风控这类失败，一次性重试最省事。"""
         with self.lock:
             ids = [t.id for t in self.tasks.values() if t.status == "error"]
-        for tid in ids:
-            self.retry(tid)
-        return len(ids)
+        return sum(self.retry(tid) for tid in ids)
 
     def retry(self, tid):
         with self.lock:
             t = self.tasks.get(tid)
-            if not t:
+            if (not t or t.status not in ("error", "canceled") or tid in self.workers
+                    or t.error_code == "bad_link"):
                 return False
-            t.status = "queued"
-            t.error = ""
-            t.percent = 0
-            t.speed = 0
-            t.stage = "排队中"
+            if t.key and any(other.key == t.key and other.id in self.workers
+                             for other in self.tasks.values()):
+                return False
+            t.status, t.stage = "queued", "排队中"
+            t.error = t.error_code = t.failure_stage = ""
+            t.percent = t.speed = t.size = 0
+            self.workers.add(t.id)
+            self._save_queue_locked()
         threading.Thread(target=self._run_wrapper, args=(t,), daemon=True).start()
         return True
 
     def clear_done(self):
         with self.lock:
-            for tid in [k for k, v in self.tasks.items() if v.status in ("done", "canceled")]:
+            for tid in [k for k, v in self.tasks.items() if v.status in ("done", "partial", "canceled")
+                        and k not in self.workers]:
                 del self.tasks[tid]
+            self._save_queue_locked()
 
 
 def _expand_music(url):
@@ -2063,18 +2210,14 @@ def add_blocks(manager, blocks):
         batch = manager.next_batch()
         n = 0
         for u, pname, mtitle, martist in usable:
-            t, msg = manager.add(u, batch)
+            if mtitle or martist or hint_title:
+                t, msg = manager.add(u, batch, title=mtitle or hint_title,
+                                     title_hint="" if mtitle else hint_title, author=martist)
+            else:
+                t, msg = manager.add(u, batch)
             if not t:
                 skipped.append({"url": u, "platform": pname, "reason": msg})
                 continue
-            # 歌单里已经知道歌名和歌手，先写上，列表里立刻能看懂
-            if mtitle:
-                t.title = mtitle
-            elif hint_title:
-                t.title = hint_title
-                t.title_hint = hint_title
-            if martist:
-                t.author = martist
             added.append(t.to_dict())
             n += 1
         batches.append({"no": batch, "count": n, "found": len(urls)})

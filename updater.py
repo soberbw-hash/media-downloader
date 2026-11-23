@@ -408,7 +408,7 @@ def is_code_entry(rel):
     low = rel.lower()
     if not rel or rel.endswith("/"):
         return False
-    if low in ("config.json", "history.json") or ".part" in low:
+    if low in ("config.json", "history.json", "queue.json", "queue.json.tmp") or ".part" in low:
         return False
     if low.startswith(PROTECTED):
         return False

@@ -295,6 +295,8 @@ body.tab-music .tasks-block {
 
 .list-head {
   display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
   align-items: center;
   justify-content: space-between;
   margin: 0 2px 12px;
@@ -482,7 +484,7 @@ body.tab-music .tasks-block {
 }
 
 .task.done .status { color: var(--ok); }
-.task.error .status { color: var(--err); }
+.task.error .status, .task.partial .status { color: var(--err); }
 .task.canceled .status { color: var(--hint); }
 
 .status .err-msg {
@@ -1121,8 +1123,10 @@ body.tab-music .tasks-block {
   opacity: 0;
   pointer-events: none;
   transition: all .22s ease;
-  z-index: 60;
+  /* 设置和账号面板也是提示的触发入口，提示不能被弹窗遮住。 */
+  z-index: 100;
   max-width: 70vw;
+  text-wrap: pretty;   /* 长提示也别把孤零零一个字甩到第二行 */
 }
 
 .toast.on { opacity: 1; transform: translate(-50%, 0); }
@@ -1226,7 +1230,7 @@ body.playing .toast { bottom: 84px; }
 }
 
 /* ---------- 任务筛选 ---------- */
-.filters { display: flex; align-items: center; gap: 1px; }
+.filters { display: flex; flex-wrap: wrap; align-items: center; gap: 1px; }
 
 .filters .flt {
   border: 0;
@@ -1410,7 +1414,7 @@ body.playing .toast { bottom: 84px; }
 .ext-card .qbox-body ol li { margin-bottom: 4px; }
 .ext-card .qbox-body b { color: var(--text); font-weight: 600; }
 
-.lg-grp + .lg-grp { margin-top: 20px; }
+.lg-grp + .lg-grp { margin-top: 16px; }
 
 /* 分组标题：一行小字 + 数量 + 一条到边的细线，比纯灰小字有形 */
 .lg-t {
@@ -1435,35 +1439,39 @@ body.playing .toast { bottom: 84px; }
   background: var(--line-soft);
 }
 
-/* 整段一张卡，行与行之间只用细线切 —— 每行都套边框会像张表单 */
+/* 两列网格：一张整卡，1px 缝隙当分隔线，比一条条横线省一半高度 */
 .lg-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
   border: 1px solid var(--line);
   border-radius: 12px;
-  background: #fff;
+  background: var(--line-soft);
   overflow: hidden;
 }
 
 .login-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 9px 12px 9px 11px;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 10px;
+  background: #fff;
   transition: background .14s ease;
 }
 
-.login-row + .login-row { border-top: 1px solid var(--line-soft); }
 .login-row:hover { background: #fbfaf9; }
 
 .login-row .fav {
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
 }
 
-.login-row .fav svg { width: 17px; height: 17px; }
+.login-row .fav svg { width: 16px; height: 16px; }
 
 .login-row .nm {
   flex: 1;
@@ -1477,6 +1485,9 @@ body.playing .toast { bottom: 84px; }
   white-space: nowrap;
   overflow: hidden;
 }
+
+/* 平台名优先完整显示（已缩成短名），空间不够先压缩后面的账号名 */
+.login-row .nm-p { flex-shrink: 0; }
 
 .login-row .nm .acc {
   font-style: normal;
@@ -1541,7 +1552,7 @@ body.playing .toast { bottom: 84px; }
   font-family: inherit;
   font-size: 11px;
   height: 24px;
-  padding: 0 9px;
+  padding: 0 8px;
   border-radius: 6px;
   cursor: pointer;
   flex-shrink: 0;
@@ -1550,19 +1561,6 @@ body.playing .toast { bottom: 84px; }
 
 .login-row button:hover { border-color: #d6d3d1; color: var(--text); }
 .login-row button:disabled { opacity: .45; cursor: default; }
-
-/* 「退出」是低频动作，做成纯文字，别跟「打开」抢注意力 */
-.login-row button.ghost {
-  border-color: transparent;
-  background: none;
-  color: #a8a29e;
-  padding: 0 6px;
-}
-.login-row button.ghost:hover {
-  border-color: transparent;
-  background: none;
-  color: var(--err);
-}
 
 .login-bar {
   margin-top: 14px;
@@ -1588,6 +1586,8 @@ body.playing .toast { bottom: 84px; }
 .login-bar button.go:hover { color: var(--text); }
 
 @media (max-width: 620px) {
+  /* 窄窗账号面板两列会把名字/状态/按钮挤断，退回一列 */
+  .lg-list { grid-template-columns: 1fr; }
   .wrap { padding: 22px 16px 16px; }
   .thumb { width: 44px; height: 44px; }
   .composer-foot { flex-wrap: wrap; }
@@ -1904,8 +1904,8 @@ body.playing .toast { bottom: 84px; }
 }
 
 /* 标题在已完成时可以点开文件夹 */
-.task.done .title { cursor: pointer; }
-.task.done .title:hover { text-decoration: underline; text-underline-offset: 2px; }
+.task.done .title, .task.partial .title { cursor: pointer; }
+.task.done .title:hover, .task.partial .title:hover { text-decoration: underline; text-underline-offset: 2px; }
 
 .toast {
   box-shadow: 0 6px 24px -8px rgba(28, 25, 23, .45);
@@ -2752,9 +2752,17 @@ body.playing .wrap { padding-bottom: 78px; }
   gap: 10px;
   padding: 8px 6px;
   border-radius: 8px;
+}
+.hlocate {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
   cursor: pointer;
 }
-.hitem:hover { background: var(--line-soft); }
+.hlocate:hover, .hlocate:focus-visible { background: var(--line-soft); }
+.hlocate-label { color: var(--text-2); font-size: 12px; flex: 0 0 auto; }
 .hitem .cov {
   position: relative;
   width: 32px;
@@ -2773,6 +2781,9 @@ body.playing .wrap { padding-bottom: 78px; }
 .hitem .hmeta { flex: 1; min-width: 0; }
 .hitem .ht,
 .hitem .hs {
+  /* 必须是块级：inline span 上 overflow/text-overflow 不生效，
+     长标题会溢出盖住「定位」，副标题还会换行把整行撑高。 */
+  display: block;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

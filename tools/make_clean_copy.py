@@ -28,6 +28,7 @@ import time
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 COPY_SKIP = {"cookies", "下载的文件", "__pycache__", "logs"}
+PRIVATE_QUEUE = {"queue.json", "queue.json.tmp", "history.json.tmp"}
 
 
 def default_desktop():
@@ -55,7 +56,7 @@ def copy_base(src, dst):
         target = os.path.join(dst, rel) if rel != "." else dst
         os.makedirs(target, exist_ok=True)
         for f in files:
-            if f.endswith(".pyc"):
+            if f.endswith(".pyc") or f.lower() in PRIVATE_QUEUE:
                 continue
             shutil.copy2(os.path.join(root, f), os.path.join(target, f))
     os.makedirs(os.path.join(dst, "下载的文件"), exist_ok=True)
@@ -166,6 +167,8 @@ def make_zip(dst, zip_path, arc_root="音视频下载器"):
             dirnames.sort()
             filenames.sort()
             for fn in filenames:
+                if fn.lower() in PRIVATE_QUEUE:
+                    continue
                 full = os.path.join(dirpath, fn)
                 rel = os.path.relpath(full, base).replace(os.sep, "/")
                 arcname = arc_root + "/" + rel

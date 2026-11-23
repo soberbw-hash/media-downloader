@@ -4,7 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>音视频下载器</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231c1917'/%3E%3Cpath d='M16 8v10' stroke='%23fff' stroke-width='2.2' stroke-linecap='round'/%3E%3Cpath d='M11.5 14.5L16 19l4.5-4.5' stroke='%23fff' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3Cpath d='M10 23.5h12' stroke='%23fff' stroke-width='2.2' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="icon" type="image/png" sizes="16x16" href="/img/favicon-16.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/img/favicon-32.png">
+<link rel="icon" type="image/png" sizes="48x48" href="/img/favicon-48.png">
+<link rel="icon" type="image/png" sizes="64x64" href="/img/favicon-64.png">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -121,12 +124,13 @@
           <button class="flt" data-f="live">进行中</button>
           <button class="flt" data-f="error">失败</button>
           <button class="flt" data-f="done">已完成</button>
+          <button class="flt" data-f="partial" hidden>部分完成</button>
         </div>
       </div>
       <div class="lh-right">
         <button id="retryFailed" hidden>重试失败</button>
-        <button id="cancelAll">全部取消</button>
-        <button id="clearBtn">清空已完成</button>
+        <button id="cancelAll" title="取消排队中和可取消的下载">取消进行中</button>
+        <button id="clearBtn" title="从任务列表移除已完成、部分完成和已取消的任务；保留文件和下载历史">移除已结束任务</button>
       </div>
     </div>
 
@@ -174,7 +178,7 @@
 <div class="mask" id="mask"></div>
 
 <!-- ---------- 设置：一屏看全，不折叠不展开；真少用的东西换一页，卡片高度始终不变 ---------- -->
-<div class="modal" id="drawer" role="dialog" aria-modal="true" aria-label="设置">
+<div class="modal" id="drawer" role="dialog" aria-modal="true" inert aria-label="设置">
  <div class="mcard set-card">
   <div class="drawer-head set-head">
     <button class="back-btn" id="setBack" hidden title="返回" aria-label="返回">
@@ -347,7 +351,7 @@
 </div>
 
 <!-- ---------- 账号登录 ---------- -->
-<div class="modal" id="acctDrawer" role="dialog" aria-modal="true" aria-label="账号登录">
+<div class="modal" id="acctDrawer" role="dialog" aria-modal="true" inert aria-label="账号登录">
  <div class="mcard acct-card">
   <div class="drawer-head">
     <h3>账号登录</h3>
@@ -409,7 +413,7 @@
 </div>
 
 <!-- ---------- 下载历史 ---------- -->
-<div class="modal" id="histDrawer" role="dialog" aria-modal="true" aria-label="下载历史">
+<div class="modal" id="histDrawer" role="dialog" aria-modal="true" inert aria-label="下载历史">
  <div class="mcard hist-card">
   <div class="drawer-head">
     <h3>下载历史</h3>
@@ -421,7 +425,7 @@
     </button>
   </div>
   <div class="drawer-body">
-    <input id="histQ" placeholder="搜标题、作者、平台" autocomplete="off">
+    <input id="histQ" placeholder="搜标题、文件名、作者、平台" aria-label="搜索下载历史" autocomplete="off">
     <div class="hlist" id="histList"></div>
   </div>
   <div class="drawer-foot hfoot">

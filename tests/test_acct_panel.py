@@ -158,16 +158,15 @@ def main():
             assert num.startswith("6") and "9" in num, "顶部数字不对：%s" % num
             log("  OK 顶部 6/9 与进度条一致（%.0f%%）" % (prog * 100))
 
-            # 退出做成纯文字（浅灰、无边框），别跟「打开」抢
-            out = rows.filter(has_text="微博").first.locator('button[data-act="out"]')
-            ob = out.evaluate(
-                "e => {const s=getComputedStyle(e);"
-                "return {bc:s.borderTopColor, bg:s.backgroundColor, c:s.color};}")
-            assert ob["bc"] in ("rgba(0, 0, 0, 0)", "transparent"), \
-                "「退出」还看得见边框: %s" % ob["bc"]
-            assert ob["bg"] in ("rgba(0, 0, 0, 0)",), "「退出」还有底色"
-            assert ob["c"] == "rgb(168, 162, 158)", "「退出」颜色不对: %s" % ob["c"]
-            log("  OK 「退出」是纯文字按钮，不抢「打开」")
+            # 每行只有一个「登录」按钮，退出按钮已去掉，不再占位置
+            assert pg.locator('#logins button[data-act="out"]').count() == 0, \
+                "还有「退出」按钮没去掉"
+            weibo = rows.filter(has_text="微博").first
+            acts = weibo.locator(".acts button")
+            assert acts.count() == 1, "每行按钮不止一个: %d" % acts.count()
+            assert acts.first.inner_text().strip() == "登录", \
+                "按钮文案不是「登录」: %s" % acts.first.inner_text()
+            log("  OK 每行只剩一个「登录」按钮，没有「退出」")
 
             # 装好扩展以后，教程自动收起，9 个平台回到一屏
             assert not pg.locator("#extHow").is_visible(), \
@@ -219,6 +218,37 @@ def main():
             assert "点上面的「一键装小助手」" not in pg2.inner_text("#extHow"), \
                 "还在让用户点一次已经点过的按钮"
             log("  OK 没装时怎么装默认收起，点开后三步齐全")
+
+            disks = [("baidu", "百度网盘"), ("quark", "夸克网盘"), ("uc", "UC网盘"),
+                     ("xunlei", "迅雷网盘"), ("123pan", "123云盘"), ("pan115", "115网盘"),
+                     ("c139", "139云盘"), ("guangya", "光鸭云盘")]
+            pg2.unroute("**/api/login/state")
+            disk_payload = payload(port)
+            disk_payload["sites"].extend(site(pid, name, False, False) for pid, name in disks)
+            pg2.route("**/api/login/state", lambda r: r.fulfill(json=disk_payload))
+            pg2.reload(wait_until="domcontentloaded")
+            pg2.locator('#openSet').click()
+            assert pg2.locator('#closeSet').evaluate('e => e === document.activeElement')
+            pg2.locator('#openAcct').click()
+            assert pg2.locator('#closeAcct').evaluate('e => e === document.activeElement')
+            assert pg2.locator('.wrap').evaluate('e => e.inert')
+            marks = set()
+            for pid, name in disks:
+                svg = pg2.locator("#logins .login-row").filter(has_text=name).locator(".fav svg")
+                svg.wait_for(state="attached")
+                shape = svg.inner_html()
+                expected = pg2.evaluate("pid => { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.innerHTML = ICONS[pid].svg; return s.innerHTML; }", pid)
+                assert shape == expected, name
+                assert shape not in marks, name
+                marks.add(shape)
+            assert pg2.evaluate("ids => ids.every(id => iconHTML(id) === iconHTML('netdisk:' + id))",
+                                [pid for pid, _ in disks] + ["lanzou"])
+            assert pg2.evaluate("() => iconHTML('netdisk:unlisted') === iconHTML('netdisk')")
+            log("  OK 8 个网盘账号独立图标，任务卡片复用图标，未知网盘用云盘图标")
+            pg2.keyboard.press('Escape')
+            assert not pg2.locator('.modal.on').count()
+            assert pg2.locator('#openSet').evaluate('e => e === document.activeElement')
+            log("  OK 设置切到账号面板，Esc 关闭后焦点回到设置入口")
             b.close()
     finally:
         srv.terminate()

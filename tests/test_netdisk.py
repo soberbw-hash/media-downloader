@@ -322,6 +322,65 @@ def test_quark():
        "夸克未登录错误给登录提示")
 
 
+def test_baidu_errno2_page_fallback():
+    """/share/list 被风控挡回 errno=2 时，退回页面内嵌 file_list。
+    这是用户实际遇到的「百度说参数不对」，链接其实没截断。全打桩不联网。"""
+    print("=== 百度 errno=2 页面兜底 ===")
+    import json as _json
+    page = ('<title>某个分享_免费高速下载</title>'
+            '<script>locals.mset({"shareid":"12345","share_uk":"6789",'
+            '"bdstoken":"",'
+            '"file_list":[{"fs_id":991,"server_filename":"测试.mp4",'
+            '"size":1234,"isdir":0,"sign":"abcdefghij0123456789"}]});</script>')
+
+    saved = {
+        "cookie": netdisk.load_cookie_header,
+        "opener": netdisk._new_opener,
+        "get": netdisk._get,
+        "walk": netdisk._baidu_walk,
+        "state": netdisk._baidu_state,
+    }
+
+    class FakeResp:
+        def read(self):
+            return _json.dumps({"errno": 2, "errmsg": "参数错误"}).encode()
+
+    class FakeOp:
+        def open(self, req, timeout=0):
+            return FakeResp()
+
+    try:
+        netdisk.load_cookie_header = lambda pid: "BDUSS=fake"
+        netdisk._new_opener = lambda cookie, host: (FakeOp(), object())
+        netdisk._get = lambda op, url, referer=None: (None, page.encode("utf-8"))
+
+        def raise_err2(*a, **kw):
+            raise netdisk._BaiduErr(2, "参数错误")
+
+        netdisk._baidu_walk = raise_err2
+        r = netdisk.baidu_resolve("https://pan.baidu.com/s/1abcDEF")
+        fs = r.get("files") or []
+        ok(len(fs) == 1 and fs[0]["fid"] == "991" and fs[0]["size"] == 1234,
+           "errno=2 时从页面 file_list 兜底拿到文件")
+
+        # 页面里也没文件：报错文案要准确，不再说「链接被截断」
+        empty = "<title>x</title><script>locals.mset({});</script>"
+        netdisk._get = lambda op, url, referer=None: (None, empty.encode("utf-8"))
+        netdisk._baidu_state = lambda html: {"shareid": "1", "share_uk": "2"}
+        try:
+            netdisk.baidu_resolve("https://pan.baidu.com/s/1abcDEF")
+            ok(False, "页面也没文件时应抛错")
+        except RuntimeError as e:
+            ok("截断" not in str(e) and "登录态过期" in str(e),
+               "兜底失败给出准确提示而非「链接被截断」: " + str(e))
+    finally:
+        netdisk.load_cookie_header = saved["cookie"]
+        netdisk._new_opener = saved["opener"]
+        netdisk._get = saved["get"]
+        netdisk._baidu_walk = saved["walk"]
+        netdisk._baidu_state = saved["state"]
+
+
 if __name__ == "__main__":
     test_parse()
     test_acw()
@@ -329,6 +388,7 @@ if __name__ == "__main__":
     test_unsupported()
     test_baidu_cookie()
     test_baidu_real_page_fix()
+    test_baidu_errno2_page_fallback()
     test_quark()
     test_detect_integration()
     if os.environ.get("LIVE") == "1":

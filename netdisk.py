@@ -475,7 +475,7 @@ _BAIDU_NO_LOGIN = ("百度网盘要先登录：设置 → 账号 → 百度网�
 
 _BAIDU_ERR = {
     -9: "这个分享要提取码，把提取码一起贴进来（或写成 链接?pwd=xxxx）",
-    2: "百度说参数不对，链接可能被截断了",
+    2: "百度接口说参数不对（多半是登录态过期或这条分享限制了下载），先在浏览器里打开确认能看到文件，再回来重试",
     112: "百度说页面过期了，重新贴一次链接再试",
     118: "百度要求人工验证，先在浏览器里打开这个分享过一次再来",
     31066: "文件不存在或已经被删了",
@@ -765,31 +765,41 @@ def baidu_resolve(url, pwd="", progress=None):
     def _list_root():
         return _baidu_walk(op, uk, shareid, bdstoken, "/")
 
+    def _page_files():
+        """列目录接口被挡时，退回页面内嵌的 file_list（含 fs_id / sign）。"""
+        return _baidu_files_from_page(html)
+
     try:
         files = _list_root()
     except _BaiduErr as e:
+        # /share/list 现在经常被风控挡回 errno=2/9019，页面里其实有文件。
+        # 先试页面兜底，能读就直接往下走，别一上来就报「参数不对」。
         if e.errno != -9:
-            raise RuntimeError(_BAIDU_ERR.get(e.errno) or
-                               "百度列不出文件（%s），可能这条分享限制了下到本地" % e.errno)
-        # 要提取码：有就验一次，没有就让用户补
-        if not pwd:
-            raise RuntimeError(_BAIDU_ERR[-9])
-        vj = _baidu_verify(op, surl, pwd)
-        randsk = vj.get("randsk") or ""
-        # 过了码以后分享页会内嵌 file_list（含 fs_id / sign），
-        # 比再打 /share/list 稳——后者现在经常回 errno=2/9019
-        _, raw2 = _get(op, url, _BAIDU_PAN + "/")
-        html = raw2.decode("utf-8", "ignore")
-        st = _baidu_state(html)
-        try:
-            files = _list_root()
-        except _BaiduErr as e2:
-            if e2.errno == -9:
-                # 列目录接口还是过不去，直接用页面内嵌的文件列表
-                files = _baidu_files_from_page(html)
+            files = _page_files()
+            if files:
+                st = _baidu_state(html) or st
             else:
-                raise RuntimeError(_BAIDU_ERR.get(e2.errno) or
-                                   "百度列不出文件（%s）" % e2.errno)
+                raise RuntimeError(_BAIDU_ERR.get(e.errno) or
+                                   "百度列不出文件（%s），可能这条分享限制了下到本地" % e.errno)
+        else:
+            # 要提取码：有就验一次，没有就让用户补
+            if not pwd:
+                raise RuntimeError(_BAIDU_ERR[-9])
+            vj = _baidu_verify(op, surl, pwd)
+            randsk = vj.get("randsk") or ""
+            # 过了码以后分享页会内嵌 file_list（含 fs_id / sign），
+            # 比再打 /share/list 稳——后者现在经常回 errno=2/9019
+            _, raw2 = _get(op, url, _BAIDU_PAN + "/")
+            html = raw2.decode("utf-8", "ignore")
+            st = _baidu_state(html)
+            try:
+                files = _list_root()
+            except _BaiduErr as e2:
+                # 列目录接口还是过不去，一律用页面内嵌的文件列表兜底
+                files = _page_files()
+                if not files:
+                    raise RuntimeError(_BAIDU_ERR.get(e2.errno) or
+                                       "百度列不出文件（%s）" % e2.errno)
 
     if not files:
         raise RuntimeError("这个百度分享里没看到文件（空文件夹，或者要提取码）")

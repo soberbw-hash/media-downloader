@@ -266,7 +266,7 @@ function makeCard(t) {
 const FIX_LABELS = { login: "去登录", bad_link: "换链接", directory: "换目录" };
 
 function focusLinkBox() {
-  applyTab("video");
+  applyTab("video", true);
   input.scrollIntoView({ block: "nearest" });
   input.focus();
 }
@@ -1006,7 +1006,7 @@ if (mQuery) {
     const urls = urlsIn(text);
     if (!urls.length) return;
     e.preventDefault();
-    applyTab("video");
+    applyTab("video", true);
     if (autoPaste) {
       flashComposer();
       submitBlocks([{ text }], urls);
@@ -1765,8 +1765,40 @@ setInterval(() => {
 
 /* ================= 链接下载 / 搜歌 切换 ================= */
 let tabMode = localStorage.getItem("tabMode") === "music" ? "music" : "video";
+let tabTimers = [];
+let tabSeq = 0;
+const reduceMotion = () =>
+  window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-function applyTab(m) {
+function clearTabAnim() {
+  tabSeq++;
+  tabTimers.forEach(clearTimeout);
+  tabTimers = [];
+  ["#composer", "#platLine", "#musicPanel"].forEach((s) => {
+    const el = $(s);
+    if (el) el.classList.remove("tab-enter", "tab-leave");
+  });
+}
+function later(fn, ms) {
+  const seq = tabSeq;
+  tabTimers.push(setTimeout(() => { if (seq === tabSeq) fn(); }, ms));
+}
+function syncTabIndicator(m) {
+  const tabs = $("#tabs");
+  const active = tabs && tabs.querySelector('.tab[data-tab="' + m + '"]');
+  if (!tabs || !active) return;
+  const tr = tabs.getBoundingClientRect();
+  const ar = active.getBoundingClientRect();
+  tabs.style.setProperty("--tab-x", Math.round(ar.left - tr.left) + "px");
+  tabs.style.setProperty("--tab-w", Math.round(ar.width) + "px");
+}
+
+function applyTab(m, instant) {
+  const box = $("#composer");
+  const plat = $("#platLine");
+  const mus = $("#musicPanel");
+
+  // 按钮和下滑线先动，视觉上先给反馈；面板内容随后再换
   tabMode = m;
   localStorage.setItem("tabMode", m);
   document.querySelectorAll("#tabs .tab").forEach((b) => {
@@ -1774,22 +1806,64 @@ function applyTab(m) {
     b.classList.toggle("on", on);
     b.setAttribute("aria-selected", on ? "true" : "false");
   });
-  // 搜索页的任务区要贴底显示（不能被搜索结果挤没），用 body 上的类来区分
-  document.body.classList.toggle("tab-music", m === "music");
-  const box = $("#composer");
-  const mus = $("#musicPanel");
-  if (box) box.hidden = m !== "video";
-  if (mus) mus.hidden = m !== "music";
-  if (m === "music") {
-    setTimeout(() => { const q = $("#mQuery"); if (q) q.focus(); }, 60);
-  } else if (!touchOnly) {
-    input.focus();
+  syncTabIndicator(m);
+  clearTabAnim();
+
+  const visibleVideo = !!(box && !box.hidden);
+  const visibleMusic = !!(mus && !mus.hidden);
+  const animate = !instant && !reduceMotion() &&
+    ((m === "music" && visibleVideo) || (m === "video" && visibleMusic));
+
+  const finish = () => {
+    document.body.classList.toggle("tab-music", m === "music");
+    if (box) box.hidden = m !== "video";
+    if (mus) mus.hidden = m !== "music";
+    // 退场动画结束后把类摘掉，否则下次切回来会带着上次的透明状态
+    [box, plat, mus].forEach((el) => el && el.classList.remove("tab-leave"));
+    // platLine 的显隐归 body.tab-music 管，这里不动它的 hidden
+  };
+  const focusIn = () => {
+    if (m === "music") {
+      const q = $("#mQuery");
+      if (q) q.focus();
+    } else if (!touchOnly && input) {
+      input.focus();
+    }
+  };
+
+  if (!animate) {
+    finish();
+    if (m === "music") later(focusIn, 60);
+    else focusIn();
+    return;
   }
+
+  // 退场短、入场长：先淡出旧面板，再淡入新面板，中间不留下空白闪烁
+  const outEls = m === "music" ? [box, plat] : [mus];
+  const inEls = m === "music" ? [mus] : [box, plat];
+  outEls.forEach((el) => {
+    if (el && !el.hidden) {
+      el.classList.remove("tab-enter");
+      el.classList.add("tab-leave");
+    }
+  });
+  later(() => {
+    finish();
+    inEls.forEach((el) => {
+      if (!el) return;
+      el.classList.remove("tab-leave", "tab-enter");
+      void el.offsetWidth;
+      el.classList.add("tab-enter");
+    });
+    later(() => inEls.forEach((el) => el && el.classList.remove("tab-enter")), 420);
+    later(focusIn, m === "music" ? 80 : 30);
+  }, 165);
 }
 
 document.querySelectorAll("#tabs .tab").forEach((b) => {
   b.addEventListener("click", () => applyTab(b.dataset.tab));
 });
+window.addEventListener("resize", () => syncTabIndicator(tabMode));
 
 /* ================= 搜歌：一次问三个平台 ================= */
 let mPlat = localStorage.getItem("mPlat") || "all";
@@ -3332,7 +3406,7 @@ document.addEventListener("keydown", (e) => {
   closeAllDrawers();
 });
 
-applyTab(tabMode);
+applyTab(tabMode, true);
 initPreview();
 initRecognize();
 // 先把「境外站通不通」探好（结果在后端缓存 60 秒），贴链接时就能立刻提醒。

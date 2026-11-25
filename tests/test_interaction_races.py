@@ -119,6 +119,7 @@ def layout(page):
         for selector in ('#input', '#submit', '.list-head', '#filters', '.lh-right', '.task.partial .open'):
             fits(selector)
         page.locator('[data-tab="music"]').click()
+        page.locator('#musicPanel').wait_for(state='visible')  # 切换有入场动画
         for selector in ('#mSrc', '#mQuery', '#mGo'):
             fits(selector)
         page.locator('#openSet').click()
@@ -127,8 +128,13 @@ def layout(page):
         page.locator('#openAcct').click()
         page.locator('#closeAcct:focus').wait_for()
         fits('#acctDrawer .mcard')
-        page.evaluate('''() => { extInfo = {stale: true, synced: true, exists: true}; renderExt(); }''')
-        page.get_by_role('button', name='更新扩展', exact=True).click()
+        # 按钮文案随扩展状态变（选中扩展文件夹 / 更新扩展 / 重新检查），
+        # 这里只认 id，并在同一帧里置成「需要更新」再点，避开异步状态回写。
+        page.evaluate('''() => {
+          extInfo = {stale: true, synced: true, exists: true};
+          renderExt();
+          document.querySelector('#btnExtSetup').click();
+        }''')
         page.wait_for_function('''() => {
           const tip = $('#toast.on');
           if (!tip || !tip.textContent.includes('扩展页') || +getComputedStyle(tip).opacity < .95) return false;
@@ -141,6 +147,7 @@ def layout(page):
         page.locator('#closeAcct').click()
         page.locator('#openSet:focus').wait_for()
         page.locator('[data-tab="video"]').click()
+        page.locator('#composer').wait_for(state='visible')  # 切回也有入场动画
 
 
 def account_grid(page):

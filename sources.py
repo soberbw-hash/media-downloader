@@ -41,6 +41,8 @@ BUILTIN = [
      "group": "海外视频", "note": "需要网络能到 Google"},
     {"id": "freesound", "name": "Freesound", "kind": "audio", "priority": 6, "timeout": 25,
      "group": "音效", "note": "几十万条环境声，能下预览 mp3（商用要署名）", "slow": True},
+    {"id": "openlibrary", "name": "电子书", "kind": "video", "priority": 7, "timeout": 18,
+     "group": "电子书", "note": "按书名/作者找书，给封面和公共领域版本入口"},
 ]
 
 
@@ -233,6 +235,17 @@ SITE_LINKS = [
      "tip": "站内搜索"},
     {"id": "youtube_site", "name": "YouTube", "url": "https://www.youtube.com/results?search_query={q}",
      "tip": "站内搜索"},
+    # —— 电子书找书：点开带关键词去搜，都是公开检索页，不用登录 ——
+    {"id": "douban_book", "name": "豆瓣读书", "url": "https://search.douban.com/book/subject_search?search_text={q}",
+     "tip": "查书名 / 作者 / 版本信息", "kind": "book"},
+    {"id": "openlibrary", "name": "Open Library", "url": "https://openlibrary.org/search?q={q}",
+     "tip": "公开书目，含封面和历史版本", "kind": "book"},
+    {"id": "archive_book", "name": "Internet Archive", "url": "https://archive.org/search?query={q}+AND+mediatype%3Atexts",
+     "tip": "公共领域电子书，部分可直下", "kind": "book"},
+    {"id": "gutenberg", "name": "古登堡计划", "url": "https://www.gutenberg.org/ebooks/search/?query={q}",
+     "tip": "公共领域，EPUB 直链", "kind": "book"},
+    {"id": "github_book", "name": "GitHub", "url": "https://github.com/search?q={q}+extension%3Aepub&type=code",
+     "tip": "公开仓库里的 EPUB 文件", "kind": "book"},
     {"id": "bing_site", "name": "必应", "url": "https://cn.bing.com/search?q={q}",
      "tip": "全网找"},
     # —— 音效站直搜：这些站要么要登录才给下载、要么上了反爬，抓不了内容；
@@ -590,9 +603,66 @@ def _custom_json(src, kw, limit, cfg, proxy):
     return out
 
 
+def _fetch_json(url, proxy=None, timeout=14):
+    """给电子书源用：_fetch 只返回文本，这个直接解 JSON。
+    proxy 传进来时临时装一层， urllib 默认读环境代理。"""
+    req = urllib.request.Request(url, headers={
+        "User-Agent": UA, "Accept": "application/json",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8"})
+    if proxy:
+        try:
+            handler = urllib.request.ProxyHandler({
+                "http": proxy, "https": proxy})
+            opener = urllib.request.build_opener(handler)
+            with opener.open(req, timeout=timeout) as r:
+                return json.loads(r.read().decode("utf-8", "replace"))
+        except Exception:
+            pass
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.loads(r.read().decode("utf-8", "replace"))
+
+
+def _openlibrary(kw, limit, cfg, proxy):
+    """Open Library 公共书目：给书名/作者找版本信息，封面和详情页直给。
+    它本身基本不提供 epub 直链，所以卡片给详情页 url，下载按钮引导用户
+    去 Internet Archive / 古登堡拿公共领域版本——搜索这一步先把书找到。"""
+    term = (kw or "").strip()
+    # Open Library 拒绝少于 3 个字符的查询（中文两字词也会中招），
+    # 补个尾空格就能过校验且结果不变。
+    if len(term) < 3:
+        term += " "
+    q = urllib.parse.quote(term)
+    u = ("https://openlibrary.org/search.json?q=" + q +
+         "&limit=%d&fields=key,title,author_name,first_publish_year,cover_i,ia,isbn" % min(limit, 24))
+    d = _fetch_json(u, proxy)
+    out = []
+    for x in (d.get("docs") or [])[:limit]:
+        title = str(x.get("title") or "").strip()
+        if not title:
+            continue
+        key = str(x.get("key") or "")
+        page = "https://openlibrary.org" + key if key else ""
+        author = (x.get("author_name") or [""])[0]
+        cover = ("https://covers.openlibrary.org/b/id/%s-M.jpg" % x["cover_i"]
+                 if x.get("cover_i") else "")
+        year = x.get("first_publish_year") or ""
+        ia = (x.get("ia") or [None])[0]
+        # 有 Internet Archive 编号就有可读的公共领域版本入口
+        dl = ("https://archive.org/details/" + ia) if ia else page
+        out.append(_card(
+            platform="openlibrary", id="ol" + (key or title)[:32], kind="video",
+            title=title, author=author, cover=cover,
+            desc=("电子书 · " + (str(year) if year else "年份未知")),
+            url=dl, page=page, download=dl,
+            source="openlibrary", source_name="Open Library 图书"))
+    if not out:
+        raise SkipSource("Open Library 没找到《%s》，换个书名或作者试试" % kw)
+    return out
+
+
 _ADAPTERS = {"bili": _bili, "youtube": _youtube,
              "mixkit": _mixkit, "mixkit_sfx": _mixkit_sfx,
-             "freesound": _freesound}
+             "freesound": _freesound, "openlibrary": _openlibrary}
 
 
 def run_source(src, kw, limit, cfg=None, proxy=None):

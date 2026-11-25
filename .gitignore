@@ -53,3 +53,10 @@ _accept_shots/
 
 # 扩展上次上报的版本/站点清单（本机状态，不进仓库）
 ext_state.json
+
+# 本地测试残留 / 旧截图，不入库
+tests/hlsstest/
+扩展_只选文件夹.png
+识曲_来源可选.png
+账号面板_教程三步.png
+账号面板_新版.png

@@ -33,6 +33,10 @@ MEDIA_EXT = {
     "mp4", "m4v", "mov", "mkv", "webm", "flv", "ts", "m4s", "avi", "wmv",
     "mpg", "mpeg", "3gp", "m4a", "mp3", "aac", "flac", "wav", "ogg", "opus",
 }
+#: 电子书 / 文档直链：走和媒体一样的流式下载，只是不当音视频处理。
+# 搜书结果里拿到的是 epub/pdf 直链，不加进来的话会掉进 yt-dlp 通用模式下不了。
+DOC_EXT = {"epub", "pdf", "mobi", "azw3", "djvu", "txt", "zip"}
+
 #: 这些扩展名出来的是音频，界面上要标成音频
 AUDIO_EXT = {"m4a", "mp3", "aac", "flac", "wav", "ogg", "opus"}
 
@@ -60,7 +64,7 @@ def looks_like(url):
     if p.scheme not in ("http", "https"):
         return False
     ext = _ext_of(url)
-    if ext in PLAYLIST_EXT or ext in MEDIA_EXT:
+    if ext in PLAYLIST_EXT or ext in MEDIA_EXT or ext in DOC_EXT:
         return True
     # 不少站把播放列表藏在参数里：/play?format=m3u8&id=xxx
     q = (p.query or "").lower()

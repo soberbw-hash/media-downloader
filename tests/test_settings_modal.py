@@ -7,7 +7,7 @@
   ③ 点外面 / Esc 能关；Esc 在高级页先退回常用页
   ④ 改一下就存；重开不丢
   ⑤ 窄窗不溢出
-  ⑥ 支持平台挪到了首屏，没在设置里，也没把视频号算进去
+  ⑥ 支持网站挪到了设置页最下面（小字），主页面不再挂那一排，也没把视频号算进去
 
 跑法：python tests/test_settings_modal.py
 自己起隔离服务，用完自动关；VDL_NO_OPEN=1 不会真弹窗口。
@@ -80,21 +80,13 @@ def main():
             pg.goto("http://127.0.0.1:%d/" % port, wait_until="networkidle", timeout=30000)
             pg.wait_for_timeout(900)
 
-            # ① 首屏：支持平台在粘贴框下面，不在设置里
-            line = pg.evaluate("""() => {
-                const l = document.querySelector('#platLine');
-                if (!l) return null;
-                const r = l.getBoundingClientRect();
-                return {text: l.innerText.replace(/\\s+/g, ' ').trim(),
-                        y: Math.round(r.y), underBox: r.y > document.querySelector('#composer')
-                                                          .getBoundingClientRect().bottom - 2,
-                        inDrawer: !!l.closest('#drawer')};
-            }""")
-            assert line and line["text"], "首屏没有支持平台那一行"
-            assert "B站" in line["text"] and "抖音" in line["text"], "常用平台没列出来: %s" % line
-            assert "视频号" not in line["text"], "视频号还挂在支持列表里"
-            assert not line["inDrawer"] and line["underBox"], "平台行没挪到粘贴框下面"
-            log("  OK 支持平台在首屏粘贴框下面：%s" % line["text"][:70])
+            # ① 首屏：支持网站那一排已经收走，主页面只剩粘贴框和任务
+            gone = pg.evaluate("""() => ({
+                plat: !!document.querySelector('#platLine'),
+                tail: !!document.querySelector('.composer .support, .composer + .platline'),
+            })""")
+            assert not gone["plat"] and not gone["tail"], "主页面上还挂着「支持…」那排"
+            log("  OK 主页面不再挂「支持…」那排")
 
             pg.evaluate("() => document.querySelector('#openSet').click()")
             pg.wait_for_timeout(500)
@@ -117,6 +109,32 @@ def main():
             for bad in ("解析接口", "视频号", "自动更新", "高级设置", "支持平台"):
                 assert bad not in txt, "「%s」还占着设置的地方" % bad
             log("  OK 常用项全平铺（%.0fx%.0f），解析接口 / 视频号 / 自动更新开关都不在" % (c0["w"], c0["h"]))
+
+            # ①b 支持网站：收在这页最下面，小字一排，不用滚就看得见
+            sup = pg.evaluate("""() => {
+                const box = document.querySelector('#supBox');
+                if (!box) return null;
+                const r = box.getBoundingClientRect();
+                const body = document.querySelector('#drawer .drawer-body');
+                const br = body.getBoundingClientRect();
+                const kids = [...document.querySelectorAll('#setMain > *')];
+                return {n: box.querySelectorAll('.pl-item').length,
+                        text: box.innerText.replace(/\\s+/g, ' ').trim(),
+                        inDrawer: !!box.closest('#drawer'),
+                        last: kids[kids.length - 1] === box,
+                        visible: r.bottom <= br.bottom + 1,
+                        scroll: body.scrollHeight - body.clientHeight,
+                        font: parseFloat(getComputedStyle(box.querySelector('.pl-item')).fontSize)};
+            }""")
+            assert sup and sup["inDrawer"], "支持网站没进设置页"
+            assert sup["last"], "支持网站没排在设置最下面"
+            assert sup["n"] >= 15, "支持网站列少了: %s" % sup
+            for want in ("B站", "抖音", "网易云音乐"):
+                assert want in sup["text"], "支持列表里少了 %s" % want
+            assert "视频号" not in sup["text"], "视频号还挂在支持列表里"
+            assert sup["visible"] and sup["scroll"] <= 0, "支持网站要滚才看得见: %s" % sup
+            assert sup["font"] <= 12, "支持网站不是小字: %s" % sup["font"]
+            log("  OK 支持网站收在设置最下面（%d 个，%.1fpx，不用滚）" % (sup["n"], sup["font"]))
             pg.screenshot(path=SHOT)
 
             # ③ 换页：卡片一点不动，只有内容换

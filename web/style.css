@@ -259,29 +259,27 @@ header {
 #submit:active { transform: scale(.985); }
 #submit:disabled { opacity: .35; cursor: default; }
 
-/* ---------- 支持平台：贴在粘贴框下面一行小字 ---------- */
-.platline {
-  display: flex;
-  gap: 7px;
-  align-items: baseline;
-  margin: 9px 2px 0;
-  font-size: 11.5px;
-  color: var(--hint);
+/* ---------- 支持的网站：收在设置最下面，和上面几行共用左边线，小字排开 ---------- */
+.row.sup-row {
+  align-items: flex-start;
+  margin-top: 6px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-soft);
 }
 
-.platline[hidden] { display: none; }
-.platline .pl-l { flex-shrink: 0; }
+.sup-row[hidden] { display: none; }
 
-/* 搜索页有自己的一排来源按钮，再说「支持哪些站」是串味 */
-body.tab-music .platline { display: none; }
+.sup-row .row-l { padding-top: 1px; }
 
-.support { display: inline; line-height: 1.85; }
+.sup-list {
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--text-2);
+}
 
-.pl-item { color: var(--text-2); cursor: help; }
-
-.pl-sep { color: #ddd9d4; margin: 0 5px; }
-
-.pl-more { color: #b3ada7; margin-left: 6px; cursor: help; }
+.pl-item {
+  cursor: help;
+}
 
 .tag {
   font-size: 10.5px;
@@ -642,7 +640,7 @@ body.tab-music .tasks-block {
 .link-btn[hidden] { display: none; }
 
 /* 高度写死：换页、切控件都只在这张卡片里面动，外面不会跟着跳 */
-.set-card  { max-width: 620px; height: min(546px, calc(100vh - 40px)); }
+.set-card  { max-width: 620px; height: min(620px, calc(100vh - 40px)); }
 .acct-card { max-width: 620px; position: relative; }
 .hist-card { max-width: 640px; }
 
@@ -687,7 +685,7 @@ body.tab-music .tasks-block {
 .back-btn[hidden] { display: none; }
 
 /* ---------- 设置里的每一行：左边名字，右边控件 ---------- */
-.mcard .set-body { padding: 12px 26px 16px; }
+.mcard .set-body { padding: 12px 26px 10px; }
 
 .rows { margin-top: 2px; }
 
@@ -695,7 +693,7 @@ body.tab-music .tasks-block {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 9px 0;
+  padding: 8px 0;
 }
 
 .row-top { align-items: flex-start; }
@@ -1987,7 +1985,6 @@ button:focus-visible,
 @media (max-height: 760px) {
   .wrap { padding-top: 16px; padding-bottom: 14px; }
   #input { min-height: 62px; }
-  .support { margin-top: 10px; }
   .tasks-block { margin-top: 18px; }
 }
 

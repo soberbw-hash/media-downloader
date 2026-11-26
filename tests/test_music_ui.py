@@ -47,11 +47,11 @@ def main():
         # ================= 搜索页 =================
         pg.click('#tabs .tab[data-tab="music"]')
         pg.wait_for_timeout(300)
-        # 搜索页有自己那排来源按钮，「支持 抖音 B站…」挂在这上头串味，必须收掉
+        # 搜索页有自己那排来源按钮，「支持 抖音 B站…」那排已经收进设置了，页面上不该有
         assert pg.evaluate(
-            "() => getComputedStyle(document.querySelector('#platLine')).display"
-        ) == "none", "搜索页还挂着「支持 抖音 B站…」那排"
-        log("A0) 搜索页不显示支持平台一行")
+            "() => !document.querySelector('#platLine') && !document.querySelector('.platline')"
+        ), "页面上还挂着「支持 抖音 B站…」那排"
+        log("A0) 页面上没有支持网站那一排（收进设置了）")
         pg.fill("#mQuery", "告白气球")
         pg.click("#mGo")
         pg.wait_for_timeout(4500)
@@ -128,8 +128,9 @@ def main():
         pg.click('#tabs .tab[data-tab="video"]')
         pg.wait_for_timeout(700)
         assert pg.evaluate(
-            "() => getComputedStyle(document.querySelector('#platLine')).display"
-        ) != "none", "切回链接下载后「支持」那排没回来"
+            "() => !document.querySelector('#platLine') && !!document.querySelector('#composer')"
+            " && !document.querySelector('#composer').hidden"
+        ), "切回链接下载后粘贴框没回来"
         d = pg.evaluate("""() => {
           const w=document.querySelector('.wrap').getBoundingClientRect();
           const c=document.querySelector('#composer').getBoundingClientRect();

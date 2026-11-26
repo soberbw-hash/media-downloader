@@ -172,14 +172,12 @@ function renderDetected(urls) {
   const box = $("#detected");
   box.innerHTML = "";
   if (!urls || !urls.length) {
+    // 空着就空着：粘贴框里已经写了「粘贴链接，自动开始下载」，再补一句 Ctrl+V 是废话
+    const typed = ((typeof input !== "undefined" && input.value) || "").trim();
+    if (!typed) return;
     const el = document.createElement("span");
     el.className = "ghost";
-    const typed = ((typeof input !== "undefined" && input.value) || "").trim();
-    el.textContent = typed
-      ? "没有链接，回车按歌名搜"
-      : (window.matchMedia("(hover: none)").matches
-        ? "粘贴链接即可"
-        : (autoPaste ? "Ctrl+V 粘贴" : "Ctrl+V 粘贴后点开始"));
+    el.textContent = "没有链接，回车按歌名搜";
     box.appendChild(el);
     return;
   }
@@ -817,16 +815,14 @@ function applyMode(mode) {
   });
 }
 
-/* 支持哪些站：摆在粘贴框下面一行小字。
+/* 支持哪些站：收在设置页最下面，小字四列，不占主页面。
    只列真能下的 —— 要自己搭接口才有戏的（视频号）和明确不支持的，不在这儿画饼。 */
 const PLAT_LEVEL_TIP = {
   cookie: "要登录一下才能下",
   experimental: "能下，个别链接可能失败",
 };
-/* 一行放得下的才列出来，剩下的用「等 N 个」带过；鼠标停在整个行上能看到全部 */
 const PLAT_ORDER = ["douyin", "bilibili", "xiaohongshu", "kuaishou", "weibo",
   "ixigua", "netdisk", "youtube", "twitter", "tiktok", "instagram", "netease", "qqmusic", "suno"];
-const PLAT_SHOW_MAX = 14;
 
 function renderSupport(list) {
   if (supportRendered) return;
@@ -839,32 +835,19 @@ function renderSupport(list) {
     return i < 0 ? PLAT_ORDER.length : i;
   };
   const sorted = usable.slice().sort((a, b) => rank(a) - rank(b));
-  const shown = sorted.slice(0, PLAT_SHOW_MAX);
-  const rest = sorted.length - shown.length;
 
   box.innerHTML = "";
-  shown.forEach((p, i) => {
-    if (i) {
-      const sep = document.createElement("span");
-      sep.className = "pl-sep";
-      sep.textContent = "·";
-      box.appendChild(sep);
-    }
+  sorted.forEach((p, i) => {
+    // 顿点粘在前一个名字后面（前面不断行），换行时才不会出现「· YouTube」这种断头
     const el = document.createElement("span");
     el.className = "pl-item";
-    el.textContent = p.name;
+    el.textContent = p.name + (i < sorted.length - 1 ? "\u00a0· " : "");
     el.title = PLAT_LEVEL_TIP[p.level] || "粘链接就能下";
     box.appendChild(el);
   });
-  if (rest > 0) {
-    const more = document.createElement("span");
-    more.className = "pl-more";
-    more.textContent = "共 " + sorted.length + " 个网站";
-    more.title = sorted.map((p) => p.name).join("、");
-    box.appendChild(more);
-  }
-  const line = $("#platLine");
-  if (line) line.hidden = !usable.length;
+
+  const wrap = $("#supBox");
+  if (wrap) wrap.hidden = !sorted.length;
 }
 
 /* ---------- 提交：一次粘贴 = 一批 ---------- */
@@ -1835,7 +1818,7 @@ function clearTabAnim() {
   tabTimers.forEach(clearTimeout);
   tabTimers = [];
   document.body.classList.remove("tab-switching");
-  ["#composer", "#platLine", "#musicPanel"].forEach((s) => {
+  ["#composer", "#musicPanel"].forEach((s) => {
     const el = $(s);
     if (el) { el.classList.remove("tab-enter", "tab-leave"); cancelPanelAnim(el); }
   });
@@ -1858,7 +1841,6 @@ function syncTabIndicator(m) {
 
 function applyTab(m, instant) {
   const box = $("#composer");
-  const plat = $("#platLine");
   const mus = $("#musicPanel");
 
   // 按钮和下滑线先动，视觉上先给反馈；面板内容随后再换
@@ -1882,8 +1864,7 @@ function applyTab(m, instant) {
     if (box) box.hidden = m !== "video";
     if (mus) mus.hidden = m !== "music";
     // 退场动画结束后把类摘掉，否则下次切回来会带着上次的透明状态
-    [box, plat, mus].forEach((el) => el && el.classList.remove("tab-leave"));
-    // platLine 的显隐归 body.tab-music 管，这里不动它的 hidden
+    [box, mus].forEach((el) => el && el.classList.remove("tab-leave"));
   };
   const focusIn = () => {
     if (m === "music") {
@@ -1905,8 +1886,8 @@ function applyTab(m, instant) {
   document.body.classList.add("tab-switching");
 
   // 退场短、入场长：先淡出旧面板，再淡入新面板，中间不留下空白闪烁
-  const outEls = m === "music" ? [box, plat] : [mus];
-  const inEls = m === "music" ? [mus] : [box, plat];
+  const outEls = m === "music" ? [box] : [mus];
+  const inEls = m === "music" ? [mus] : [box];
   outEls.forEach((el) => { if (el && !el.hidden) animatePanel(el, false); });
   later(() => {
     finish();

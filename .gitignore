@@ -54,6 +54,9 @@ _accept_shots/
 # 扩展上次上报的版本/站点清单（本机状态，不进仓库）
 ext_state.json
 
+# 图标刷新只在每台机器做一次，标记文件属本机状态
+.icon_refresh_*
+
 # Electron 依赖目录（体积大，发布包由构建脚本复制 dist）
 node_modules/
 

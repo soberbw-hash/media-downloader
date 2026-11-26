@@ -822,21 +822,119 @@ def _mac_replace(archive, app_dir):
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+def hashed_icon_path(assets_dir):
+    """icon.ico → icon-<内容指纹>.ico，返回快捷方式该指向的那份。
+
+    为什么不直接用 icon.ico：Windows 的图标缓存认的是「文件路径」，同名覆盖
+    之后桌面常常还端着旧图（实测：改时间戳、广播 SHChangeNotify 都救不回来）。
+    内容一变文件名就跟着变，旧缓存自然失效，不用清缓存、不用重启 explorer。
+    顺手把上几个指纹的旧副本删掉，assets 里只留当前这一份。
+    """
+    src = os.path.join(assets_dir, "icon.ico")
+    if not os.path.isfile(src):
+        return ""
+    try:
+        with open(src, "rb") as f:
+            h = hashlib.md5(f.read()).hexdigest()[:8]
+    except OSError:
+        return ""
+    dst = os.path.join(assets_dir, "icon-%s.ico" % h)
+    if not os.path.isfile(dst):
+        try:
+            shutil.copy2(src, dst)
+        except OSError:
+            return src
+    # 清掉旧指纹的副本（只认 icon-<8位hex>.ico 这个形状，别误删别的）
+    try:
+        for f in os.listdir(assets_dir):
+            m = re.match(r"^icon-([0-9a-f]{8})\.ico$", f)
+            if m and f != os.path.basename(dst):
+                try:
+                    os.remove(os.path.join(assets_dir, f))
+                except OSError:
+                    pass
+    except OSError:
+        pass
+    return dst
+
+
+def _set_lnk_icon(lnk, icon):
+    """只把快捷方式的图标路径换掉，目标 / 参数 / 工作目录原样不动。
+
+    用 IShellLink + IPersistFile：Load 后 SetIconLocation 再 Save。全程裸
+    ctypes（不装 pywin32），任何一步失败都返回 False，绝不往外抛。
+    """
+    try:
+        import ctypes
+        import uuid
+        from ctypes import (POINTER, byref, c_int, c_ubyte, c_ulong, c_ushort,
+                            c_void_p, c_wchar_p)
+
+        ole32 = ctypes.oledll.ole32
+        HRESULT = ctypes.c_long
+
+        class GUID(ctypes.Structure):
+            _fields_ = [("Data1", c_ulong), ("Data2", c_ushort),
+                        ("Data3", c_ushort), ("Data4", c_ubyte * 8)]
+
+        def _guid(s):
+            b = uuid.UUID(s).bytes_le
+            return GUID(c_ulong.from_buffer_copy(b[0:4]).value,
+                        c_ushort.from_buffer_copy(b[4:6]).value,
+                        c_ushort.from_buffer_copy(b[6:8]).value,
+                        (c_ubyte * 8).from_buffer_copy(b[8:16]))
+
+        def _method(p, index, restype, *argtypes):
+            vtbl = ctypes.cast(p, POINTER(POINTER(c_void_p))).contents
+            return ctypes.WINFUNCTYPE(restype, c_void_p, *argtypes)(vtbl[index])
+
+        ole32.CoInitialize(None)
+        punk = c_void_p()
+        ole32.CoCreateInstance(byref(_guid("00021401-0000-0000-C000-000000000046")),
+                               None, 1, byref(_guid("000214F9-0000-0000-C000-000000000046")),
+                               byref(punk))
+        if not punk:
+            return False
+        pf = c_void_p()
+        _method(punk, 0, HRESULT, c_void_p, POINTER(c_void_p))(
+            punk, byref(_guid("0000010B-0000-0000-C000-000000000046")), byref(pf))
+        if not pf:
+            _method(punk, 2, c_ulong)(punk)
+            return False
+        # IPersistFile::Load(路径, STGM_READWRITE=2)
+        hr = _method(pf, 5, HRESULT, c_wchar_p, c_ulong)(pf, os.path.abspath(lnk), 2)
+        ok = False
+        if hr == 0:
+            _method(punk, 17, HRESULT, c_wchar_p, c_int)(punk, icon, 0)   # SetIconLocation
+            ok = _method(pf, 6, HRESULT, c_wchar_p, c_int)(pf, os.path.abspath(lnk), 1) == 0
+        _method(pf, 2, c_ulong)(pf)
+        _method(punk, 2, c_ulong)(punk)
+        return ok
+    except Exception:
+        return False
+
+
 def refresh_icon_cache(target):
     """让 Windows 重读图标，否则更新换了 icon.ico 后桌面还是旧图。
 
-    Windows 按「文件名 + 时间戳」缓存图标。热更把 assets/icon.ico 覆盖了，
-    但文件名没变、快捷方式也没重写，系统就一直端着缓存里的旧图标 —— 用户
-    更新完看还是老样子，以为没更新成功。这里做两件事：
-      1) 给快捷方式文件改个时间戳，逼系统重新解析它指向的 ico
-      2) SHChangeNotify 广播「关联图标变了」，让桌面和资源管理器一起刷新
+    Windows 的图标缓存按「文件路径」记，同名覆盖后桌面常常还端着旧图。所以
+    这里是三件事一起做：
+      1) 把 assets/icon.ico 复制成带内容指纹的 icon-<hash>.ico（换路径＝新缓存槽）
+      2) 把两个快捷方式的图标指到这份新文件，再顺手推一下时间戳
+      3) SHChangeNotify 广播「关联图标变了」，让桌面和资源管理器一起刷新
 
-    这是温和刷新，不删缓存库、不重启 explorer。失败无所谓（图标最迟下次
-    登录会刷新），绝不能因为刷图标把一次成功的更新弄成失败。
+    温和刷新，不删缓存库、不重启 explorer。失败无所谓（图标最迟下次登录会
+    刷新），绝不能因为刷图标把一次成功的更新弄成失败。
     """
     if not IS_WIN:
         return 0
     touched = 0
+    icon = ""
+    try:
+        if target:
+            icon = hashed_icon_path(os.path.join(os.path.abspath(target), "assets"))
+    except Exception:
+        icon = ""
     # 快捷方式不在程序目录里：一个在「音视频下载器/」里，一个在桌面根。
     # target 是程序目录，往上两级找，只认本软件的快捷方式名，绝不碰别的。
     parent = os.path.dirname(os.path.abspath(target or "")) if target else ""
@@ -848,7 +946,9 @@ def refresh_icon_cache(target):
     for p in candidates:
         try:
             if os.path.isfile(p):
-                os.utime(p, None)          # 时间戳推到当前，触发重新解析
+                if icon:
+                    _set_lnk_icon(p, icon)   # 换图标路径，缓存才会失效
+                os.utime(p, None)            # 时间戳推到当前，触发重新解析
                 touched += 1
         except OSError:
             pass

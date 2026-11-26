@@ -103,6 +103,53 @@ def test_notify_failure_does_not_raise():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_hashed_icon_and_repoint():
+    """换图标要换路径：Windows 按路径缓存，同名覆盖后桌面还是旧图（实测过）。
+
+    这里盯三件事：① 复制成 icon-<指纹>.ico ② 旧指纹副本清掉 ③ 快捷方式真指过去
+    """
+    tmp = tempfile.mkdtemp(prefix="vdl_icon_")
+    try:
+        app = os.path.join(tmp, "音视频下载器", "程序")
+        assets = os.path.join(app, "assets")
+        os.makedirs(assets, exist_ok=True)
+        ico = os.path.join(assets, "icon.ico")
+        open(ico, "wb").write(b"\x00\x01" * 40)
+        stale = os.path.join(assets, "icon-deadbeef.ico")
+        open(stale, "wb").write(b"old")
+
+        p = updater.hashed_icon_path(assets)
+        assert os.path.isfile(p) and p.endswith(".ico"), p
+        assert os.path.basename(p) != "icon.ico", "还是指着 icon.ico，缓存不会失效"
+        assert os.path.getsize(p) == 80
+        assert not os.path.exists(stale), "旧指纹的副本没清掉"
+        assert updater.hashed_icon_path(assets) == p, "同样内容算出了两个路径"
+
+        if not updater.IS_WIN:
+            log("✓ 图标复制成带指纹的副本（非 Windows 跳过快捷方式部分）")
+            return
+
+        from tools.make_shortcut import create_lnk
+        lnk = os.path.join(os.path.dirname(app), "音视频下载器-公司.lnk")
+        create_lnk(lnk, target=sys.executable, args="server.py --app", cwd=app,
+                   icon=ico)
+        assert updater._set_lnk_icon(lnk, p), "改快捷方式图标失败"
+        raw = open(lnk, "rb").read()
+        assert os.path.basename(p).encode("utf-16-le") in raw, "快捷方式没指到新图标"
+        assert "icon.ico".encode("utf-16-le") not in raw.replace(
+            os.path.basename(p).encode("utf-16-le"), b""), "快捷方式还留着老路径"
+        assert "server.py --app".encode("utf-16-le") in raw or b"server.py" in raw, \
+            "参数被改坏了"
+
+        # 走一遍真入口：refresh_icon_cache 应该顺手把图标换掉
+        n = updater.refresh_icon_cache(app)
+        assert n == 1, n
+        assert os.path.basename(p).encode("utf-16-le") in open(lnk, "rb").read()
+        log("✓ 快捷方式被指到带指纹的图标，参数原样保留")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def test_non_windows_noop():
     """非 Windows 直接跳过，不碰 ctypes.windll。"""
     real = updater.IS_WIN
@@ -119,5 +166,6 @@ if __name__ == "__main__":
     test_refresh_finds_both_shortcuts()
     test_no_match_no_crash()
     test_notify_failure_does_not_raise()
+    test_hashed_icon_and_repoint()
     test_non_windows_noop()
     print("ALL PASS", flush=True)

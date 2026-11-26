@@ -21,6 +21,10 @@ import uuid
 from ctypes import (POINTER, byref, c_int, c_ubyte, c_ulong, c_ushort,
                     c_void_p, c_wchar_p)
 
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
 ole32 = ctypes.oledll.ole32
 CLSCTX_INPROC_SERVER = 1
 HRESULT = ctypes.c_long
@@ -82,17 +86,34 @@ def create_lnk(path, target, args="", cwd="", icon="", icon_index=0,
     return os.path.abspath(path)
 
 
+def shortcut_icon(app_dir):
+    """快捷方式该指向哪个图标文件。
+
+    不能直接指 assets/icon.ico：Windows 的图标缓存按路径记，同一个路径换成
+    新图案后桌面还是旧图。updater.hashed_icon_path() 会把图标复制成
+    icon-<内容指纹>.ico，内容一变文件名就变，缓存自然失效。
+    """
+    try:
+        from updater import hashed_icon_path
+        p = hashed_icon_path(os.path.join(app_dir, "assets"))
+        if p and os.path.isfile(p):
+            return p
+    except Exception:
+        pass
+    plain = os.path.join(app_dir, "assets", "icon.ico")
+    return plain if os.path.isfile(plain) else ""
+
+
 def build(app_dir, out_dir=None, name="音视频下载器-公司"):
     """app_dir = 便携版里的「程序」文件夹；out_dir = lnk 生成到哪儿"""
     app_dir = os.path.abspath(app_dir)
     out_dir = os.path.abspath(out_dir or os.path.dirname(app_dir))
     pyw = os.path.join(app_dir, "runtime", "pythonw.exe")
-    ico = os.path.join(app_dir, "assets", "icon.ico")
     if not os.path.isfile(pyw):
         raise SystemExit("没找到 Python 运行环境: %s" % pyw)
     out = os.path.join(out_dir, name + ".lnk")
     return create_lnk(out, target=pyw, args="server.py --app", cwd=app_dir,
-                      icon=ico if os.path.isfile(ico) else "",
+                      icon=shortcut_icon(app_dir),
                       desc="音视频下载器（公司电脑入口）")
 
 

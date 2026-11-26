@@ -236,7 +236,7 @@ def test_baidu_real_page_fix():
             return FakeResp()
 
     try:
-        netdisk._baidu_fresh_sign = lambda op, surl: ("freshsign", "9999")
+        netdisk._baidu_fresh_sign = lambda op, surl, bdstoken="": ("freshsign", "9999")
         link = netdisk._baidu_dlink(FakeOp(), "uk", "sid", "oldsign", "111",
                                     "", "991", randsk="rand%3D", surl="abc")
         ok(link == "http://d/l", "dlink 能从返回里取出")
@@ -257,7 +257,7 @@ def test_baidu_real_page_fix():
             return ErrResp()
 
     try:
-        netdisk._baidu_fresh_sign = lambda op, surl: ("", "")
+        netdisk._baidu_fresh_sign = lambda op, surl, bdstoken="": ("", "")
         try:
             netdisk._baidu_dlink(ErrOp(), "uk", "sid", "s", "1", "", "991")
             ok(False, "9019 应该抛错")
@@ -265,6 +265,74 @@ def test_baidu_real_page_fix():
             ok("安全验证" in str(e), "9019 提示账号安全验证: " + str(e))
     finally:
         netdisk._baidu_fresh_sign = saved_tpl
+
+
+def test_baidu_v2():
+    """新版分享页（disk-share-v2）：locals-data + 新列目录参数 + tplconfig 的 surl。
+
+    2026-11 网页版改版后，老接口（uk+shareid）一律回 errno=2「啊哦，链接
+    出错了」，用户看到的是「参数不对，链接可能被截断」。这条用例把新接口
+    的要素钉住：列目录用 shorturl（不带前导 1）+ root + view_mode；
+    tplconfig 取签名反而必须带前导 1，sign 藏在 data 里。全打桩不联网。
+    """
+    print("=== 百度新版分享页 / 新接口 ===")
+    page = ('<html><head><title>百度网盘-分享文件</title></head><body>'
+            '<script id="locals-data" type="application/json">'
+            '{"shareid":"4448613969","share_uk":"1102534447554","uk":"1102534447554",'
+            '"bdstoken":"tok123","sharetype":"0","file_list":['
+            '{"fs_id":123,"server_filename":"片子.pdf","size":10,"isdir":0},'
+            '{"fs_id":124,"server_filename":"子目录","size":0,"isdir":1}]}'
+            '</script></body></html>')
+    st = netdisk._baidu_state(page)
+    ok(st.get("shareid") == "4448613969" and st.get("share_uk") == "1102534447554",
+       "locals-data 能读出 shareid / share_uk")
+    ok(st.get("bdstoken") == "tok123", "locals-data 能读出 bdstoken")
+    files = netdisk._baidu_files_from_page(page)
+    ok(len(files) == 1 and files[0]["fid"] == "123" and files[0]["name"] == "片子.pdf",
+       "locals-data 里的 file_list 能读成文件（目录条目跳过）")
+
+    # 列目录：新参数优先，shorturl 不许带前导 1
+    saved_get = netdisk._get
+    urls = []
+
+    def fake_get(op, url, referer=None):
+        urls.append(url)
+        return None, ('{"errno":0,"list":[{"server_filename":"a.mp4","size":1,'
+                      '"fs_id":9,"isdir":0}]}').encode()
+
+    try:
+        netdisk._get = fake_get
+        got = netdisk._baidu_list(None, "uk", "sid", "tok", "/", shorturl="Abc123",
+                                  referer="https://pan.baidu.com/s/1Abc123")
+        ok(len(got) == 1, "新接口返回的 list 能解析")
+        u = urls[-1]
+        ok("shorturl=Abc123" in u and "root=1" in u and "view_mode=1" in u,
+           "根目录用 shorturl + root=1 + view_mode=1")
+        netdisk._baidu_list(None, "uk", "sid", "tok", "/x/y", shorturl="Abc123")
+        ok("root=0" in urls[-1] and "dir=%2Fx%2Fy" in urls[-1],
+           "进子目录时 root=0 且带上 dir")
+    finally:
+        netdisk._get = saved_get
+
+    # tplconfig：surl 必须带前导 1，sign 在 data 里
+    seen = []
+
+    class TplResp:
+        def read(self):
+            return ('{"errno":0,"data":{"sign":"SIG123","timestamp":"1795690003"}}'
+                    ).encode()
+
+    class TplOp:
+        def open(self, req, timeout=0):
+            seen.append(req.full_url)
+            return TplResp()
+
+    s, ts = netdisk._baidu_fresh_sign(TplOp(), "Abc123", "tok")
+    ok(s == "SIG123" and ts == "1795690003", "sign/timestamp 从 data 里取出来")
+    ok("surl=1Abc123" in seen[0], "tplconfig 的 surl 补上前导 1: " + seen[0][:90])
+    ok("bdstoken=tok" in seen[0], "tplconfig 带上 bdstoken")
+    s2, _ = netdisk._baidu_fresh_sign(TplOp(), "1Abc123", "tok")
+    ok("surl=11Abc123" not in seen[-1], "已经是 1 开头就不再补，别拼成 11")
 
 
 def test_quark():
@@ -388,6 +456,7 @@ if __name__ == "__main__":
     test_unsupported()
     test_baidu_cookie()
     test_baidu_real_page_fix()
+    test_baidu_v2()
     test_baidu_errno2_page_fallback()
     test_quark()
     test_detect_integration()

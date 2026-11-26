@@ -529,9 +529,34 @@ def _json_at(text, pat):
         return {}
 
 
+def _baidu_locals(html):
+    """新版分享页（disk-share-v2）把整页数据塞在 <script id="locals-data">。
+
+    老页面是 window.yunData = {...}（JS 对象字面量，键没引号，json.loads
+    解析不了），新版干脆换成一段合法 JSON，还顺手把 shareid / share_uk /
+    bdstoken / file_list 全放进来。先读它，读不到再走老的几条路。
+    """
+    m = re.search(r'<script[^>]*id="locals-data"[^>]*>(.*?)</script>', html, re.S)
+    if not m:
+        return {}
+    try:
+        j = json.loads(m.group(1))
+    except Exception:
+        return {}
+    return j if isinstance(j, dict) else {}
+
+
 def _baidu_state(html):
     """把分享页里那几个关键字段扒出来。字段藏的位置各版本不一样，多路兜底。"""
     st = {}
+    loc = _baidu_locals(html)
+    if loc:
+        for k in ("shareid", "share_uk", "uk", "bdstoken", "sign", "timestamp",
+                  "sekey", "surl"):
+            v = loc.get(k)
+            if v not in (None, ""):
+                st[k] = str(v)
+        st["_locals"] = loc
     for pat in (r"locals\.mset\(\s*(\{)", r"window\.yunData\s*=\s*(\{)",
                 r"window\.__INITIAL_STATE__\s*=\s*(\{)"):
         got = _json_at(html, pat)
@@ -560,21 +585,35 @@ def _baidu_state(html):
 
 
 def _baidu_verify(op, surl, pwd):
-    """过提取码，成功后 CookieJar 里会落下 BDCLND。"""
-    ts = int(time.time())
-    q = urllib.parse.urlencode({
-        "surl": surl, "t": ts, "channel": "chunlei", "web": 1,
-        "app_id": 250528, "clienttype": 0,
-    })
-    body = urllib.parse.urlencode({"pwd": pwd}).encode()
-    req = urllib.request.Request(
-        "%s/share/verify?%s" % (_BAIDU_PAN, q), data=body,
-        headers={"User-Agent": UA, "Referer": "%s/s/1%s" % (_BAIDU_PAN, surl),
-                 "Content-Type": "application/x-www-form-urlencoded"})
+    """过提取码，成功后 CookieJar 里会落下 BDCLND。
+
+    surl 这里传「去掉前导 1」的那段（老接口的约定）。万一新版只认带 1 的，
+    报的错又不是「密码不对」，就拿带 1 的再试一次。
+    """
+    def _post(s):
+        ts = int(time.time())
+        q = urllib.parse.urlencode({
+            "surl": s, "t": ts, "channel": "chunlei", "web": 1,
+            "app_id": 250528, "clienttype": 0,
+        })
+        body = urllib.parse.urlencode({"pwd": pwd}).encode()
+        req = urllib.request.Request(
+            "%s/share/verify?%s" % (_BAIDU_PAN, q), data=body,
+            headers={"User-Agent": UA, "Referer": "%s/s/1%s" % (_BAIDU_PAN, s),
+                     "Content-Type": "application/x-www-form-urlencoded"})
+        return json.loads(op.open(req, timeout=25).read().decode("utf-8", "ignore"))
+
     try:
-        j = json.loads(op.open(req, timeout=25).read().decode("utf-8", "ignore"))
+        j = _post(surl)
     except Exception:
         raise RuntimeError("百度提取码校验没返回结果，稍后再试")
+    if j.get("errno") == 2 and surl and not surl.startswith("1"):
+        try:
+            j2 = _post("1" + surl)
+            if not j2.get("errno"):
+                return j2
+        except Exception:
+            pass
     if j.get("errno") != 0:
         if j.get("errno") == -12:
             raise RuntimeError("提取码不对，核对一下再试")
@@ -583,15 +622,8 @@ def _baidu_verify(op, surl, pwd):
     return j
 
 
-def _baidu_list(op, uk, shareid, bdstoken, dirpath):
-    ts = int(time.time())
-    q = urllib.parse.urlencode({
-        "uk": uk, "shareid": shareid, "order": "other", "desc": 1,
-        "showempty": 0, "web": 1, "page": 1, "num": 100, "dir": dirpath,
-        "t": ts, "channel": "chunlei", "app_id": 250528,
-        "bdstoken": bdstoken or "", "clienttype": 0,
-    })
-    _, raw = _get(op, "%s/share/list?%s" % (_BAIDU_PAN, q), _BAIDU_PAN + "/")
+def _baidu_list_json(op, url, referer):
+    _, raw = _get(op, url, referer or (_BAIDU_PAN + "/"))
     try:
         j = json.loads(raw.decode("utf-8", "ignore"))
     except Exception:
@@ -601,43 +633,111 @@ def _baidu_list(op, uk, shareid, bdstoken, dirpath):
     return j.get("list") or []
 
 
-def _baidu_walk(op, uk, shareid, bdstoken, dirpath, depth=0, acc=None):
-    """递归摊平目录。百度文件夹能套很多层，超过 3 层就不再往里走。"""
+def _baidu_list(op, uk, shareid, bdstoken, dirpath, shorturl="", referer=None):
+    """列一层目录。
+
+    2026-11 起网页版换成了 disk-share-v2：老的 uk + shareid 组合一律回
+    errno=2（「啊哦，链接出错了」），新接口认的是 shorturl（去掉前导 1），
+    再搭 root / view_mode=1 / web=5。两套都留着：老页面还没全下线，新接口
+    不认时退回老参数再试一把，别把老链接一起弄死。
+    """
+    path = dirpath or "/"
+    if shorturl:
+        def _page(n):
+            pairs = [
+                ("shorturl", shorturl), ("web", 5), ("app_id", 250528),
+                ("desc", 1), ("showempty", 0), ("page", n), ("num", 100),
+                ("order", "time"),
+                ("root", 1 if path in ("", "/") else 0), ("dir", path),
+                ("view_mode", 1), ("channel", "chunlei"), ("web", 1),
+                ("bdstoken", bdstoken or ""), ("clienttype", 0),
+            ]
+            return _baidu_list_json(
+                op, "%s/share/list?%s" % (_BAIDU_PAN, urllib.parse.urlencode(pairs)),
+                referer)
+
+        try:
+            out = _page(1)
+        except _BaiduErr as e:
+            if e.errno != 2:
+                raise
+        else:
+            # 一个目录超过 100 个就翻页，最多翻 4 页（和 300 条上限对得上）
+            for n in (2, 3, 4):
+                if len(out) < 100 * (n - 1):
+                    break
+                try:
+                    more = _page(n)
+                except _BaiduErr:
+                    break
+                out.extend(more)
+                if len(more) < 100:
+                    break
+            return out
+    ts = int(time.time())
+    q = urllib.parse.urlencode({
+        "uk": uk, "shareid": shareid, "order": "other", "desc": 1,
+        "showempty": 0, "web": 1, "page": 1, "num": 100, "dir": path,
+        "t": ts, "channel": "chunlei", "app_id": 250528,
+        "bdstoken": bdstoken or "", "clienttype": 0,
+    })
+    return _baidu_list_json(op, "%s/share/list?%s" % (_BAIDU_PAN, q), referer)
+
+
+def _baidu_walk(op, uk, shareid, bdstoken, dirpath, depth=0, acc=None,
+                shorturl="", referer=None, top=None):
+    """递归摊平目录。百度文件夹能套很多层，超过 3 层就不再往里走。
+
+    top 传一个 list 进去，会把根目录那层原始条目也塞进去 —— 分享根目录就是
+    一个文件夹时，文件夹名比页面标题（「百度网盘-分享文件」）更适合当任务名。
+    """
     acc = acc if acc is not None else []
-    for it in _baidu_list(op, uk, shareid, bdstoken, dirpath):
+    for it in _baidu_list(op, uk, shareid, bdstoken, dirpath,
+                          shorturl=shorturl, referer=referer):
+        if depth == 0 and top is not None:
+            top.append(it)
         if len(acc) >= 300:
             break
         name = it.get("server_filename") or it.get("filename") or "文件"
         if str(it.get("isdir")) == "1":
             if depth < 3:
                 _baidu_walk(op, uk, shareid, bdstoken, it.get("path") or dirpath,
-                            depth + 1, acc)
+                            depth + 1, acc, shorturl=shorturl, referer=referer)
             continue
         acc.append({"name": name, "size": int(it.get("size") or 0),
                     "fid": str(it.get("fs_id") or "")})
     return acc
 
 
-def _baidu_fresh_sign(op, surl):
+def _baidu_fresh_sign(op, surl, bdstoken=""):
     """从 tplconfig 现拿 sign + timestamp（只对登录态有效，约 5 分钟过期）。
 
-    分享页里的 sign 经常会缺（尤其需要提取码的分享，过了码页面才给），
+    两个坑（2026-11 实测）：
+      1) surl 必须带前导 1 —— 带 "1" 才回 errno=0，不带一律 errno=2
+         「啊哦，链接出错了」，看起来像链接坏了，其实是参数格式的事；
+      2) sign 放在 data.sign 里，不在顶层。
+    分享页里的 sign 经常缺（尤其需要提取码的分享，过了码页面才给），
     取链这一步统一现拿，成功率比复用页面里的旧值高得多。
     拿不到就返回空，调用方退回用页面里的值，不把路堵死。
     """
     if not surl:
         return "", ""
+    if not surl.startswith("1"):
+        surl = "1" + surl
     q = urllib.parse.urlencode({
-        "surl": surl, "fields": "sign,timestamp", "channel": "chunlei",
-        "web": 1, "app_id": 250528, "clienttype": 0,
+        "surl": surl, "fields": "sign,timestamp", "view_mode": 1,
+        "channel": "chunlei", "web": 1, "app_id": 250528,
+        "bdstoken": bdstoken or "", "clienttype": 0,
     })
     req = urllib.request.Request(
         "%s/share/tplconfig?%s" % (_BAIDU_PAN, q),
-        headers={"User-Agent": _BAIDU_DL_UA, "Referer": _BAIDU_PAN + "/"})
+        headers={"User-Agent": _BAIDU_DL_UA,
+                 "Referer": "%s/s/%s" % (_BAIDU_PAN, surl)})
     try:
         j = json.loads(op.open(req, timeout=25).read().decode("utf-8", "ignore"))
         if not j.get("errno"):
-            return str(j.get("sign") or ""), str(j.get("timestamp") or "")
+            data = j.get("data") if isinstance(j.get("data"), dict) else j
+            return str(data.get("sign") or ""), str(data.get("timestamp") or "")
     except Exception:
         pass
     return "", ""
@@ -645,11 +745,12 @@ def _baidu_fresh_sign(op, surl):
 
 def _baidu_dlink(op, uk, shareid, sign, timestamp, bdstoken, fs_id,
                  randsk="", surl=""):
-    fresh_sign, fresh_ts = _baidu_fresh_sign(op, surl)
+    fresh_sign, fresh_ts = _baidu_fresh_sign(op, surl, bdstoken)
     if fresh_sign:
         sign, timestamp = fresh_sign, fresh_ts
     if not sign:
-        raise RuntimeError("百度这个分享没给出签名，先在浏览器里打开一次这个链接再来")
+        raise RuntimeError("百度没给出下载签名，隔一会儿再试一次；"
+                           "一直不行说明这条分享限制了下载")
     q = urllib.parse.urlencode({
         "sign": sign, "timestamp": timestamp or int(time.time()),
         "bdstoken": bdstoken or "",
@@ -686,11 +787,31 @@ def _baidu_dlink(op, uk, shareid, sign, timestamp, bdstoken, fs_id,
 
 
 def _baidu_files_from_page(html):
-    """从过了提取码的分享页内嵌 file_list 里读文件。
+    """从分享页内嵌的 file_list 里读文件。
 
-    百度把文件信息直接塞进过码后的页面里，字段和 /share/list 返回基本一致，
-    接口被风控挡住时用它兜底。返回空列表表示页面里没有。
+    百度把文件信息直接塞进页面（新页面在 locals-data 的 JSON 里，老页面在
+    locals.mset 里），字段和 /share/list 返回基本一致，接口被风控挡住时用它
+    兜底。返回空列表表示页面里没有（比如根目录只有一个文件夹）。
     """
+    def _map(arr):
+        out = []
+        for it in arr:
+            if not isinstance(it, dict) or str(it.get("isdir")) == "1":
+                continue
+            fs = it.get("fs_id")
+            if not fs:
+                continue
+            out.append({"name": it.get("server_filename") or it.get("filename") or "文件",
+                        "size": int(it.get("size") or 0), "fid": str(fs),
+                        "sign": it.get("sign") or ""})
+        return out
+
+    loc = _baidu_locals(html)
+    if loc.get("file_list"):
+        got = _map(loc["file_list"])
+        if got:
+            return got
+
     m = re.search(r'"file_list"\s*:\s*(\[)', html)
     if not m:
         return []
@@ -724,17 +845,7 @@ def _baidu_files_from_page(html):
         arr = json.loads(html[start:end])
     except Exception:
         return []
-    out = []
-    for it in arr:
-        if not isinstance(it, dict) or str(it.get("isdir")) == "1":
-            continue
-        fs = it.get("fs_id")
-        if not fs:
-            continue
-        out.append({"name": it.get("server_filename") or it.get("filename") or "文件",
-                    "size": int(it.get("size") or 0), "fid": str(fs),
-                    "sign": it.get("sign") or ""})
-    return out
+    return _map(arr)
 
 
 def baidu_resolve(url, pwd="", progress=None):
@@ -756,14 +867,21 @@ def baidu_resolve(url, pwd="", progress=None):
         raise RuntimeError("百度分享页没读出文件信息，可能被要求人工验证；"
                            "在浏览器里打开这个分享过一次再回来贴")
     surl = ""
-    m = re.search(r"/s/1([A-Za-z0-9_-]+)", url)
+    m = re.search(r"/s/(1[A-Za-z0-9_-]+)", url)
     if m:
         surl = m.group(1)
+    # 两个变体各有用处，别混：列目录的 shorturl 去掉前导 1，
+    # tplconfig 取签名偏偏要带上 1，弄反就是一片 errno=2。
+    shorturl = surl[1:] if surl.startswith("1") else surl
+    page_ref = "%s/s/%s" % (_BAIDU_PAN, surl) if surl else (_BAIDU_PAN + "/")
     bdstoken = st.get("bdstoken") or ""
     randsk = ""
+    top = []          # 根目录那层的原始条目，用来给任务起个像样的名字
 
     def _list_root():
-        return _baidu_walk(op, uk, shareid, bdstoken, "/")
+        top.clear()
+        return _baidu_walk(op, uk, shareid, bdstoken, "/",
+                           shorturl=shorturl, referer=page_ref, top=top)
 
     def _page_files():
         """列目录接口被挡时，退回页面内嵌的 file_list（含 fs_id / sign）。"""
@@ -785,13 +903,14 @@ def baidu_resolve(url, pwd="", progress=None):
             # 要提取码：有就验一次，没有就让用户补
             if not pwd:
                 raise RuntimeError(_BAIDU_ERR[-9])
-            vj = _baidu_verify(op, surl, pwd)
+            vj = _baidu_verify(op, shorturl, pwd)
             randsk = vj.get("randsk") or ""
             # 过了码以后分享页会内嵌 file_list（含 fs_id / sign），
             # 比再打 /share/list 稳——后者现在经常回 errno=2/9019
             _, raw2 = _get(op, url, _BAIDU_PAN + "/")
             html = raw2.decode("utf-8", "ignore")
             st = _baidu_state(html)
+            bdstoken = st.get("bdstoken") or bdstoken
             try:
                 files = _list_root()
             except _BaiduErr as e2:
@@ -808,12 +927,24 @@ def baidu_resolve(url, pwd="", progress=None):
     mt = re.search(r"<title>(.*?)</title>", html, re.S)
     if mt:
         title = re.sub(r"_?免费高速下载.*$", "", mt.group(1)).strip()
+    # 页面标题永远是「百度网盘-分享文件」，没信息量。根目录就是一个文件夹时，
+    # 用文件夹名当标题（下载下来也是这个名字的目录，比一串套话好认）。
+    if not title or "百度网盘" in title:
+        dirs = [it.get("server_filename") for it in top
+                if str(it.get("isdir")) == "1" and it.get("server_filename")]
+        if len(dirs) == 1:
+            title = dirs[0]
+        elif len(files) == 1:
+            title = files[0].get("name") or "百度网盘分享"
+        elif not title:
+            title = "百度网盘分享"
     return {
         "title": title, "platform": P_BAIDU, "url": url, "pwd": pwd,
         "files": files, "is_folder": len(files) > 1,
         "_uk": uk, "_shareid": shareid, "_sign": st.get("sign") or "",
         "_timestamp": st.get("timestamp") or int(time.time()),
         "_bdstoken": bdstoken, "_randsk": randsk, "_surl": surl,
+        "_short": shorturl,
     }
 
 

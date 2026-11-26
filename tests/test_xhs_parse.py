@@ -237,6 +237,126 @@ def test_login_expired_wording():
         log("✓ 登录墙 →", str(e))
 
 
+# ---------- 2026-11 免登录改造：App 分享页那条路 ----------
+MOBILE_HTML = (
+    '<html><script>window.__INITIAL_STATE__={"noteData":{"data":{"noteData":'
+    '{"noteId":"6a9d0eb2000000002a024480","type":"video","title":"视频标题","desc":"第一行\\n第二行",'
+    '"user":{"nickName":"阿空"},'
+    '"imageList":[{"url":"http://img/1!h5_1080jpg"}],'
+    '"video":{"media":{"stream":{"EF4":[{"masterUrl":"http://v/1.mp4","width":1080,'
+    '"height":1920,"videoBitrate":900}]}}}},'
+    '"commentData":{}},"normalNotePreloadData":{"imagesList":[{"urlSizeLarge":"http://img/1large"}]}}}'
+    '</script></html>'
+)
+
+
+def test_mobile_share_structure():
+    """手机分享页把笔记放在 noteData.data.noteData，不是 noteDetailMap。"""
+    note = cn_sites._xhs_note_from_html(MOBILE_HTML, "6a9d0eb2000000002a024480")
+    assert note["title"] == "视频标题", note
+    assert (note.get("user") or {}).get("nickName") == "阿空"
+    urls = cn_sites._xhs_video_urls(note)
+    assert urls == ["http://v/1.mp4"], urls
+    imgs = cn_sites.xhs_images(note)
+    # imageList 有图就用它，preload 那批只在前者缺失时兜底（不然会下一堆重复图）
+    assert imgs == ["http://img/1!h5_1080jpg"], imgs
+    only_pre = {"imageList": [], "_preloadImages": [{"urlSizeLarge": "http://img/2large"}]}
+    assert cn_sites.xhs_images(only_pre) == ["http://img/2large"]
+    log("✓ 分享页：noteData.data.noteData 里的标题/作者/视频/图片都取得到")
+
+
+def test_token_hidden_in_login_redirect():
+    """桌面 UA 打开短链会被踢到 /login?redirectPath=…，token 藏在里面，不许丢。"""
+    import urllib.parse
+
+    real = cn_sites.http_get
+    target = ("http://www.xiaohongshu.com/discovery/item/67a64f1e000000001800ade1"
+              "?xsec_source=app_share&type=normal&xsec_token=CBCMxHh3%2FHLz%2Btok%3D")
+    login = ("https://www.xiaohongshu.com/login?redirectPath="
+             + urllib.parse.quote(target, safe=""))
+
+    class R:
+        def geturl(self):
+            return login
+
+        def read(self, *a):
+            return b""
+
+    try:
+        cn_sites.http_get = lambda *a, **k: R()
+        nid, token, final = cn_sites.xhs_resolve("https://xhslink.cn/o/9UWBdRy7GUA")
+        assert nid == "67a64f1e000000001800ade1", nid
+        assert token == "CBCMxHh3/HLz+tok=", token
+        assert "discovery/item" in final and "xsec_token" in final, final
+        log("✓ token 还原：登录跳转里的 redirectPath 被拆开了")
+    finally:
+        cn_sites.http_get = real
+
+
+def test_candidates_and_anonymous_order():
+    """候选顺序要对：先原样分享链（手机 UA + app_share），并且匿名先试。"""
+    calls = []
+
+    class R:
+        def __init__(self, body):
+            self.body = body
+
+        def geturl(self):
+            return ""
+
+        def read(self, *a):
+            return self.body
+
+    def fake_get(url, hdr=None, **k):
+        calls.append((url, dict(hdr or {})))
+        if "discovery/item" in url:
+            return R(MOBILE_HTML.encode())
+        return R(b'<html><script>window.__INITIAL_STATE__={"user":{"loggedIn":false},'
+                 b'"note":{"noteDetailMap":{}}}</script></html>')
+
+    real = cn_sites.http_get
+    try:
+        cn_sites.http_get = fake_get
+        nid, token, final = cn_sites.xhs_resolve(
+            "https://www.xiaohongshu.com/discovery/item/6a9d0eb2000000002a024480"
+            "?xsec_token=TOK%3D&xsec_source=app_share")
+        cands = cn_sites._xhs_candidates(nid, token, final)
+        assert "xsec_source=app_share" in cands[0][0], cands[0][0]
+        assert "iPhone" in cands[0][1], cands[0][1]
+
+        note = cn_sites._xhs_fetch_note(nid, token, final, None, lambda **k: None)
+        assert note["title"] == "视频标题", note
+        assert calls and "Cookie" not in calls[0][1], calls[0][1]
+        log("✓ 请求顺序：先原样分享链 + 手机 UA，且不带 cookie")
+    finally:
+        cn_sites.http_get = real
+
+
+def test_risk_control_wording():
+    """300012 是网络风控，不是没登录 —— 别再把用户往登录页赶。"""
+    html = '<html><body>安全限制 当前网络存在风险，请切换可靠网络后重试 300012</body></html>'
+    try:
+        cn_sites._xhs_note_from_html(html, "x")
+        raise AssertionError("风控页应该抛错")
+    except RuntimeError as e:
+        msg = str(e)
+        assert "300012" in msg, msg
+        assert "设置 → 账号" not in msg and "登录后" not in msg, msg
+        log("✓ 风控 →", msg)
+
+
+def test_truncated_state_regex_fallback():
+    """state 被截断也别放弃：正则兜底还能捞到播放地址。"""
+    html = ('<html><meta property="og:title" content="截断的笔记">'
+            '<script>window.__INITIAL_STATE__={"note":{"noteDetailMap":{"x":{"note":'
+            '{"title":"半截')
+    note = cn_sites._xhs_note_from_regex(
+        html + '"video":{"media":{"stream":{"EF4":[{"masterUrl":"http://v/cut.mp4"}]}}}}')
+    assert note and cn_sites._xhs_video_urls(note) == ["http://v/cut.mp4"], note
+    log("✓ 截断兜底：正则从残页里捞出了播放地址")
+
+
+
 if __name__ == "__main__":
     test_sanitize()
     test_parse_dirty_state()
@@ -245,4 +365,9 @@ if __name__ == "__main__":
     test_core_wrapper_not_misleading()
     test_expired_short_link()
     test_login_expired_wording()
+    test_mobile_share_structure()
+    test_token_hidden_in_login_redirect()
+    test_candidates_and_anonymous_order()
+    test_risk_control_wording()
+    test_truncated_state_regex_fallback()
     print("ALL PASS", flush=True)

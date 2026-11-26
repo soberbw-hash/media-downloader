@@ -39,7 +39,7 @@ PLATFORMS = [
      "hosts": ["douyin.com", "iesdouyin.com"]},
     {"id": "bilibili", "name": "B站", "level": "full",
      "hosts": ["bilibili.com", "b23.tv"]},
-    {"id": "xiaohongshu", "name": "小红书", "level": "cookie",
+    {"id": "xiaohongshu", "name": "小红书", "level": "full",
      "hosts": ["xiaohongshu.com", "xhslink.com", "xhslink.cn"]},
     {"id": "kuaishou", "name": "快手", "level": "experimental",
      "hosts": ["kuaishou.com", "gif.kuaishou.com", "kwai.com", "chenzhongtech.com"]},

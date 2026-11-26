@@ -48,7 +48,7 @@ def test_chains():
         "weibo": ["ytdlp", "weibo"],
         "direct": ["hls", "ytdlp"],
         "unknown": ["ytdlp", "page"],
-        "kuaishou": ["kuaishou"],
+        "kuaishou": ["kuaishou", "page"],
         "youtube": ["ytdlp"],
         "netease": ["music"],
         "netdisk:baidu": ["netdisk"],

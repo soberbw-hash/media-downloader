@@ -269,7 +269,7 @@ function makeCard(t) {
     <div class="acts">
       <button class="open" title="打开所在文件夹">打开</button>
       <button class="fix" hidden></button>
-      <button class="diagnose" title="复制诊断（不含链接或账号信息）" aria-label="复制诊断" hidden>诊断</button>
+      <button class="diagnose" title="复制诊断信息" aria-label="复制诊断信息" hidden>诊断</button>
       <button class="retry" title="重试">重试</button>
       <button class="cancel" title="取消">取消</button>
     </div>
@@ -308,7 +308,7 @@ async function copyTaskDiagnosis(t) {
   const phase = /收尾|合并|转码/.test(t.failure_stage) ? "收尾" :
     /下载|取链|转存/.test(t.failure_stage) ? "下载" : "准备或解析";
   const text = `音视频下载器 ${ver}\n平台：${word(t.platform)}\n阶段：${phase}\n错误分类：${word(t.error_code)}`;
-  try { await navigator.clipboard.writeText(text); toast("已复制诊断，不含链接和账号信息"); }
+  try { await navigator.clipboard.writeText(text); toast("已复制诊断信息"); }
   catch (e) { toast("没能写入剪贴板，请检查浏览器权限"); }
 }
 

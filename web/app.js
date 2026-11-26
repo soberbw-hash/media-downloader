@@ -25,8 +25,13 @@ const $ = (s) => document.querySelector(s);
       if (!b) return;
       const act = b.dataset.win;
       if (act === "min") api.minimize();
-      else if (act === "max") b.textContent = await api.toggleMax();
-      else if (act === "close") api.close();
+      else if (act === "max") {
+        const st = await api.toggleMax();
+        const on = st === true || st === "❐" || st === "max";
+        b.dataset.max = on ? "1" : "0";
+        b.title = on ? "还原" : "最大化";
+        b.setAttribute("aria-label", b.title);
+      } else if (act === "close") api.close();
     });
   };
   window.addEventListener("pywebviewready", wire);

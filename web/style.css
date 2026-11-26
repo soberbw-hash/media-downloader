@@ -99,12 +99,31 @@ body.shell-webview .appbar-controls button {
   width: 42px;
   height: 100%;
   border: 0;
+  padding: 0;
   background: transparent;
   color: inherit;
   font: inherit;
-  font-size: 14px;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
 }
+/* 三个按钮统一用同一套 12×12 线性图标，避免字形自带大小差异 */
+body.shell-webview .appbar-controls .wi {
+  display: block;
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.15;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+body.shell-webview .appbar-controls .wi-restore { display: none; }
+body.shell-webview .appbar-controls button[data-win="max"][data-max="1"] .wi-max { display: none; }
+body.shell-webview .appbar-controls button[data-win="max"][data-max="1"] .wi-restore { display: block; }
 body.shell-webview .appbar-controls button:hover { background: rgba(0, 0, 0, .06); }
 body.shell-webview .appbar-controls button[data-win="close"]:hover { background: #e81123; color: #fff; }
 body.shell-webview .wrap { height: calc(100% - 34px); }

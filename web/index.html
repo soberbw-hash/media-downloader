@@ -17,9 +17,16 @@
 <div class="appbar" id="appBar">
   <span class="appbar-title">音视频下载器</span>
   <div class="appbar-controls">
-    <button type="button" data-win="min" title="最小化" aria-label="最小化">─</button>
-    <button type="button" data-win="max" title="最大化" aria-label="最大化">□</button>
-    <button type="button" data-win="close" title="关闭" aria-label="关闭">×</button>
+    <button type="button" data-win="min" title="最小化" aria-label="最小化">
+      <svg class="wi" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.3 6h7.4"/></svg>
+    </button>
+    <button type="button" data-win="max" title="最大化" aria-label="最大化" data-max="0">
+      <svg class="wi wi-max" viewBox="0 0 12 12" aria-hidden="true"><rect x="2.4" y="2.4" width="7.2" height="7.2" rx="1.1"/></svg>
+      <svg class="wi wi-restore" viewBox="0 0 12 12" aria-hidden="true"><path d="M4.2 2.6h5.6v5.6"/><rect x="2.6" y="4.2" width="5.6" height="5.6" rx="1"/></svg>
+    </button>
+    <button type="button" data-win="close" title="关闭" aria-label="关闭">
+      <svg class="wi" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.9 2.9l6.2 6.2M9.1 2.9l-6.2 6.2"/></svg>
+    </button>
   </div>
 </div>
 <div class="wrap">

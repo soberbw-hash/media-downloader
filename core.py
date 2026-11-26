@@ -18,6 +18,7 @@ import urllib.request
 import zlib
 
 import paths
+import engines
 
 try:
     import yt_dlp
@@ -1471,8 +1472,8 @@ def task_failure(exc, raw):
     return "download", raw or "这次没下成功，请重试"
 
 
-class DownloadCanceled(RuntimeError):
-    pass
+class DownloadCanceled(engines.Canceled):
+    """用户点了取消。继承 engines.Canceled，回退链才知道该立刻停。"""
 
 
 def _netdisk_filename(name, direct):
@@ -1930,58 +1931,35 @@ class Manager(object):
                 elif t.status == "running":
                     t.stage = "下载中"
 
-        if t.platform == "douyin":
-            res = douyin_download(t.url, out_dir, progress, quality)
-        elif t.platform in ("netease", "qqmusic", "kugou"):
-            import music as music_mod       # 延迟导入，避免循环依赖
-            with self.lock:
-                t.kind = "audio"
-            res = music_mod.download(t.url, out_dir, progress, quality, cookies)
-        elif t.platform == "suno":
-            import suno  # 延迟导入，避免循环依赖
-            with self.lock:
-                t.kind = "audio"
-            res = suno.download(t.url, out_dir, progress, quality, proxy)
-        elif t.platform == "direct":
-            import hls  # 延迟导入，避免循环依赖
-            if hls.is_audio_name(t.url):
-                with self.lock:
-                    t.kind = "audio"
-            res = hls.download(t.url, out_dir, progress, quality, proxy)
-        elif t.platform == "weixin":
-            import sph  # 延迟导入，避免循环依赖
-            res = sph.download(t.url, out_dir, progress, quality,
-                               self.cfg.get("sph_api") or "",
-                               self.cfg.get("sph_token") or "")
-        elif t.platform in ("kuaishou", "xiaohongshu"):
-            import cn_sites  # 延迟导入，避免循环依赖
-            if t.platform == "kuaishou":
-                res = cn_sites.kuaishou_download(t.url, out_dir, progress, quality, cookies)
-            else:
-                res = cn_sites.xhs_download(t.url, out_dir, progress, quality, cookies)
-        elif t.platform.startswith("netdisk:"):
-            res = _netdisk_download(t, out_dir, progress)
-        else:
-            # B站番剧/影视正片页 yt-dlp 只给「正片」，片名和作者都空着。
-            # 先用 B站 pgc 接口把真名查出来，文件名和简介才像样
-            if t.platform == "bilibili" and "/bangumi/play/" in t.url:
-                try:
-                    import movies as movies_mod
-                    mi = movies_mod.bili_media_info(t.url) or {}
-                    if mi.get("title") and not t.title_hint:
-                        t.title_hint = mi["title"]
-                        t.title = mi["title"]
-                    if mi.get("credit") and not t.author:
-                        t.author = mi["credit"]
-                    if mi.get("director") and not t.author:
-                        t.author = mi["director"]
-                    if mi.get("cover") and not t.thumb:
-                        t.thumb = mi["cover"]
-                except Exception:
-                    pass
-            res = ytdlp_download(t.url, out_dir, progress, quality, proxy, cookies,
-                                 subs=bool(self.cfg.get("down_subs")),
-                                 title_hint=t.title_hint)
+        # B站番剧/影视正片页 yt-dlp 只给「正片」，片名和作者都空着。
+        # 先用 B站 pgc 接口把真名查出来，文件名和简介才像样
+        if t.platform == "bilibili" and "/bangumi/play/" in t.url:
+            try:
+                import movies as movies_mod
+                mi = movies_mod.bili_media_info(t.url) or {}
+                if mi.get("title") and not t.title_hint:
+                    t.title_hint = mi["title"]
+                    t.title = mi["title"]
+                if mi.get("credit") and not t.author:
+                    t.author = mi["credit"]
+                if mi.get("director") and not t.author:
+                    t.author = mi["director"]
+                if mi.get("cover") and not t.thumb:
+                    t.thumb = mi["cover"]
+            except Exception:
+                pass
+
+        # 同一个链接准备了几条路，挨个试，用户只看到一次进度。
+        # 具体用哪条、为什么换，都写在 logs/engines.log 里。
+        opt = {
+            "quality": quality,
+            "proxy": proxy,
+            "cookies": cookies,
+            "subs": bool(self.cfg.get("down_subs")),
+            "sph_api": self.cfg.get("sph_api") or "",
+            "sph_token": self.cfg.get("sph_token") or "",
+        }
+        res = engines.run(engines.chain_for(t.platform), t, out_dir, progress, opt)
 
         # 图集返回 (目录, 图片列表)，视频返回单个文件路径
         if isinstance(res, tuple):

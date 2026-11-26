@@ -44,6 +44,11 @@
   --muted: #8b887f;
   --hint: #b1aea4;
   --ink: #2f332d;
+  /* 实心主色上的文字：浅色下白字，深色下墨字 */
+  --on-ink: #ffffff;
+  /* 开关圆点：未选中 / 选中各一档，深色下要反相 */
+  --knob: #ffffff;
+  --knob-on: #ffffff;
   /* 莫兰迪的低饱和：成功 / 失败也不用正绿正红 */
   --ok: #5f7d63;
   --err: #a4605a;
@@ -237,7 +242,7 @@ header {
 #submit {
   border: none;
   background: var(--ink);
-  color: #fff;
+  color: var(--on-ink);
   height: 34px;
   padding: 0 18px;
   border-radius: 9px;
@@ -1025,7 +1030,7 @@ body.tab-music .tasks-block {
   transition: border-color .14s ease, color .14s ease, background .14s ease;
 }
 
-.tok:hover { border-color: var(--ink); color: #fff; background: var(--ink); }
+.tok:hover { border-color: var(--ink); color: var(--on-ink); background: var(--ink); }
 
 /* 按钮里文字是中文（标题），伪元素补上真实占位符 {title} */
 .tok::after {
@@ -1120,7 +1125,7 @@ body.tab-music .tasks-block {
   width: 100%;
   border: none;
   background: var(--ink);
-  color: #fff;
+  color: var(--on-ink);
   height: 36px;
   border-radius: 9px;
   font-size: 13px;
@@ -1157,7 +1162,7 @@ body.tab-music .tasks-block {
   left: 50%;
   transform: translate(-50%, 14px);
   background: var(--ink);
-  color: #fff;
+  color: var(--on-ink);
   font-size: 12.5px;
   padding: 9px 16px;
   border-radius: 9px;
@@ -1218,7 +1223,7 @@ body.playing .toast { bottom: 84px; }
   width: 30px;
   height: 18px;
   border-radius: 20px;
-  background: #e2e0dd;
+  background: var(--track);
   position: relative;
   transition: background .18s ease;
   flex-shrink: 0;
@@ -1231,13 +1236,13 @@ body.playing .toast { bottom: 84px; }
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--knob);
   box-shadow: 0 1px 2px rgba(0,0,0,.15);
   transition: transform .18s cubic-bezier(.32,.72,0,1);
 }
 
 .switch input:checked + .track { background: var(--ink); }
-.switch input:checked + .track i { transform: translateX(12px); }
+.switch input:checked + .track i { transform: translateX(12px); background: var(--knob-on); }
 .switch input:focus-visible + .track { box-shadow: 0 0 0 3px rgba(28,25,23,.12); }
 
 .switch-text {
@@ -1756,10 +1761,10 @@ body.playing .toast { bottom: 84px; }
 .gtools button.primary {
   background: var(--ink);
   border-color: var(--ink);
-  color: #fff;
+  color: var(--on-ink);
 }
 
-.gtools button.primary:hover { background: #33302c; }
+.gtools button.primary:hover { background: var(--ink); filter: brightness(.94); }
 
 .gtools button:disabled {
   opacity: .45;
@@ -3390,7 +3395,11 @@ body:not(.shell-webview) { --titlebar: #e3e3e3; }
     --row-bg: rgba(255, 255, 255, .045);
     /* 暗玻璃上把雾绿提亮一档，进度条 / 运行态才看得清 */
     --run: #9aab9f;
-    /* --ink 保持深色实心：主按钮 / 提示条在深玻璃上仍有对比 */
+    /* 深色下主色反过来：浅墨实心 + 深字，按钮才立得起来 */
+    --ink: #e4e7de;
+    --on-ink: #22251f;
+    --knob: #d9dcd3;
+    --knob-on: #22251f;
   }
 
   body {

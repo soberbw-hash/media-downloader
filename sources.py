@@ -41,7 +41,7 @@ BUILTIN = [
      "group": "海外视频", "note": "需要网络能到 Google"},
     {"id": "freesound", "name": "Freesound", "kind": "audio", "priority": 6, "timeout": 25,
      "group": "音效", "note": "几十万条环境声，能下预览 mp3（商用要署名）", "slow": True},
-    {"id": "openlibrary", "name": "电子书", "kind": "video", "priority": 7, "timeout": 18,
+    {"id": "openlibrary", "name": "电子书", "kind": "book", "priority": 7, "timeout": 18,
      "group": "电子书", "note": "按书名/作者找书，给封面和公共领域版本入口"},
 ]
 
@@ -650,7 +650,7 @@ def _openlibrary(kw, limit, cfg, proxy):
         # 有 Internet Archive 编号就有可读的公共领域版本入口
         dl = ("https://archive.org/details/" + ia) if ia else page
         out.append(_card(
-            platform="openlibrary", id="ol" + (key or title)[:32], kind="video",
+            platform="openlibrary", id="ol" + (key or title)[:32], kind="book",
             title=title, author=author, cover=cover,
             desc=("电子书 · " + (str(year) if year else "年份未知")),
             url=dl, page=page, download=dl,

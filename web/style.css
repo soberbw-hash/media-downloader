@@ -1919,7 +1919,7 @@ body.playing .toast { bottom: 84px; }
 .fd-main {
   border: 1px solid var(--ink);
   background: var(--ink);
-  color: #fff;
+  color: var(--on-ink);
 }
 
 .fd-main:hover { background: #33302c; }
@@ -2124,7 +2124,7 @@ body.tab-switching .task { background: rgba(255, 255, 255, .44) !important; }
   border: 0;
   border-radius: 10px;
   background: var(--ink);
-  color: #fff;
+  color: var(--on-ink);
   font-family: inherit;
   font-size: 13px;
   cursor: pointer;
@@ -2226,7 +2226,7 @@ body.tab-switching .task { background: rgba(255, 255, 255, .44) !important; }
 #recAct {
   background: var(--ink);
   border-color: var(--ink);
-  color: #fff;
+  color: var(--on-ink);
 }
 #recAct:hover { opacity: .88; }
 
@@ -2288,7 +2288,8 @@ body.tab-switching .task { background: rgba(255, 255, 255, .44) !important; }
 .plat.on {
   background: var(--ink);
   border-color: var(--ink);
-  color: #fff;
+  /* 深色下 --ink 是浅色，白字会糊掉，跟主按钮一样走反相色 */
+  color: var(--on-ink);
 }
 
 /* 搜索结果里标一下这首来自哪个平台 */
@@ -2400,7 +2401,7 @@ body.tab-switching .task { background: rgba(255, 255, 255, .44) !important; }
   font-size: 12px;
   cursor: pointer;
 }
-.sitebar #siteSave { background: var(--ink); border-color: var(--ink); color: #fff; }
+.sitebar #siteSave { background: var(--ink); border-color: var(--ink); color: var(--on-ink); }
 .sitebar button.ghost { border-color: transparent; background: transparent; color: var(--hint); }
 .sitebar-tip { width: 100%; font-size: 11.5px; color: var(--hint); }
 .sitebar-tip:empty { display: none; }
@@ -2501,7 +2502,7 @@ body.tab-switching .task { background: rgba(255, 255, 255, .44) !important; }
 .msong .dl:hover {
   border-color: var(--ink);
   background: var(--ink);
-  color: #fff;
+  color: var(--on-ink);
 }
 .msong .dl svg { display: block; }
 
@@ -2524,7 +2525,7 @@ body.tab-switching .task { background: rgba(255, 255, 255, .44) !important; }
 .msong .pv:hover {
   border-color: var(--ink);
   background: var(--ink);
-  color: #fff;
+  color: var(--on-ink);
 }
 .msong .pv.on {
   border-color: var(--run);
@@ -2597,7 +2598,7 @@ body.playing .wrap { padding-bottom: 78px; }
 .pbar .pb-btn:hover {
   border-color: var(--ink);
   background: var(--ink);
-  color: #fff;
+  color: var(--on-ink);
 }
 .pbar .pb-info { flex: 1; min-width: 0; }
 .pbar .pb-t {
@@ -2713,7 +2714,7 @@ body.playing .wrap { padding-bottom: 78px; }
 .mmovie .mbtn.primary {
   background: var(--ink);
   border-color: var(--ink);
-  color: #fff;
+  color: var(--on-ink);
 }
 .mmovie .mbtn.primary:hover { opacity: .88; }
 .mmovie .mtag {
@@ -2808,7 +2809,7 @@ body.playing .wrap { padding-bottom: 78px; }
   color: var(--text-2);
   cursor: pointer;
 }
-.mep-dl:hover { border-color: var(--ink); background: var(--ink); color: #fff; }
+.mep-dl:hover { border-color: var(--ink); background: var(--ink); color: var(--on-ink); }
 .mep-dl:disabled { opacity: .6; cursor: default; }
 .meps-ft {
   padding: 10px 14px;
@@ -2821,7 +2822,7 @@ body.playing .wrap { padding-bottom: 78px; }
   border: 1px solid var(--ink);
   border-radius: 8px;
   background: var(--ink);
-  color: #fff;
+  color: var(--on-ink);
   cursor: pointer;
 }
 .mep-all:disabled { opacity: .6; cursor: default; }

@@ -1098,6 +1098,17 @@ class Handler(BaseHTTPRequestHandler):
             finally:
                 shutil.rmtree(tmpdir, ignore_errors=True)
 
+        elif p == "/api/search/intent":
+            # 「全部」类型下，先问一句这关键词到底是在找什么：
+            # 搜「火烧的音效」就该往音效源去，而不是拿 B站 视频糊一脸
+            kw = str(data.get("q") or "").strip()
+            try:
+                import intent
+                self._json(dict(intent.guess(kw), ok=True))
+            except Exception as e:
+                self._json({"ok": False, "kind": "video", "label": "视频",
+                            "error": str(e)[:120]})
+
         elif p == "/api/search":
             kw = str(data.get("q") or "").strip()
             try:
@@ -1108,6 +1119,23 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"ok": False, "error": "先输入关键词", "items": []})
                 return
             want = data.get("sources")
+            kind = str(data.get("kind") or "") or None
+            q_used = kw
+            # 「全部」：按关键词自动判断该搜哪一类源，顺便把「音效 / 电子书」
+            # 这类类型词从查询里摘掉，否则「三体 电子书」原样丢给书源会搜不到
+            if data.get("auto"):
+                try:
+                    import intent
+                    g = intent.guess(kw)
+                    kind = g["kind"] if g["kind"] in intent.AGG_KINDS else "video"
+                    if g["kind"] in intent.AGG_KINDS:
+                        q_used = intent.clean(kw, kind)
+                        import sources as sources_mod
+                        auto_ids = intent.source_ids(kind, sources_mod.all_sources(CFG))
+                        if auto_ids:
+                            want = auto_ids
+                except Exception:
+                    kind = None
             # 老前端只传 platform，这边照旧认，别让它一升级就搜不了
             if not isinstance(want, list) or not want:
                 plat = str(data.get("platform") or "all")
@@ -1115,9 +1143,11 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 import aggregate
                 r = aggregate.search(
-                    kw, limit, want, CFG,
+                    q_used, limit, want, CFG,
                     proxy=(CFG.get("proxy") or "").strip() or None,
-                    refresh=bool(data.get("refresh")))
+                    refresh=bool(data.get("refresh")), kind=kind)
+                r["q_used"] = q_used
+                r["kind"] = kind
                 self._json(r)
             except Exception as e:
                 self._json({"ok": False, "error": "搜索没跑起来：" + str(e)[:120],

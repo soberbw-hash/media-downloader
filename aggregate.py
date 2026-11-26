@@ -45,10 +45,14 @@ def _key(x):
     return (x.get("source") or x.get("platform") or "") + "|" + (x.get("id") or "")
 
 
-def _score(x, kw, priority, rank):
+def _score(x, kw, priority, rank, kind=None):
     q = (kw or "").strip().lower()
     title = (x.get("title") or "").lower()
     s = (6 - min(5, priority)) * 12.0
+    # 识别出的类型和这条结果的类型一致，就往前放：
+    # 搜「火烧的音效」时，音频结果理应压过同名视频
+    if kind and (x.get("kind") or "") == kind:
+        s += 12
     if q and q in title:
         s += 30
     else:
@@ -67,7 +71,7 @@ def _score(x, kw, priority, rank):
     return s
 
 
-def _merge(items, kw, pri_map):
+def _merge(items, kw, pri_map, kind=None):
     """去重 → 打分 → 排序 → 同源不连着刷屏。"""
     seen_key, seen_url, seen_title, out = set(), set(), set(), []
     for x in items:
@@ -84,7 +88,7 @@ def _merge(items, kw, pri_map):
         out.append(x)
     pri = pri_map or {}
     for i, x in enumerate(out):
-        x["_score"] = _score(x, kw, pri.get(x.get("source"), 3), i)
+        x["_score"] = _score(x, kw, pri.get(x.get("source"), 3), i, kind)
     out.sort(key=lambda x: -x["_score"])
     # 同一个源最多连着出现 2 条，保证「汇集」而不是一家霸屏
     res, used, last, streak = [], set(), "", 0
@@ -111,18 +115,25 @@ def _merge(items, kw, pri_map):
     return res
 
 
-def _payload(items, kw, pri_map, limit):
-    """按来源轮转取结果：每个搜到的源都得露脸，别让一两家把前 24 条占满，
-    不然状态行写着「Freesound 12 条」，列表里却一条都看不到。"""
-    merged = _merge(items, kw, pri_map)
+LEAD = 6      # 前几条严格按相关度，先把「最像的」给用户
+
+
+def _payload(items, kw, pri_map, limit, kind=None):
+    """先按相关度给前几条，再按来源轮转补齐：既保证推荐度高的真在前面，
+    又保证每个搜到的源都露脸（不然状态行写着「Freesound 12 条」，
+    列表里却一条都看不到）。"""
+    merged = _merge(items, kw, pri_map, kind)
+    lead = merged[:min(LEAD, len(merged))]
+    rest = merged[len(lead):]
     groups, best = {}, {}
-    for x in merged:
+    for x in rest:
         s = x.get("source") or ""
         groups.setdefault(s, []).append(x)
         best[s] = max(best.get(s, 0), x.get("_score", 0))
+    for x in merged:
         x.pop("_score", None)
     order = sorted(groups, key=lambda s: -best[s])
-    out, i = [], 0
+    out, i = list(lead), 0
     while len(out) < limit:
         grew = False
         for s in order:
@@ -208,7 +219,7 @@ def _snapshot(state, kw, limit, token):
     errors = [v["msg"] for v in srcs.values() if v["state"] in ("fail", "skip") and v["msg"]]
     return {
         "ok": True,
-        "items": _payload(items, kw, state["pri"], limit),
+        "items": _payload(items, kw, state["pri"], limit, state.get("kind")),
         "errors": errors,
         "sources": [srcs[k] for k in sorted(srcs, key=lambda x: state["order"].get(x, 99))
                     if k in srcs],
@@ -220,7 +231,7 @@ def _snapshot(state, kw, limit, token):
 
 
 # ---------- 对外入口 ----------
-def search(kw, limit=24, source_ids=None, cfg=None, proxy=None, refresh=False):
+def search(kw, limit=24, source_ids=None, cfg=None, proxy=None, refresh=False, kind=None):
     """搜一次。返回首屏结果；慢源会在后台继续，前端拿 token 来 /more 补齐。"""
     kw = (kw or "").strip()
     cfg = cfg or {}
@@ -235,7 +246,7 @@ def search(kw, limit=24, source_ids=None, cfg=None, proxy=None, refresh=False):
     if not wanted:
         return {"ok": False, "error": "没有可用的来源", "items": []}
 
-    key = (kw, tuple(s["id"] for s in wanted), limit)
+    key = (kw, tuple(s["id"] for s in wanted), limit, kind or "")
     now = time.time()
     if not refresh:
         with _LOCK:
@@ -263,6 +274,7 @@ def search(kw, limit=24, source_ids=None, cfg=None, proxy=None, refresh=False):
         "kw": kw, "limit": limit, "pri": {s["id"]: s["priority"] for s in allsrc},
         "order": {s["id"]: i for i, s in enumerate(allsrc)},
         "wanted": [s["id"] for s in active],
+        "kind": kind,
         "cache_key": key,
         "items": [], "sources": dict(skipped_note),
         "done": set(skipped_note), "cached": False, "ts": now,

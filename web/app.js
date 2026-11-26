@@ -1958,11 +1958,16 @@ function musicUrlOf(s) {
 
 const PLAT_NAME = { all: "全网", netease: "网易云", qqmusic: "QQ音乐", kugou: "酷狗", bili: "B站", youtube: "YouTube" };
 const MUSIC_PLATS = ["netease", "qqmusic", "kugou"];   // 能搜歌、也能试听的平台
-// 记住上次在搜歌 / 找素材 / 找电影，别每次进来都先点一下「视频」
+// 默认「全部」：一个框什么都搜，具体走哪条路由关键词自己决定
+// （搜「火烧的音效」就该出音效，而不是拿视频糊一脸）
+const MODES = ["all", "music", "sfx", "video", "movie", "book"];
 let mMode = (() => {
-  const v = localStorage.getItem("mMode");
-  return (v === "music" || v === "sfx" || v === "video" || v === "movie") ? v : "music";
+  const v = localStorage.getItem("mMode2");
+  return MODES.indexOf(v) >= 0 ? v : "all";
 })();
+// 本轮实际搜的是哪一类：选「全部」时由后端识别后写进来，
+// 结果卡片、来源统计都按它判断，而不是按按钮上那个「全部」
+let lastMode = "video";
 let vPlat = "all";        // all 或某个来源 id
 
 /* 聚合搜索：来源清单、资源站入口都由后端下发；
@@ -1989,10 +1994,12 @@ const SFX_EMPTY = "没搜到。换个说法：雨声 / rain / 掌声 / applause"
 
 // 几个来源的引导语：没关键词时告诉用户该搜什么
 const SOURCE_GUIDE = {
+  all: "想找什么直接说：歌名、音效、视频素材、书名都行，我来判断",
   music: "输入歌名或歌手开始搜",
   sfx: "输入音效名：雨声、掌声、关门、转场…中英文都行",
   video: "输入关键词找视频素材（解说、运镜、混剪…）",
   movie: "输入片名开始搜",
+  book: "输入书名或作者：三体、余华、百年孤独…",
 };
 
 // 把上一轮的结果整个清掉。
@@ -2039,9 +2046,11 @@ function syncModeUI() {
   renderSites();
   const q = $("#mQuery");
   if (q) {
-    q.placeholder = mMode === "sfx" ? "音效名：雨声 / rain / whoosh"
+    q.placeholder = mMode === "all" ? "想找什么：歌名、音效、视频素材、书名…"
+      : mMode === "sfx" ? "音效名：雨声 / rain / whoosh"
       : mMode === "video" ? "视频关键词：电影解说、运镜、猫咪…"
       : mMode === "movie" ? "片名：哪吒、流浪地球、三体…"
+      : mMode === "book" ? "书名 / 作者：三体、余华…"
       : "歌名、歌手";
   }
   const mic = $("#mRec");
@@ -2051,7 +2060,7 @@ function syncModeUI() {
 document.querySelectorAll("#mSrc .plat").forEach((b) => {
   b.onclick = () => {
     mMode = b.dataset.s;
-    localStorage.setItem("mMode", mMode);
+    localStorage.setItem("mMode2", mMode);
     syncModeUI();
     // 换来源就是换一套东西，旧的计数、旧的列表、旧的提示都得清掉。
     // 不清就会出现「上面写着共 24 条，下面却是另一个来源的空列表」。
@@ -2068,14 +2077,13 @@ syncModeUI();   // 启动时按上次用的模式摆好界面
 /* ---------------- 多来源聚合 ---------------- */
 // 音效和视频都是「多来源聚合」，很多地方要一起判断
 function isAggMode() {
-  return mMode === "video" || mMode === "sfx";
+  return mMode !== "music" && mMode !== "movie";
 }
 
 function applySourceUI() {
   // 视频：一排放源按钮 + 一排「去这些站搜」。
   // 音效：就是一个大类，不摆站名——用户要的是"找到这个声音"，不是"去哪个站找"。
-  const agg = isAggMode();
-  const showSrc = agg && mMode !== "sfx";
+  const showSrc = mMode === "all" || mMode === "video" || mMode === "book";
   ["#mVPlats", "#vSites"].forEach((sel) => {
     const el = $(sel);
     if (el) el.hidden = !showSrc;
@@ -2097,13 +2105,20 @@ function renderSources(list) {
   vSources = list || [];
   const box = $("#mVPlats");
   if (!box) return;
-  // 音效不分站：按钮区整个不生成，搜索时把所有音效源一起问
-  if (mMode === "sfx") { box.innerHTML = ""; vPlat = "all"; return; }
-  // 视频页只摆视频源，免得点出个音效库来
-  const mine = vSources.filter((x) => (x.kind || "video") === "video");
+  // 音效 / 音乐 / 电影不摆来源按钮：音效是一个大类，音乐电影有自己的平台行
+  if (mMode === "sfx" || mMode === "music" || mMode === "movie") {
+    box.innerHTML = ""; vPlat = "all"; return;
+  }
+  // 视频页只摆视频源，电子书页只摆书源，全部页才把所有源摊开
+  const mine = vSources.filter((x) => {
+    const k = x.kind || "video";
+    if (mMode === "all") return true;
+    if (mMode === "book") return k === "book";
+    return k === "video";
+  });
   if (vPlat !== "all" && !mine.some((x) => x.id === vPlat)) vPlat = "all";
   box.innerHTML = '<button class="plat' + (vPlat === "all" ? " on" : "") +
-    '" data-p="all">全部</button>' +
+    '" data-p="all">全部来源</button>' +
     mine.map((s) => '<button class="plat' + (vPlat === s.id ? " on" : "") +
       '" data-p="' + esc(s.id) + '" title="' +
       esc((s.note || "") + (s.slow ? "（点它才单独搜）" : "")) + '">' +
@@ -2129,7 +2144,13 @@ function renderSites() {
     id: "src:" + s.name, name: s.name + " · 接口",
     tip: "自己接的第三方接口，点一下直接用它搜", custom: true, isSource: true,
   }));
-  const all = vSites.filter((s) => (s.kind || "video") !== "audio").concat(extras);
+  // 视频页别塞音效站和书站；电子书页只留书站；「全部」才都摊开
+  const all = vSites.filter((s) => {
+    const k = s.kind || "video";
+    if (mMode === "all") return true;
+    if (mMode === "book") return k === "book";
+    return k !== "audio" && k !== "book";
+  }).concat(extras);
   box.innerHTML = all.map((s) =>
     '<button class="site-chip" data-id="' + esc(s.id) + '" data-name="' + esc(s.name) +
     '" data-src="' + (s.isSource ? "1" : "0") + '" title="' + esc(s.tip || "") + '">' +
@@ -2173,8 +2194,10 @@ function renderSites() {
 function renderSourceHint(r) {
   const box = $("#vSrcHint");
   if (!box) return;
-  // 音效不分站，也就没必要报「哪家搜到几条」
-  if (!isAggMode() || mMode === "sfx") { box.hidden = true; return; }
+  // 音效不分站、电子书只有一家，都没必要报「哪家搜到几条」
+  if (!isAggMode() || lastMode === "sfx" || lastMode === "book") {
+    box.hidden = true; return;
+  }
   // 只挑了一家时，这条统计没有意义（下面只会是这一家的东西）
   if (vPlat !== "all") { box.hidden = true; box.innerHTML = ""; return; }
   const known = new Map((r.sources || []).map((s) => [s.id, s]));
@@ -2310,8 +2333,11 @@ function musicRow(s, i) {
       + (s.cover ? '<img src="' + esc(imgUrl(s.cover)) + '" alt="" loading="lazy"'
         + ' onerror="this.remove()">' : "")
       + "</span>";
+  const isBook = s.kind === "book";
   const sub = isSfx
     ? esc(s.desc || s.author || "")
+    : isBook
+      ? esc([s.author, s.desc].filter(Boolean).join(" · ") || "电子书")
     : esc(s.artist || s.author || "未知歌手") +
       (s.album ? " · " + esc(s.album) : "") +
       (s.hq ? " · 1080p" : "") +
@@ -2319,7 +2345,7 @@ function musicRow(s, i) {
   // 来源由后端下发，加一个源不用回来改这张映射表。
   // 音效页不标「这声音来自哪个站」——一行一个声音就够了，站名是噪音。
   const sid = s.source || s.platform || "";
-  const src = (sid && mMode !== "sfx")
+  const src = (sid && lastMode !== "sfx")
     ? '<span class="psrc" data-p="' + esc(sid) + '">' +
       esc(s.source_name || PLAT_NAME[sid] || sid) + "</span>"
     : "";
@@ -2376,7 +2402,7 @@ function renderMusic() {
   if (mMode === "movie") return;
   const box = $("#mResults");
   if (!mItems.length) {
-    box.innerHTML = '<div class="mempty">' + (mEmptyText || (mMode === "sfx"
+    box.innerHTML = '<div class="mempty">' + (mEmptyText || (lastMode === "sfx"
       ? SFX_EMPTY
       : "没搜到，换个关键词试试")) + "</div>";
     syncMusicSel();
@@ -2879,12 +2905,9 @@ async function recUpload(blob, ext) {
     // 认出来了：搜索框填上，直接搜。
     // 先切回音乐来源 —— 视频页的搜索用的是另一套接口，歌名丢进去没意义
     if (mMode !== "music") {
-      document.querySelectorAll("#mSrc .plat").forEach((x) =>
-        x.classList.toggle("on", x.dataset.s === "music"));
       mMode = "music";
-      $("#mPlats").hidden = false;
-      $("#mVPlats").hidden = true;
-      $("#mQuery").placeholder = "歌名、歌手";
+      localStorage.setItem("mMode2", mMode);
+      syncModeUI();          // 模式按钮、平台行、来源行一次摆好
     }
     $("#mQuery").value = r.query || ((r.title || "") + " " + (r.artist || "")).trim();
     resetResults();
@@ -3038,13 +3061,10 @@ async function movieAction(act, i, btn) {
   if (act === "mat") {
     // 跳到视频搜索，找这部片的解说/花絮/混剪
     const t = (m.title || "").split(" ")[0];
-    document.querySelectorAll("#mSrc .plat").forEach((x) =>
-      x.classList.toggle("on", x.dataset.s === "video"));
     mMode = "video";
-    $("#mPlats").hidden = true;
-    $("#mVPlats").hidden = false;
+    localStorage.setItem("mMode2", mMode);
+    syncModeUI();
     $("#mBar").hidden = true;
-    $("#mQuery").placeholder = "视频关键词：电影解说、运镜、猫咪…";
     $("#mQuery").value = t + " 解说";
     musicSearch(t + " 解说");
     return;
@@ -3146,18 +3166,14 @@ async function movieSearch(q) {
   }
 }
 
-// 音效页要搜哪几个源：按钮里挑出来的音效源；拿不到就用内置那两个兜底
-function sfxSourceIds() {
-  const ids = (vSources || []).filter((x) => (x.kind || "video") === "audio")
+// 按类型挑源：音效只要音效源，电子书只要书源，视频只要视频源。
+// 拿不到清单就交给后端按默认来（返回 null），别塞个空数组把搜索堵死。
+function sourceIdsFor(kind) {
+  const want = kind === "sfx" ? "audio" : kind === "book" ? "book" : "video";
+  const ids = (vSources || []).filter((x) => (x.kind || "video") === want)
     .map((x) => x.id);
-  return ids.length ? ids : ["mixkit_sfx", "freesound"];
-}
-
-// 视频页同理：音效有自己的入口了，别再混进视频结果里
-function videoSourceIds() {
-  const ids = (vSources || []).filter((x) => (x.kind || "video") === "video")
-    .map((x) => x.id);
-  return ids.length ? ids : null;      // 拿不到清单就交给后端按默认来
+  if (ids.length) return ids;
+  return kind === "sfx" ? ["mixkit_sfx", "freesound"] : null;
 }
 
 // 只挑了一个来源、又一条都没出来时，说清是「这个源没连上」，
@@ -3173,25 +3189,65 @@ function singleSourceProblem(r) {
   return `${name} 这会儿没回应，过一会儿再试一次`;
 }
 
+// 「全部」：先问后端这关键词是什么，再决定搜音乐 / 音效 / 视频 / 书 / 电影。
+// 判断不出来就按视频兜底（B站、YouTube 什么都能搜到，最不容易错）。
+async function resolveMode(q) {
+  if (mMode !== "all") return { mode: mMode, auto: null };
+  try {
+    const g = await post("/api/search/intent", { q });
+    if (g && g.ok && g.kind && g.kind !== "all" && MODES.indexOf(g.kind) >= 0) {
+      return { mode: g.kind, auto: g };
+    }
+  } catch (e) { /* 识别失败别把搜索卡住，按视频搜 */ }
+  return { mode: "video", auto: null };
+}
+
+// 「全部」搜出结果后，按实际命中的类型摆下面那行：
+// 搜到音效就不该还摆着 B站 / YouTube，搜到音乐就换成音乐平台
+function applyResultUI(mode) {
+  if (mMode !== "all" || vPlat !== "all") return;
+  const bar = $("#mVPlats"), sites = $("#vSites"), plats = $("#mPlats");
+  const siteBar = $("#siteBar");
+  const music = mode === "music";
+  const hideSrc = music || mode === "sfx";
+  if (bar) bar.hidden = hideSrc;
+  if (sites) sites.hidden = hideSrc;
+  if (siteBar) siteBar.hidden = hideSrc;
+  if (plats) plats.hidden = !music;
+}
+
 async function musicSearch(q) {
   q = (q || $("#mQuery").value || "").trim();
   if (!q) { $("#mQuery").focus(); return; }
-  if (mMode === "movie") return movieSearch(q);
+  const round0 = searchRound;
+  // 识别的时候用户可能已经换了类型或又搜了一次 —— 这一轮直接作废
+  const resolved = await resolveMode(q);
+  if (round0 !== searchRound) return;
+  const mode = resolved.mode;
+  const autoKind = resolved.auto;
+  lastMode = mode;
+  if (mode === "movie") return movieSearch(q);
+
   resetResults();
   const round = searchRound;
-  const agg = isAggMode();
-  const where = mMode === "sfx" ? ""
+  const agg = mode !== "music";
+  const where = mode === "sfx" ? ""
     : agg ? (vPlat === "all" ? "所有来源" : sourceName(vPlat))
       : (PLAT_NAME[mPlat] || "全网");
-  $("#mHint").textContent = where ? `${where} 搜索「${q}」…` : `正在找「${q}」的音效…`;
+  $("#mHint").textContent = autoKind
+    ? `识别为${autoKind.label} · 正在搜「${q}」…`
+    : (where ? `${where} 搜索「${q}」…` : `正在找「${q}」的音效…`);
   if (agg) vLastQuery = q;
   $("#mGo").disabled = true;
   try {
+    const ids = vPlat !== "all" ? [vPlat] : sourceIdsFor(mode);
     const r = agg
       ? await post("/api/search", {
-          q, limit: 24,
-          sources: vPlat !== "all" ? [vPlat]
-            : (mMode === "sfx" ? sfxSourceIds() : videoSourceIds()),
+          q, limit: 24, kind: mode,
+          // 「全部」交给后端统一识别 + 清洗关键词 + 选源；
+          // 手动点了某个来源就只搜那一个，不再自作主张
+          auto: mMode === "all" && vPlat === "all",
+          sources: ids,
         })
       : await post("/api/music/search", { platform: mPlat, q, limit: 24 });
     if (round !== searchRound) return;
@@ -3199,18 +3255,23 @@ async function musicSearch(q) {
     mItems = r.items || [];
     mEmptyText = singleSourceProblem(r);
     renderMusic();
+    applyResultUI(mode);
     // 各来源搜到几条、谁没连上，单独一行说清楚
     if (agg) { renderSourceHint(r); scheduleMore(r); }
     const errs = (r.errors || []).join("；");
-    if (mMode === "sfx") {
+    const tag = autoKind ? `识别为${autoKind.label} · ` : "";
+    if (mode === "sfx") {
       // 音效只说"找到几条"：不报站名，也不让用户去挑站
       $("#mHint").textContent = mItems.length
-        ? `找到 ${mItems.length} 条` + ((r.pending || []).length ? "，还在补…" : "")
-        : SFX_EMPTY;
+        ? tag + `找到 ${mItems.length} 条` + ((r.pending || []).length ? "，还在补…" : "")
+        : tag + SFX_EMPTY;
     } else {
       const bad = singleSourceProblem(r);
-      $("#mHint").textContent = mItems.length ? errs
-        : (bad || errs || "没搜到，换个关键词或换个来源");
+      $("#mHint").textContent = mItems.length
+        ? tag + (errs || `找到 ${mItems.length} 条`)
+        : (bad || errs || (autoKind
+            ? `识别为${autoKind.label}，没搜到，换个说法试试`
+            : "没搜到，换个关键词或换个来源"));
     }
   } catch (e) {
     if (round === searchRound) $("#mHint").textContent = "没连上，稍等一下再搜一次";
@@ -3269,8 +3330,8 @@ async function addMusic(list, btn) {
     }
     return;
   }
-  // 视频结果：把链接丢回普通下载管线，跟贴链接一个待遇
-  if (list.every((x) => x.kind === "video" || x.kind === "audio")) {
+  // 视频 / 电子书结果：把链接丢回普通下载管线，跟贴链接一个待遇
+  if (list.every((x) => x.kind === "video" || x.kind === "audio" || x.kind === "book")) {
     const old = btn ? btn.textContent : "";
     if (btn) { btn.disabled = true; btn.textContent = "…"; }
     try {

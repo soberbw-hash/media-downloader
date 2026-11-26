@@ -49,30 +49,53 @@ def searches(page):
       const btn = mode => $(`#mSrc [data-s="${mode}"]`);
       const query = $('#mQuery');
       const tick = () => new Promise(resolve => setTimeout(resolve, 0));
+      // 「全部」模式会先问一次意图接口，再发搜索；这里打桩掉，别让真网络拖时序
+      const flush = async (n = 8) => { for (let i = 0; i < n; i++) await tick(); };
       function finish(request, marker) {
         const kind = request.mode === 'sfx' ? 'audio' : request.mode === 'video' ? 'video' : undefined;
         const platform = kind ? 'mixkit' : 'netease';
         request.resolve(new Response(JSON.stringify({ok:true, done:true,
           items:[{kind, platform, id: marker, title: marker, url:'https://example.com/'}]})));
       }
-      window.fetch = (url, opts) => ['/api/music/search', '/api/search', '/api/movie/search'].includes(url) ?
-        new Promise(resolve => requests.push({resolve, mode:mMode, body:JSON.parse(opts.body)})) : nativeFetch(url, opts);
+      window.fetch = (url, opts) => {
+        if (url === '/api/search/intent')
+          return Promise.resolve(new Response(JSON.stringify({ok:true, done:true,
+            kind: mMode === 'all' ? 'video' : mMode, label: '', score: 6})));
+        return ['/api/music/search', '/api/search', '/api/movie/search'].includes(url)
+          ? new Promise(resolve => requests.push({resolve, mode:mMode, body:JSON.parse(opts.body)}))
+          : nativeFetch(url, opts);
+      };
       try {
-        query.value = 'fixture';
-        for (const mode of ['music', 'sfx', 'video', 'movie']) btn(mode).click();
-        const [music, sfx, video, movie] = requests;
-        finish(movie, 'CURRENT-MOVIE'); await tick();
-        for (const r of [video, sfx, music]) { finish(r, 'STALE'); await tick(); }
-        if (!$('#mResults').textContent.includes('CURRENT-MOVIE') || mItems[0]?.title !== 'CURRENT-MOVIE')
-          issues.push('older modes replaced movie state');
+        // 固定到「视频」这一档：类型定死之后，每轮搜索都必然发出请求。
+        // （「全部」模式会先问意图接口，且换类型会作废上一轮——这是刻意的，
+        //   所以这里不再靠连点四个类型来制造并发）
         btn('video').click();
+        await flush();
+        query.value = 'fixture';
+
+        // ① 连搜两次：晚到的旧结果不许盖掉新结果
+        musicSearch(); await flush();
+        musicSearch(); await flush();
+        const [early, late] = requests.slice(-2);
+        if (!early || !late) { issues.push('两次搜索没都发出请求'); return issues; }
+        finish(late, 'CURRENT'); await tick();
+        if (!$('#mResults').textContent.includes('CURRENT')) issues.push('新的结果没进列表');
+        finish(early, 'STALE'); await tick();
+        if ($('#mResults').textContent.includes('STALE')) issues.push('旧的一轮盖掉了新结果');
+        if (mItems[0]?.title !== 'CURRENT') issues.push('列表数据被旧的一轮改了');
+
+        // ② 换来源：旧来源的晚到包不许覆盖新来源
+        musicSearch(); await flush();          // 先挂一个还没回的请求
         $('#mVPlats [data-p="youtube"]').click();
+        await flush();
         const [oldSource, newSource] = requests.slice(-2);
-        if (newSource.body.sources[0] !== 'youtube') issues.push('source did not change');
+        if (!newSource || newSource.body.sources[0] !== 'youtube') issues.push('source did not change');
         finish(newSource, 'CURRENT-SOURCE'); await tick();
         finish(oldSource, 'STALE-SOURCE'); await tick();
         if (!$('#mResults').textContent.includes('CURRENT-SOURCE')) issues.push('older source replaced new source');
-        musicSearch();
+
+        // ③ 清空搜索框后，晚到的结果不许把列表填回来
+        musicSearch(); await flush();
         const old = requests.at(-1);
         query.value = ''; query.dispatchEvent(new Event('input'));
         finish(old, 'STALE-CLEARED'); await tick();

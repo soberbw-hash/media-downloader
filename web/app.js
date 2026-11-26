@@ -1786,31 +1786,36 @@ let tabSeq = 0;
 const reduceMotion = () =>
   window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-function cancelPanelAnim(el) {
+/* 把面板上的动画痕迹彻底抹掉：动画对象、类、行内样式全清。
+   面板的基准状态就是「可见、不偏移」，清干净 = 一定看得见。 */
+function resetPanel(el) {
   if (!el) return;
   try { el.getAnimations().forEach((a) => a.cancel()); } catch (e) {}
+  el.classList.remove("tab-enter", "tab-leave");
+  el.style.opacity = "";
+  el.style.transform = "";
+  el.style.willChange = "";
 }
-function animatePanel(el, entering) {
+
+/* 只给「新面板」做淡入。绝不给面板做「淡出到透明」：那类动画一旦被取消/
+   丢帧，元素会卡在 opacity:0 的末帧上——位置还占着，内容却画不出来，
+   用户看到的就是「整块空了、反复切换也不回来」。基准状态可见才安全。 */
+function animatePanelIn(el) {
   if (!el) return;
-  cancelPanelAnim(el);
+  resetPanel(el);
   try {
-    // 用原生动画接口，不再靠改 class + offsetWidth 强制同步布局（那是切换掉帧的主因）
-    el.animate(
-      entering
-        ? [{ opacity: 0, transform: "translate3d(0, 8px, 0)" },
-           { opacity: 1, transform: "translate3d(0, 0, 0)" }]
-        : [{ opacity: 1, transform: "translate3d(0, 0, 0)" },
-           { opacity: 0, transform: "translate3d(0, -4px, 0)" }],
-      {
-        duration: entering ? 240 : 100,
-        easing: entering ? "cubic-bezier(.22, .86, .28, 1)" : "cubic-bezier(.5, 0, .9, .4)",
-        fill: "both",
-      }
+    const a = el.animate(
+      [{ opacity: 0, transform: "translate3d(0, 6px, 0)" },
+       { opacity: 1, transform: "translate3d(0, 0, 0)" }],
+      { duration: 200, easing: "cubic-bezier(.22, .86, .28, 1)", fill: "none" }
     );
+    // 播完就撤掉，别让合成层和动画对象一直挂在这个面板上
+    a.onfinish = () => resetPanel(el);
+    a.oncancel = () => { el.style.opacity = ""; el.style.transform = ""; };
   } catch (e) {
-    // 老浏览器不支持 Web Animations 时，退回 CSS class 动画
-    el.classList.remove(entering ? "tab-leave" : "tab-enter");
-    el.classList.add(entering ? "tab-enter" : "tab-leave");
+    // 老浏览器没有 Web Animations：靠 CSS 类，同样只影响入场
+    el.classList.add("tab-enter");
+    setTimeout(() => el.classList.remove("tab-enter"), 260);
   }
 }
 function clearTabAnim() {
@@ -1818,10 +1823,7 @@ function clearTabAnim() {
   tabTimers.forEach(clearTimeout);
   tabTimers = [];
   document.body.classList.remove("tab-switching");
-  ["#composer", "#musicPanel"].forEach((s) => {
-    const el = $(s);
-    if (el) { el.classList.remove("tab-enter", "tab-leave"); cancelPanelAnim(el); }
-  });
+  ["#composer", "#musicPanel"].forEach((s) => resetPanel($(s)));
 }
 function later(fn, ms) {
   const seq = tabSeq;
@@ -1859,13 +1861,6 @@ function applyTab(m, instant) {
   const animate = !instant && !reduceMotion() &&
     ((m === "music" && visibleVideo) || (m === "video" && visibleMusic));
 
-  const finish = () => {
-    document.body.classList.toggle("tab-music", m === "music");
-    if (box) box.hidden = m !== "video";
-    if (mus) mus.hidden = m !== "music";
-    // 退场动画结束后把类摘掉，否则下次切回来会带着上次的透明状态
-    [box, mus].forEach((el) => el && el.classList.remove("tab-leave"));
-  };
   const focusIn = () => {
     if (m === "music") {
       const q = $("#mQuery");
@@ -1875,8 +1870,15 @@ function applyTab(m, instant) {
     }
   };
 
+  // 显隐一次到位，中间不再有「旧面板淡出、105ms 后才换」的窗口期。
+  // 换面板的那一帧就是终态，任何一步被打断都不会留下看不见的面板。
+  document.body.classList.toggle("tab-music", m === "music");
+  if (box) box.hidden = m !== "video";
+  if (mus) mus.hidden = m !== "music";
+  const inEl = m === "music" ? mus : box;
+
   if (!animate) {
-    finish();
+    resetPanel(inEl);
     if (m === "music") later(focusIn, 60);
     else focusIn();
     return;
@@ -1884,23 +1886,42 @@ function applyTab(m, instant) {
 
   // 只在真正有动画时关掉面板二次模糊，动画结束立刻恢复
   document.body.classList.add("tab-switching");
-
-  // 退场短、入场长：先淡出旧面板，再淡入新面板，中间不留下空白闪烁
-  const outEls = m === "music" ? [box] : [mus];
-  const inEls = m === "music" ? [mus] : [box];
-  outEls.forEach((el) => { if (el && !el.hidden) animatePanel(el, false); });
+  animatePanelIn(inEl);
   later(() => {
-    finish();
-    inEls.forEach((el) => animatePanel(el, true));
-    later(() => {
-      inEls.forEach(cancelPanelAnim);
-      document.body.classList.remove("tab-switching");
-      // 聚焦放到动画结束之后：聚焦会让浏览器重算一次布局，
-      // 放在动画中间会挤掉一帧，看起来就是「卡一下」。
-      focusIn();
-    }, 250);
-  }, 105);
+    document.body.classList.remove("tab-switching");
+    resetPanel(inEl);       // 兜底：动画没播完（被节流/掉帧）也不会留透明
+    // 聚焦放到动画之后：聚焦会让浏览器重算一次布局，
+    // 放在动画中间会挤掉一帧，看起来就是「卡一下」。
+    focusIn();
+  }, 230);
 }
+
+/* 自愈：切页动画在弱机器/后台窗口被节流时，极少数情况会把面板留在
+   看不见的状态。窗口重新获得焦点时对一次账，不对就当场纠正——
+   用户不用再点一下才恢复。 */
+function healTabView() {
+  const box = $("#composer");
+  const mus = $("#musicPanel");
+  const inEl = tabMode === "music" ? mus : box;
+  if (!inEl) return;
+  let bad = inEl.hidden;
+  try {
+    // 阈值放低：0 才是「卡死」，正常淡入中途的 0.3~0.9 不该被误判
+    bad = bad || parseFloat(getComputedStyle(inEl).opacity) < 0.6;
+  } catch (e) {}
+  if (!bad) return;
+  [box, mus].forEach(resetPanel);
+  document.body.classList.toggle("tab-music", tabMode === "music");
+  if (box) box.hidden = tabMode !== "video";
+  if (mus) mus.hidden = tabMode !== "music";
+  document.body.classList.remove("tab-switching");
+  // 强制一次重排，把合成层里的旧帧丢掉
+  void inEl.offsetWidth;
+}
+window.addEventListener("focus", () => setTimeout(healTabView, 120));
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) setTimeout(healTabView, 120);
+});
 
 document.querySelectorAll("#tabs .tab").forEach((b) => {
   b.addEventListener("click", () => applyTab(b.dataset.tab));

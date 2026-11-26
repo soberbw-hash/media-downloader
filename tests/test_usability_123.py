@@ -45,7 +45,7 @@ def main():
         pg.on("pageerror", lambda e: errs.append(str(e)))
         pg.goto(URL + "/", wait_until="networkidle", timeout=30000)
         pg.wait_for_timeout(700)
-        old_mode = pg.evaluate("() => localStorage.getItem('mMode')")
+        old_mode = pg.evaluate("() => localStorage.getItem('mMode2')")
 
         # ---- 1. 用户圈掉的那堆说明文字都不该再出现在首屏 ----
         pg.evaluate("() => document.querySelector('#openSet').click()")
@@ -126,7 +126,7 @@ def main():
         pg.wait_for_timeout(250)
         pg.evaluate("() => document.querySelector('#mSrc .plat[data-s=\"video\"]').click()")
         pg.wait_for_timeout(300)
-        assert pg.evaluate("() => localStorage.getItem('mMode')") == "video"
+        assert pg.evaluate("() => localStorage.getItem('mMode2')") == "video"
         pg.reload(wait_until="networkidle", timeout=30000)
         pg.wait_for_timeout(600)
         on = pg.evaluate("() => { const e = document.querySelector('#mSrc .plat.on'); return e && e.dataset.s; }")
@@ -136,10 +136,10 @@ def main():
         log("  ✓ 刷新后仍停在上次的「视频」，不用再点一次")
 
         # 还原用户原来的模式
-        if old_mode in ("music", "video", "movie"):
-            pg.evaluate("(m) => localStorage.setItem('mMode', m)", old_mode)
+        if old_mode in ("music", "video", "movie", "sfx", "book", "all"):
+            pg.evaluate("(m) => localStorage.setItem('mMode2', m)", old_mode)
         else:
-            pg.evaluate("() => localStorage.removeItem('mMode')")
+            pg.evaluate("() => localStorage.removeItem('mMode2')")
         pg.evaluate("() => localStorage.setItem('tabMode', 'video')")
 
         assert not errs, "界面脚本报错: %s" % errs[:3]

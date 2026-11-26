@@ -1,0 +1,13 @@
+{
+  "name": "vdl-frameless-shell",
+  "version": "1.0.0",
+  "private": true,
+  "description": "音视频下载器的无边框原生窗口壳",
+  "main": "electron/main.js",
+  "scripts": {
+    "shell": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^33.2.0"
+  }
+}

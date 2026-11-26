@@ -46,7 +46,8 @@
   --ink: #1c1917;
   --ok: #15803d;
   --err: #b91c1c;
-  --run: #2563eb;
+  /* 强调色跟底色统一成暖铜色：米黄玻璃上用亮蓝会像贴上去的 */
+  --run: #a9713a;
   --radius: 14px;
 }
 
@@ -65,6 +66,43 @@ html, body {
 /* 视口不滚动，滚动只发生在内容区里 —— 避免「整页往下拉」 */
 body { overflow: hidden; }
 
+/* 无边框原生壳（pywebview）自己画标题栏；Chrome --app 下完全不显示 */
+.appbar { display: none; }
+body.shell-webview .appbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 34px;
+  padding-left: 14px;
+  background: var(--titlebar, #e3e3e3);
+  color: #5b5145;
+  font-size: 12px;
+  line-height: 1;
+  user-select: none;
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+body.shell-webview .appbar-title { letter-spacing: .2px; }
+body.shell-webview .appbar-controls {
+  display: flex;
+  height: 100%;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+body.shell-webview .appbar-controls button {
+  width: 42px;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+body.shell-webview .appbar-controls button:hover { background: rgba(0, 0, 0, .06); }
+body.shell-webview .appbar-controls button[data-win="close"]:hover { background: #e81123; color: #fff; }
+body.shell-webview .wrap { height: calc(100% - 34px); }
+
 .wrap {
   max-width: 860px;
   margin: 0 auto;
@@ -82,8 +120,8 @@ header { flex: 0 0 auto; }
 header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 28px;
+  justify-content: flex-end;
+  margin-bottom: 20px;
 }
 
 .brand {
@@ -124,7 +162,7 @@ header {
 .icon-btn:hover {
   border-color: #d6d3d1;
   color: var(--text);
-  background: #fdfcfb;
+  background: var(--chip-bg);
 }
 
 .icon-btn[hidden] {
@@ -189,7 +227,7 @@ header {
   font-size: 11px;
   padding: 2px 8px;
   border-radius: 20px;
-  background: #f5f4f2;
+  background: var(--chip-bg);
   color: var(--text-2);
   border: 1px solid var(--line-soft);
   white-space: nowrap;
@@ -277,9 +315,8 @@ body.tab-music .platline { display: none; }
   display: flex;
   flex-direction: column;
   margin-top: 26px;
-  transition: flex-grow .38s cubic-bezier(.22, .86, .28, 1),
-              margin-top .38s cubic-bezier(.22, .86, .28, 1),
-              max-height .38s cubic-bezier(.22, .86, .28, 1);
+  /* 不做 flex-grow / max-height 动画：那会每帧重排整块任务列表，是切换掉帧的主因。
+     位置变化藏在新面板淡入里，眼睛几乎注意不到。 */
 }
 
 /* 搜索页：任务区改成贴底的一条，高度按内容但有上限。
@@ -417,7 +454,7 @@ body.tab-music .tasks-block {
   font-size: 10px;
   padding: 1px 6px;
   border-radius: 4px;
-  background: #f5f4f2;
+  background: var(--chip-bg);
   color: var(--text-2);
   border: 1px solid var(--line-soft);
   flex-shrink: 0;
@@ -445,7 +482,7 @@ body.tab-music .tasks-block {
 .bar {
   display: none;
   height: 3px;
-  background: #f0efee;
+  background: var(--track);
   border-radius: 3px;
   overflow: hidden;
   margin-bottom: 6px;
@@ -467,7 +504,7 @@ body.tab-music .tasks-block {
 
 /* 下完字节、正在合并音视频时，条子别定住得像死机 */
 .bar.wrapping i {
-  background: linear-gradient(90deg, var(--run) 0%, #a9c6ff 50%, var(--run) 100%);
+  background: linear-gradient(90deg, var(--run) 0%, #e6c193 50%, var(--run) 100%);
   background-size: 200% 100%;
   animation: barFlow 1.2s linear infinite;
 }
@@ -522,7 +559,7 @@ body.tab-music .tasks-block {
   border-radius: 5px;
 }
 
-.acts button:hover { background: #f5f4f2; color: var(--text); }
+.acts button:hover { background: var(--chip-bg); color: var(--text); }
 .acts button.ico { font-size: 14px; line-height: 1; padding: 3px 5px; }
 
 /* ---------- 弹窗（设置 / 账号 / 历史）：居中弹出，内容铺开 ---------- */
@@ -923,7 +960,7 @@ body.tab-music .tasks-block {
   font-family: var(--font);
   font-variant-numeric: tabular-nums;
   font-size: 10.5px;
-  background: #fff;
+  background: var(--chip-bg);
   border: 1px solid var(--line);
   border-radius: 5px;
   overflow-wrap: break-word;
@@ -1053,7 +1090,7 @@ body.tab-music .tasks-block {
   transition: border-color .15s ease, background .15s ease;
 }
 
-.acct-entry:hover { border-color: #d6d3d1; background: #fff; }
+.acct-entry:hover { border-color: var(--muted); background: var(--chip-bg); }
 
 .acct-entry .ae-ic {
   width: 26px;
@@ -1260,7 +1297,7 @@ body.playing .toast { bottom: 84px; }
 
 .filters .flt.on {
   color: var(--text);
-  background: #eae6e1;
+  background: var(--pill);
   font-weight: 500;
 }
 
@@ -1309,7 +1346,7 @@ body.playing .toast { bottom: 84px; }
   flex: 1 1 auto;
   height: 3px;
   border-radius: 3px;
-  background: #eceae8;
+  background: var(--track);
   overflow: hidden;
 }
 .at-prog i {
@@ -1317,7 +1354,7 @@ body.playing .toast { bottom: 84px; }
   height: 100%;
   width: 0;
   border-radius: inherit;
-  background: #1c1917;
+  background: var(--text);
   transition: width .32s cubic-bezier(.16,1,.3,1), background .2s ease;
 }
 .at-prog i.full { background: var(--ok); }
@@ -1325,7 +1362,7 @@ body.playing .toast { bottom: 84px; }
 /* 一键同步登录态：一行说明 + 一颗小按钮，别拿大黑条抢戏 */
 .ext-card {
   margin: 0 0 18px; padding: 10px 12px;
-  border: 1px solid var(--line-soft); border-radius: 11px; background: #fcfbfa;
+  border: 1px solid var(--line-soft); border-radius: 11px; background: var(--row-bg);
 }
 .ext-h { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .ext-h b {
@@ -1459,11 +1496,11 @@ body.playing .toast { bottom: 84px; }
   gap: 8px;
   min-width: 0;
   padding: 8px 10px;
-  background: #fff;
+  background: var(--row-bg);
   transition: background .14s ease;
 }
 
-.login-row:hover { background: #fbfaf9; }
+.login-row:hover { background: var(--chip-bg); }
 
 .login-row .fav {
   width: 24px;
@@ -1550,7 +1587,7 @@ body.playing .toast { bottom: 84px; }
 
 .login-row button {
   border: 1px solid var(--line);
-  background: #fff;
+  background: var(--chip-bg);
   color: var(--text-2);
   font-family: inherit;
   font-size: 11px;
@@ -1562,7 +1599,7 @@ body.playing .toast { bottom: 84px; }
   transition: border-color .14s ease, color .14s ease, background .14s ease;
 }
 
-.login-row button:hover { border-color: #d6d3d1; color: var(--text); }
+.login-row button:hover { border-color: var(--muted); color: var(--text); }
 .login-row button:disabled { opacity: .45; cursor: default; }
 
 .login-bar {
@@ -1712,7 +1749,7 @@ body.playing .toast { bottom: 84px; }
 .gtools button:hover {
   border-color: #d6d3d1;
   color: var(--text);
-  background: #fdfcfb;
+  background: var(--chip-bg);
 }
 
 .gtools button.primary {
@@ -1771,7 +1808,7 @@ body.playing .toast { bottom: 84px; }
 .pick-btn:hover {
   border-color: #d6d3d1;
   color: var(--text);
-  background: #fdfcfb;
+  background: var(--chip-bg);
 }
 
 .pick-btn:disabled { opacity: .55; cursor: default; }
@@ -1977,44 +2014,62 @@ button:focus-visible,
 }
 .tab:hover { color: var(--text-2); }
 .tab.on { color: var(--text); }
-/* 一条会滑动的下划线：切换时不再突然跳到另一个标签 */
+/* 一条会滑动的下划线。宽度固定、只动 transform：
+   之前同时动 width 会每帧触发布局，这是切换时肉眼可见卡顿的另一个来源。 */
 .tabs::after {
   content: "";
   position: absolute;
   left: 0;
   bottom: -1px;
-  width: var(--tab-w, 0px);
+  width: 60px;                       /* 基准宽度，JS 用 scaleX 校准实际标签宽度 */
   height: 2px;
   background: var(--ink);
   border-radius: 2px;
-  transform: translate3d(var(--tab-x, 0px), 0, 0);
-  transition: transform .42s cubic-bezier(.22, .9, .24, 1),
-              width .42s cubic-bezier(.22, .9, .24, 1);
+  transform-origin: left center;
+  transform: translate3d(var(--tab-x, 0px), 0, 0) scaleX(var(--tab-scale, 1));
+  transition: transform .30s cubic-bezier(.22, .9, .24, 1);
   pointer-events: none;
 }
 
-/* 面板切换：退场短促、入场舒展，都是非线性缓动。
-   hidden 还是最终真值，这里只负责中间那几百毫秒的观感。 */
+/* 面板切换：只动 opacity / transform 这两个合成属性，非线性缓动照旧。
+   去掉了 filter blur 和 scale —— 它们会让浏览器每帧重算模糊，正是「掉帧」的来源。 */
 @keyframes tabPanelIn {
-  from { opacity: 0; transform: translate3d(0, 12px, 0) scale(.985); filter: blur(2px); }
-  to   { opacity: 1; transform: none; filter: none; }
+  from { opacity: 0; transform: translate3d(0, 8px, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
 }
 @keyframes tabPanelOut {
-  from { opacity: 1; transform: none; filter: none; }
-  to   { opacity: 0; transform: translate3d(0, -6px, 0) scale(.99); filter: blur(2px); }
+  from { opacity: 1; transform: translate3d(0, 0, 0); }
+  to   { opacity: 0; transform: translate3d(0, -4px, 0); }
 }
 .tab-enter {
-  animation: tabPanelIn .38s cubic-bezier(.22, .86, .28, 1) both;
-  will-change: opacity, transform, filter;
+  animation: tabPanelIn .24s cubic-bezier(.22, .86, .28, 1) both;
+  will-change: opacity, transform;
 }
 .tab-leave {
-  animation: tabPanelOut .16s cubic-bezier(.5, 0, .9, .4) both;
+  animation: tabPanelOut .10s cubic-bezier(.5, 0, .9, .4) both;
   pointer-events: none;
-  will-change: opacity, transform, filter;
+  will-change: opacity, transform;
+}
+/* 切换那一瞬间临时关掉面板自己的二次 backdrop-filter：
+   外层 .wrap 已经有一整块大模糊，再叠一层并跟着 transform 动，
+   每帧都要重新采样背景，低配机器上必掉帧。用稍实的底色补上观感。 */
+body.tab-switching .composer,
+body.tab-switching .task,
+body.tab-switching .mcard,
+body.tab-switching .lg-list,
+body.tab-switching .mresults .mresult,
+body.tab-switching .search-card {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+body.tab-switching .composer { background: rgba(255, 255, 255, .54) !important; }
+body.tab-switching .task { background: rgba(255, 255, 255, .44) !important; }
+@media (prefers-color-scheme: dark) {
+  body.tab-switching .composer { background: rgba(44, 46, 78, .52) !important; }
+  body.tab-switching .task { background: rgba(44, 46, 78, .46) !important; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .tabs::after,
-  .tasks-block { transition: none !important; }
+  .tabs::after { transition: none !important; }
   .tab-enter, .tab-leave { animation: none !important; }
 }
 
@@ -2144,7 +2199,7 @@ button:focus-visible,
   padding: 2px;
   border: 1px solid var(--line);
   border-radius: 9px;
-  background: #fff;
+  background: var(--chip-bg);
 }
 .rsrc .rs {
   height: 22px;
@@ -2490,7 +2545,7 @@ button:focus-visible,
 }
 .msong .mst.ok { color: var(--ok); background: #eaf6ee; }
 .msong .mst.err { color: var(--err); background: #fdecec; }
-.msong .mst.run { color: var(--run); background: #eaf0fd; }
+.msong .mst.run { color: var(--run); background: #f8ecdb; }
 .msong .mst.act { cursor: pointer; }
 .msong .mst.act:hover { text-decoration: underline; }
 
@@ -2983,8 +3038,9 @@ body.playing .wrap { padding-bottom: 78px; }
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: rgba(28, 25, 23, .32);
-  backdrop-filter: blur(2px);
+  /* 压暗和模糊统一交给 #mask，这里再铺一层会叠成两次，
+     弹窗背后的米黄会被压成脏灰 —— 之前那层灰就是这么来的 */
+  background: transparent;
   animation: fade .14s ease;
 }
 
@@ -3050,29 +3106,30 @@ a.s-btn { display: inline-flex; align-items: center; text-decoration: none; }
    ================================================================== */
 
 :root {
-  --glass: rgba(255, 255, 255, .38);
-  --glass-strong: rgba(255, 255, 255, .58);
-  --glass-line: rgba(255, 255, 255, .72);
-  --glass-shadow: 0 24px 64px -30px rgba(52, 38, 96, .48),
-                  0 6px 18px -10px rgba(52, 38, 96, .24);
-  --glass-inset: inset 0 1px 0 rgba(255, 255, 255, .92);
+  /* 壁纸是一层暖米黄，玻璃本身用暖白，文字对比度不掉 */
+  --glass: rgba(255, 252, 245, .46);
+  --glass-strong: rgba(255, 252, 245, .64);
+  --glass-line: rgba(255, 255, 255, .78);
+  --glass-shadow: 0 24px 64px -30px rgba(92, 68, 38, .26),
+                  0 6px 18px -10px rgba(92, 68, 38, .14);
+  --glass-inset: inset 0 1px 0 rgba(255, 255, 255, .95);
   --blur: 30px;
   /* 所有 surface 控件统一吃玻璃，不再留一片死白 */
-  --surface: rgba(255, 255, 255, .40);
-  --hint: #8b8599;
+  --surface: rgba(255, 252, 245, .46);
+  --hint: #93897a;
 }
 
-/* 壁纸：紫粉打底 + 中心暖光，颜色要够，玻璃才透得出东西 */
+/* 壁纸：温润的米黄底，杏色、沙金、一点点藕粉，只留很浅一层 */
 html, body { background: none; }
 body {
-  background-color: #c9c5e8;
+  background-color: #f2e7d5;
   background-image:
-    radial-gradient(900px 620px at 16% 6%,   rgba(255, 255, 255, .52), transparent 58%),
-    radial-gradient(1050px 700px at 52% 42%, rgba(255, 196, 158, .70), transparent 60%),
-    radial-gradient(900px 660px at 88% 16%,  rgba(200, 158, 236, .78), transparent 62%),
-    radial-gradient(1000px 760px at 94% 96%, rgba(246, 140, 164, .62), transparent 60%),
-    radial-gradient(900px 760px at 2% 96%,   rgba(122, 182, 224, .56), transparent 62%),
-    linear-gradient(135deg, #b8b5ea 0%, #d8c6ec 44%, #f0d1cd 100%);
+    radial-gradient(820px 560px at 14% 2%,   rgba(255, 254, 250, .82), transparent 56%),
+    radial-gradient(1100px 720px at 54% 40%, rgba(255, 213, 152, .30), transparent 60%),
+    radial-gradient(900px 660px at 90% 14%,  rgba(234, 199, 168, .30), transparent 62%),
+    radial-gradient(1050px 780px at 96% 98%, rgba(246, 214, 158, .28), transparent 60%),
+    radial-gradient(900px 760px at 0% 98%,   rgba(216, 208, 188, .28), transparent 62%),
+    linear-gradient(135deg, #f9f4ea 0%, #f3e7d3 48%, #f8eedd 100%);
   background-attachment: fixed;
   background-repeat: no-repeat;
 }
@@ -3084,10 +3141,10 @@ body::before {
   z-index: 0;
   pointer-events: none;
   background:
-    conic-gradient(from 210deg at 42% 38%, transparent 0 18%, rgba(255, 216, 182, .48) 24% 40%, transparent 48%),
-    conic-gradient(from 30deg at 72% 62%, transparent 0 22%, rgba(255, 154, 190, .38) 30% 44%, transparent 52%);
+    conic-gradient(from 210deg at 42% 38%, transparent 0 18%, rgba(255, 224, 172, .26) 24% 40%, transparent 48%),
+    conic-gradient(from 30deg at 72% 62%, transparent 0 22%, rgba(246, 205, 176, .20) 30% 44%, transparent 52%);
   filter: blur(72px);
-  opacity: .72;
+  opacity: .32;
 }
 body::after {
   content: "";
@@ -3100,31 +3157,40 @@ body::after {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.5'/%3E%3C/svg%3E");
 }
 
-/* 整页内容是一块浮在壁纸上的大玻璃 —— Pane 那种「一整块」质感的关键 */
+/* 整页玻璃铺满客户区，不再留一圈壁纸当「外框」——
+   Chrome --app 的原生标题栏颜色改不了，就让页面顶端用同色接住它，
+   看起来是一整块玻璃，而不是窗口里又套了一个窗口。 */
 .wrap {
   position: relative;
   z-index: 1;
-  margin: 22px auto;
-  height: calc(100% - 44px);
-  padding: 24px 28px 18px;
-  border-radius: 26px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, .46), rgba(255, 255, 255, .28));
-  -webkit-backdrop-filter: blur(34px) saturate(1.9);
-  backdrop-filter: blur(34px) saturate(1.9);
-  border: 1px solid rgba(255, 255, 255, .70);
-  box-shadow:
-    0 30px 80px -36px rgba(52, 38, 96, .55),
-    0 8px 26px -18px rgba(52, 38, 96, .32),
-    inset 0 1px 0 rgba(255, 255, 255, .92);
+  margin: 0;
+  max-width: none;
+  height: 100%;
+  padding: 14px 24px 14px;
+  border-radius: 0;
+  border: 0;
+  background: linear-gradient(180deg,
+    var(--titlebar, #f0e7d7) 0,
+    rgba(246, 239, 227, .96) 26px,
+    rgba(249, 244, 234, .74) 76px,
+    rgba(255, 252, 245, .34) 132px,
+    rgba(255, 252, 245, .22) 100%);
+  -webkit-backdrop-filter: blur(26px) saturate(1.25);
+  backdrop-filter: blur(26px) saturate(1.25);
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, .45);
 }
+/* 自绘标题栏（Electron 壳）用米黄，和页面顶端正同一色；
+   万一回退到 Chrome --app，则贴回它的原生灰，不留一道色块。 */
+body.shell-webview { --titlebar: #f2e9d9; }
+body:not(.shell-webview) { --titlebar: #e3e3e3; }
 @media (max-height: 760px) {
-  .wrap { margin: 12px auto; height: calc(100% - 24px); padding: 18px 24px 14px; }
+  .wrap { padding: 10px 24px 12px; }
 }
 @media (max-width: 620px) {
-  .wrap { margin: 10px; height: calc(100% - 20px); padding: 18px 16px 14px; border-radius: 20px; }
+  .wrap { padding: 10px 14px 12px; }
 }
 @media (max-height: 560px) {
-  .wrap { height: auto; min-height: calc(100% - 24px); }
+  .wrap { height: auto; min-height: 100%; }
 }
 
 /* 主面板：输入区、任务卡、弹窗卡片 —— 玻璃质感的核心三块 */
@@ -3144,16 +3210,16 @@ body::after {
 
 .composer {
   border-radius: 20px;
-  background: rgba(255, 255, 255, .40);
-  box-shadow: 0 14px 34px -20px rgba(52, 38, 96, .45),
-              inset 0 1px 0 rgba(255, 255, 255, .88);
+  background: rgba(255, 251, 243, .50);
+  box-shadow: 0 14px 34px -20px rgba(92, 68, 38, .26),
+              inset 0 1px 0 rgba(255, 255, 255, .9);
 }
 .task {
   border-radius: 16px;
-  background: rgba(255, 255, 255, .30);
+  background: rgba(255, 251, 243, .38);
 }
 .task:hover {
-  background: rgba(255, 255, 255, .50);
+  background: rgba(255, 251, 243, .54);
   border-color: rgba(255, 255, 255, .88);
 }
 .mcard    { border-radius: 22px; }
@@ -3163,14 +3229,14 @@ body::after {
    顶边高光 + 多层柔和阴影，比纯色半透明更立体、更接近 Pane 的质感。 */
 .mcard {
   background: linear-gradient(180deg,
-    rgba(255, 255, 255, .64) 0%,
-    rgba(255, 255, 255, .44) 100%);
+    rgba(255, 252, 246, .82) 0%,
+    rgba(253, 246, 235, .68) 100%);
   -webkit-backdrop-filter: blur(36px) saturate(1.9);
   backdrop-filter: blur(36px) saturate(1.9);
   border: 1px solid rgba(255, 255, 255, .82);
   box-shadow:
-    0 40px 90px -32px rgba(46, 34, 92, .56),
-    0 10px 28px -14px rgba(46, 34, 92, .30),
+    0 40px 90px -32px rgba(86, 62, 34, .34),
+    0 10px 28px -14px rgba(86, 62, 34, .18),
     inset 0 1px 0 rgba(255, 255, 255, 1),
     inset 0 -1px 0 rgba(255, 255, 255, .38);
 }
@@ -3186,7 +3252,7 @@ body::after {
 .cell-save,
 .s-btn,
 .pick-btn {
-  background: rgba(255, 255, 255, .42);
+  background: rgba(255, 252, 246, .44);
   -webkit-backdrop-filter: blur(12px) saturate(1.6);
   backdrop-filter: blur(12px) saturate(1.6);
   border-color: rgba(255, 255, 255, .74);
@@ -3198,7 +3264,7 @@ body::after {
 .plat.on,
 .rs.on,
 .flt.on {
-  box-shadow: 0 4px 12px -5px rgba(48, 52, 96, .4);
+  box-shadow: 0 4px 12px -5px rgba(92, 68, 38, .26);
 }
 
 /* 设置面板里的输入框 / 下拉 / 历史搜索框：统一吃玻璃，不再死白 */
@@ -3208,7 +3274,7 @@ body::after {
 .field select,
 .msearch input,
 #histQ {
-  background: rgba(255, 255, 255, .40);
+  background: rgba(255, 252, 246, .44);
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
   border: 1px solid rgba(255, 255, 255, .74);
@@ -3238,27 +3304,27 @@ body::after {
   -webkit-backdrop-filter: blur(var(--blur)) saturate(1.7);
   backdrop-filter: blur(var(--blur)) saturate(1.7);
   border-top-color: var(--glass-line);
-  box-shadow: 0 -10px 30px -18px rgba(48, 52, 96, .3);
+  box-shadow: 0 -10px 30px -18px rgba(92, 68, 38, .22);
 }
 
 /* 提示条也吃玻璃质感（深色实心 + 亮边） */
 .toast {
   -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
-  box-shadow: 0 10px 30px -12px rgba(20, 22, 40, .45),
+  box-shadow: 0 10px 30px -12px rgba(44, 32, 20, .40),
               inset 0 1px 0 rgba(255, 255, 255, .18);
 }
 
 /* 遮罩把底层压暗并抹开，但保留颜色，弹窗才有「透出背景」的高级感 */
 .mask {
-  background: rgba(46, 34, 74, .24);
+  background: rgba(64, 48, 30, .26);
   -webkit-backdrop-filter: blur(10px) saturate(1.25);
   backdrop-filter: blur(10px) saturate(1.25);
 }
 
 /* 账号列表底部渐隐跟随玻璃，不用死白 */
 .acct-card::after {
-  background: linear-gradient(to top, rgba(255, 255, 255, .74), rgba(255, 255, 255, 0));
+  background: linear-gradient(to top, rgba(255, 252, 245, .76), rgba(255, 252, 245, 0));
 }
 
 /* 抽屉底栏（保存 / 完成那条）：完全透明，直接透出父卡片背景，
@@ -3272,10 +3338,10 @@ body::after {
 .gsteps { gap: 12px; }
 .gstep {
   padding: 10px 12px 12px;
-  background: rgba(255, 255, 255, .30);
+  background: rgba(255, 252, 246, .34);
   border: 1px solid rgba(255, 255, 255, .72);
   border-radius: 12px;
-  box-shadow: 0 8px 20px -14px rgba(48, 52, 96, .5),
+  box-shadow: 0 8px 20px -14px rgba(92, 68, 38, .30),
               inset 0 1px 0 rgba(255, 255, 255, .8);
 }
 .gpic {
@@ -3283,13 +3349,13 @@ body::after {
   margin: 2px 0 0 22px;
   border-color: rgba(255, 255, 255, .9);
   border-radius: 9px;
-  box-shadow: 0 10px 22px -9px rgba(48, 52, 96, .4),
-              0 2px 5px -2px rgba(48, 52, 96, .22);
+  box-shadow: 0 10px 22px -9px rgba(92, 68, 38, .26),
+              0 2px 5px -2px rgba(92, 68, 38, .16);
   transition: box-shadow .16s ease, transform .16s ease;
 }
 .gpic:hover {
-  box-shadow: 0 14px 28px -10px rgba(48, 52, 96, .5),
-              0 3px 7px -3px rgba(48, 52, 96, .26);
+  box-shadow: 0 14px 28px -10px rgba(92, 68, 38, .30),
+              0 3px 7px -3px rgba(92, 68, 38, .20);
   transform: translateY(-1px);
 }
 .gn { box-shadow: 0 2px 5px -2px rgba(0, 0, 0, .45); }
@@ -3297,48 +3363,61 @@ body::after {
 /* ---------- 深色：跟随系统 ---------- */
 @media (prefers-color-scheme: dark) {
   :root {
-    --glass: rgba(34, 36, 64, .38);
-    --glass-strong: rgba(28, 30, 54, .60);
-    --glass-line: rgba(255, 255, 255, .16);
+    /* 深色也跟着走暖调：浓缩咖啡底 + 琥珀微光，不再偏蓝紫 */
+    --glass: rgba(44, 39, 33, .40);
+    --glass-strong: rgba(38, 33, 28, .62);
+    --glass-line: rgba(255, 255, 255, .15);
     --glass-shadow: 0 18px 50px -20px rgba(0, 0, 0, .62),
                     0 4px 12px -6px rgba(0, 0, 0, .42);
-    --glass-inset: inset 0 1px 0 rgba(255, 255, 255, .12);
-    --text: #eceef5;
-    --text-2: #c6c9d8;
-    --muted: #a5a9bb;
-    --hint: #9296a9;
+    --glass-inset: inset 0 1px 0 rgba(255, 255, 255, .10);
+    --text: #f3ede2;
+    --text-2: #d2c8b9;
+    --muted: #aaa091;
+    --hint: #998f80;
     --line: rgba(255, 255, 255, .12);
     --line-soft: rgba(255, 255, 255, .07);
     /* 深色下所有 surface 控件（输入框 / 按钮 / chip）统一吃深玻璃 */
     --surface: rgba(255, 255, 255, .07);
+    --chip-bg: rgba(255, 255, 255, .08);
+    --track: rgba(255, 255, 255, .10);
+    --pill: rgba(255, 255, 255, .10);
+    --row-bg: rgba(255, 255, 255, .045);
+    /* 暗玻璃上把铜色提亮一档，进度条 / 运行态才看得清 */
+    --run: #c99257;
     /* --ink 保持深色实心：主按钮 / 提示条在深玻璃上仍有对比 */
   }
 
   body {
-    background-color: #191b31;
+    background-color: #1b1815;
     background-image:
-      radial-gradient(900px 620px at 16% 6%,   rgba(104, 124, 222, .48), transparent 58%),
-      radial-gradient(1050px 700px at 52% 42%, rgba(196, 106, 138, .44), transparent 60%),
-      radial-gradient(900px 660px at 88% 16%,  rgba(132, 78, 196, .52), transparent 62%),
-      radial-gradient(1000px 760px at 94% 96%, rgba(190, 74, 118, .46), transparent 60%),
-      radial-gradient(900px 760px at 2% 96%,   rgba(46, 112, 152, .46), transparent 62%),
-      linear-gradient(135deg, #1d2141 0%, #2b2349 46%, #38233d 100%);
+      radial-gradient(900px 620px at 16% 6%,   rgba(176, 138, 92, .18), transparent 58%),
+      radial-gradient(1050px 700px at 52% 42%, rgba(168, 108, 62, .18), transparent 60%),
+      radial-gradient(900px 660px at 88% 16%,  rgba(196, 156, 104, .16), transparent 62%),
+      radial-gradient(1000px 760px at 94% 96%, rgba(146, 96, 58, .18), transparent 60%),
+      radial-gradient(900px 760px at 2% 96%,   rgba(92, 78, 58, .20), transparent 62%),
+      linear-gradient(135deg, #1e1b17 0%, #221d18 46%, #241d16 100%);
   }
+  body:not(.shell-webview) { --titlebar: #2b2b30; }
+  body.shell-webview { --titlebar: #241f1a; }
+  body.shell-webview .appbar { color: #ded4c5; }
+  body.shell-webview .appbar-controls button:hover { background: rgba(255, 255, 255, .10); }
   .wrap {
-    background: linear-gradient(180deg, rgba(44, 46, 78, .42), rgba(26, 28, 50, .30));
-    border-color: rgba(255, 255, 255, .16);
-    box-shadow:
-      0 32px 80px -34px rgba(0, 0, 0, .72),
-      0 8px 26px -18px rgba(0, 0, 0, .55),
-      inset 0 1px 0 rgba(255, 255, 255, .12);
+    background: linear-gradient(180deg,
+      var(--titlebar, #241f1a) 0,
+      rgba(40, 35, 29, .96) 26px,
+      rgba(42, 37, 31, .74) 76px,
+      rgba(46, 40, 32, .42) 132px,
+      rgba(44, 38, 30, .30) 100%);
+    border-color: transparent;
+    box-shadow: inset 0 -1px 0 rgba(255, 255, 255, .08);
   }
   .composer,
-  .task { background: rgba(34, 36, 64, .32); }
-  .task:hover { background: rgba(52, 55, 88, .48); border-color: rgba(255, 255, 255, .22); }
+  .task { background: rgba(44, 39, 33, .34); }
+  .task:hover { background: rgba(62, 55, 45, .50); border-color: rgba(255, 255, 255, .22); }
   .mcard {
     background: linear-gradient(180deg,
-      rgba(48, 50, 82, .66) 0%,
-      rgba(26, 28, 48, .54) 100%);
+      rgba(58, 51, 42, .68) 0%,
+      rgba(34, 30, 25, .56) 100%);
     border-color: rgba(255, 255, 255, .18);
     box-shadow:
       0 40px 90px -32px rgba(0, 0, 0, .78),
@@ -3346,7 +3425,7 @@ body::after {
       inset 0 1px 0 rgba(255, 255, 255, .16),
       inset 0 -1px 0 rgba(255, 255, 255, .04);
   }
-  .mask { background: rgba(4, 4, 12, .38); }
+  .mask { background: rgba(8, 6, 4, .40); }
   .gstep { background: rgba(255, 255, 255, .055); }
 
   .icon-btn,
@@ -3371,8 +3450,17 @@ body::after {
   #histQ { background: rgba(255, 255, 255, .05); border-color: rgba(255, 255, 255, .14); }
 
   .msearch .mrec-btn.on { background: rgba(255, 255, 255, .1); }
-  .thumb { background: #262a3c; }
-  .acct-card::after { background: linear-gradient(to top, rgba(26, 28, 46, .78), rgba(26, 28, 46, 0)); }
+  /* 搜索结果的三个状态小标签：深色下改暗底，别留三块亮片 */
+  .msong .mst.ok { background: rgba(34, 197, 94, .14); }
+  .msong .mst.err { background: rgba(239, 68, 68, .14); }
+  .msong .mst.run { background: rgba(201, 146, 87, .16); }
+  .thumb { background: #2b2620; }
+  /* 账号入口的小图标 / 行底色原本写死近白，深色下会变成一块亮饼 */
+  .acct-entry { background: rgba(255, 255, 255, .05); }
+  .acct-entry:hover { background: rgba(255, 255, 255, .08); border-color: rgba(255, 255, 255, .18); }
+  .acct-entry .ae-ic { background: rgba(255, 255, 255, .10); }
+  .acct-entry .ae-arrow { color: var(--hint); }
+  .acct-card::after { background: linear-gradient(to top, rgba(32, 28, 23, .78), rgba(32, 28, 23, 0)); }
 
   /* 抽屉底栏跟随深色玻璃，不留一条白带 */
   .drawer-foot { background: transparent; border-top-color: transparent; }

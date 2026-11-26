@@ -1,5 +1,38 @@
 const $ = (s) => document.querySelector(s);
 
+/* Chrome --app 的原生标题栏在激活 / 失焦时是两种灰。
+   页面顶端跟着切，避免标题栏和玻璃之间出现一道台阶。 */
+(function () {
+  const syncTitlebar = () => document.body.classList.toggle("win-active", document.hasFocus());
+  window.addEventListener("focus", syncTitlebar);
+  window.addEventListener("blur", syncTitlebar);
+  syncTitlebar();
+})();
+
+/* 无边框原生壳：显示自绘标题栏，并把三个窗口按钮接到 pywebview */
+(function () {
+  const shell = new URLSearchParams(location.search).get("shell");
+  if (shell !== "webview" && shell !== "electron") return;
+  document.body.classList.add("shell-webview");
+  const wire = () => {
+    const api = (shell === "electron" && window.appControls)
+      || (window.pywebview && window.pywebview.api);
+    const bar = document.getElementById("appBar");
+    if (!api || !bar || bar.dataset.wired) return;
+    bar.dataset.wired = "1";
+    bar.addEventListener("click", async (e) => {
+      const b = e.target.closest("button[data-win]");
+      if (!b) return;
+      const act = b.dataset.win;
+      if (act === "min") api.minimize();
+      else if (act === "max") b.textContent = await api.toggleMax();
+      else if (act === "close") api.close();
+    });
+  };
+  window.addEventListener("pywebviewready", wire);
+  wire();
+})();
+
 /* ---------- 平台识别（按域名精确匹配，和后端一致） ---------- */
 const HOSTS = [
   [["douyin.com", "iesdouyin.com"], "抖音"],
@@ -1770,13 +1803,41 @@ let tabSeq = 0;
 const reduceMotion = () =>
   window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+function cancelPanelAnim(el) {
+  if (!el) return;
+  try { el.getAnimations().forEach((a) => a.cancel()); } catch (e) {}
+}
+function animatePanel(el, entering) {
+  if (!el) return;
+  cancelPanelAnim(el);
+  try {
+    // 用原生动画接口，不再靠改 class + offsetWidth 强制同步布局（那是切换掉帧的主因）
+    el.animate(
+      entering
+        ? [{ opacity: 0, transform: "translate3d(0, 8px, 0)" },
+           { opacity: 1, transform: "translate3d(0, 0, 0)" }]
+        : [{ opacity: 1, transform: "translate3d(0, 0, 0)" },
+           { opacity: 0, transform: "translate3d(0, -4px, 0)" }],
+      {
+        duration: entering ? 240 : 100,
+        easing: entering ? "cubic-bezier(.22, .86, .28, 1)" : "cubic-bezier(.5, 0, .9, .4)",
+        fill: "both",
+      }
+    );
+  } catch (e) {
+    // 老浏览器不支持 Web Animations 时，退回 CSS class 动画
+    el.classList.remove(entering ? "tab-leave" : "tab-enter");
+    el.classList.add(entering ? "tab-enter" : "tab-leave");
+  }
+}
 function clearTabAnim() {
   tabSeq++;
   tabTimers.forEach(clearTimeout);
   tabTimers = [];
+  document.body.classList.remove("tab-switching");
   ["#composer", "#platLine", "#musicPanel"].forEach((s) => {
     const el = $(s);
-    if (el) el.classList.remove("tab-enter", "tab-leave");
+    if (el) { el.classList.remove("tab-enter", "tab-leave"); cancelPanelAnim(el); }
   });
 }
 function later(fn, ms) {
@@ -1790,7 +1851,9 @@ function syncTabIndicator(m) {
   const tr = tabs.getBoundingClientRect();
   const ar = active.getBoundingClientRect();
   tabs.style.setProperty("--tab-x", Math.round(ar.left - tr.left) + "px");
-  tabs.style.setProperty("--tab-w", Math.round(ar.width) + "px");
+  // CSS 里下划线是固定 60px 基准宽度，用 scaleX 校准到实际标签宽度：
+  // 只动 transform，不再每帧改 width 触发布局。
+  tabs.style.setProperty("--tab-scale", (ar.width / 60).toFixed(4));
 }
 
 function applyTab(m, instant) {
@@ -1838,26 +1901,24 @@ function applyTab(m, instant) {
     return;
   }
 
+  // 只在真正有动画时关掉面板二次模糊，动画结束立刻恢复
+  document.body.classList.add("tab-switching");
+
   // 退场短、入场长：先淡出旧面板，再淡入新面板，中间不留下空白闪烁
   const outEls = m === "music" ? [box, plat] : [mus];
   const inEls = m === "music" ? [mus] : [box, plat];
-  outEls.forEach((el) => {
-    if (el && !el.hidden) {
-      el.classList.remove("tab-enter");
-      el.classList.add("tab-leave");
-    }
-  });
+  outEls.forEach((el) => { if (el && !el.hidden) animatePanel(el, false); });
   later(() => {
     finish();
-    inEls.forEach((el) => {
-      if (!el) return;
-      el.classList.remove("tab-leave", "tab-enter");
-      void el.offsetWidth;
-      el.classList.add("tab-enter");
-    });
-    later(() => inEls.forEach((el) => el && el.classList.remove("tab-enter")), 420);
-    later(focusIn, m === "music" ? 80 : 30);
-  }, 165);
+    inEls.forEach((el) => animatePanel(el, true));
+    later(() => {
+      inEls.forEach(cancelPanelAnim);
+      document.body.classList.remove("tab-switching");
+      // 聚焦放到动画结束之后：聚焦会让浏览器重算一次布局，
+      // 放在动画中间会挤掉一帧，看起来就是「卡一下」。
+      focusIn();
+    }, 250);
+  }, 105);
 }
 
 document.querySelectorAll("#tabs .tab").forEach((b) => {

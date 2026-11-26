@@ -16,6 +16,10 @@ datas = [
     (os.path.join(ROOT, "web"), "web"),
     (os.path.join(ROOT, "browser-extension"), "browser-extension"),
 ]
+# 说明：Mac 版没有带 Electron 无边框壳（Windows 便携包里才有）。
+# server._electron_exe() 在包里找不到 electron 时会自动回退到 Chrome/Edge 的
+# --app 独立窗口，功能完全一样，只是顶部仍是系统标题栏。别为了「统一外观」
+# 硬塞一个没验证过的 arm64 Electron 进 .app —— 签名和体积都会出问题。
 # 随包带一个静态 ffmpeg：朋友不用装 Homebrew，Suno 转 mp3 / 识曲 / 合并都能用
 binaries = [(FFMPEG, "bin")] if FFMPEG and os.path.isfile(FFMPEG) else []
 

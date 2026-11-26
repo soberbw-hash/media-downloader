@@ -31,9 +31,9 @@ CODE_FILES = [
     "hls.py", "login.py", "search.py", "movies.py", "recognize.py",
     "sources.py", "aggregate.py", "paths.py", "updater.py",
     "picker.py", "picker_win.py", "version.txt", "README.md", "LICENSE",
-    "requirements.txt", "start.bat", "诊断.bat", "启动.command",
+    "requirements.txt", "start.bat", "诊断.bat", "启动.command", "package.json",
 ]
-CODE_DIRS = ["web", "browser-extension"]
+CODE_DIRS = ["web", "browser-extension", "electron"]
 DATA_FILES = ["config.json", "history.json"]
 DATA_DIRS = ["cookies"]
 
@@ -155,6 +155,14 @@ def main():
         copytree(a.runtime, os.path.join(app, "runtime"))
     elif not os.path.isdir(os.path.join(app, "runtime")):
         print("!! 目标里没有 程序\\runtime，也没给 --runtime，打出来的包跑不了")
+
+    # 无边框窗口壳：把 Electron 运行时带进包里，用户不用自己装
+    edist = os.path.join(BASE, "node_modules", "electron", "dist")
+    if os.path.isdir(edist):
+        copytree(edist, os.path.join(app, "electron-dist"), skip=())
+        print("无边框窗口壳 ->", os.path.join(app, "electron-dist"))
+    else:
+        print("!! 没找到 Electron 运行时，窗口会回退到浏览器 --app（仍有系统标题栏）")
 
     # 内置 ffmpeg：Suno 的 mp4 抽音轨转 mp3 靠它，打包进去别人不用自己装
     ff = find_sys_ffmpeg()

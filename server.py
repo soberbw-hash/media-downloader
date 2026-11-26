@@ -1449,6 +1449,40 @@ def _browser_exe():
     return None
 
 
+def _electron_exe():
+    """无边框壳的可执行文件：打包目录优先，开发环境用 node_modules 里的。"""
+    root = os.path.dirname(os.path.abspath(__file__))
+    if IS_WIN:
+        cands = [
+            os.path.join(root, "electron-dist", "electron.exe"),
+            os.path.join(root, "node_modules", "electron", "dist", "electron.exe"),
+        ]
+    elif IS_MAC:
+        cands = [
+            os.path.join(root, "electron-dist", "Electron.app", "Contents", "MacOS", "Electron"),
+            os.path.join(root, "node_modules", "electron", "dist", "Electron.app",
+                         "Contents", "MacOS", "Electron"),
+        ]
+    else:
+        cands = [
+            os.path.join(root, "electron-dist", "electron"),
+            os.path.join(root, "node_modules", "electron", "dist", "electron"),
+        ]
+    for p in cands:
+        if p and os.path.isfile(p):
+            return p
+    return None
+
+
+def _electron_launch_args(url):
+    """Electron 需要先把应用目录交给它，再传业务 URL。"""
+    exe = _electron_exe()
+    if not exe:
+        return None
+    root = os.path.dirname(os.path.abspath(__file__))
+    return [exe, root, url]
+
+
 def app_profile_dir():
     if IS_MAC:
         return os.path.join(os.path.expanduser("~"), "Library", "Application Support",
@@ -1501,6 +1535,19 @@ def open_window(url, mode):
     if mode != "app":
         webbrowser.open(url)
         return "browser"
+
+    # 优先用无边框 Electron 壳；没装或用户强制 VDL_SHELL=chrome 时回退浏览器 --app。
+    if os.environ.get("VDL_SHELL", "") != "chrome":
+        args = _electron_launch_args(url)
+        if args:
+            try:
+                flags = 0x00000008 if os.name == "nt" else 0  # DETACHED_PROCESS
+                env = os.environ.copy()
+                env.pop("ELECTRON_RUN_AS_NODE", None)  # 宿主注入的变量会让 Electron 退化成 Node
+                subprocess.Popen(args, creationflags=flags, close_fds=True, env=env)
+                return "app"
+            except Exception:
+                pass
 
     exe = _browser_exe()
     if not exe:

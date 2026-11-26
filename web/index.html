@@ -3,9 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<!-- 让 --app 原生标题栏跟玻璃壁纸同色，不再是一条突兀的白bar -->
-<meta name="theme-color" content="#cfc4e6" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#1b1d33" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f2e9d9" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#241f1a" media="(prefers-color-scheme: dark)">
 <title>音视频下载器</title>
 <link rel="icon" type="image/png" sizes="16x16" href="/img/favicon-16.png">
 <link rel="icon" type="image/png" sizes="32x32" href="/img/favicon-32.png">
@@ -14,12 +13,18 @@
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
+<!-- 无边框原生壳自己画的标题栏；Chrome --app 下隐藏，仍旧用系统栏 -->
+<div class="appbar" id="appBar">
+  <span class="appbar-title">音视频下载器</span>
+  <div class="appbar-controls">
+    <button type="button" data-win="min" title="最小化" aria-label="最小化">─</button>
+    <button type="button" data-win="max" title="最大化" aria-label="最大化">□</button>
+    <button type="button" data-win="close" title="关闭" aria-label="关闭">×</button>
+  </div>
+</div>
 <div class="wrap">
 
   <header>
-    <div class="brand">
-      <h1>音视频下载器</h1>
-    </div>
     <div class="head-actions">
       <button class="icon-btn" id="openHist">历史</button>
       <button class="icon-btn" id="openDir">下载目录</button>

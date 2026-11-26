@@ -20,6 +20,7 @@ import tempfile
 from PIL import Image
 
 BASE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(BASE)          # 项目根（BASE 是 tools/，别拿它当根用）
 ASSETS = os.path.join(BASE, "assets")
 SVG = os.path.join(ASSETS, "app-icon.svg")
 S = 1024                      # 母版边长
@@ -122,11 +123,18 @@ def build():
 
     # 浏览器扩展图标：跟桌面 app 用同一张母版，别再各画各的。
     # Chrome 会按 16/32/48/128 原样显示，圆角外的透明边在插件卡片里很干净。
-    ext_icons = os.path.join(BASE, "browser-extension", "icons")
+    ext_icons = os.path.join(ROOT, "browser-extension", "icons")
     if os.path.isdir(ext_icons):
         for s in (16, 32, 48, 128):
             img.resize((s, s), Image.LANCZOS).save(
                 os.path.join(ext_icons, "icon%d.png" % s))
+
+    # 网页 favicon：index.html 里按 16/32/48/64 引用，也要跟母版一致
+    web_img = os.path.join(ROOT, "web", "img")
+    if os.path.isdir(web_img):
+        for s in (16, 32, 48, 64):
+            img.resize((s, s), Image.LANCZOS).save(
+                os.path.join(web_img, "favicon-%d.png" % s))
 
     # 小尺寸检查条：16/32/48/64 各放大 4 倍
     strip = Image.new("RGBA", (4 * 64 * 4 + 5 * 12, 64 * 4 + 24), (245, 245, 245, 255))

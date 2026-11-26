@@ -17,7 +17,7 @@ function createWindow() {
     minHeight: 600,
     frame: false,               // 没有系统标题栏，也没有系统边框
     // 和页面壁纸同一个米黄，加载完成前不会闪一下别的颜色
-    backgroundColor: '#f4ecdf',
+    backgroundColor: '#f4f3ee',
     show: false,
     icon: nativeImage.createFromPath(path.join(__dirname, '..', 'web', 'img', 'favicon-64.png')),
     webPreferences: {

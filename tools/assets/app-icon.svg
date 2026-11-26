@@ -1,5 +1,25 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <rect width="1024" height="1024" rx="220" fill="#1c1917"/>
-  <rect x="220" y="220" width="584" height="584" rx="126" fill="#fafaf9"/>
-  <path d="M468 312h88v256h96L512 712 372 568h96z" fill="#1c1917" stroke="#1c1917" stroke-width="10" stroke-linejoin="round"/>
+  <defs>
+    <linearGradient id="bg" x1="40" y1="0" x2="900" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f4f2ea"/>
+      <stop offset=".52" stop-color="#e9e9de"/>
+      <stop offset="1" stop-color="#dee0d4"/>
+    </linearGradient>
+    <radialGradient id="mist" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse"
+                    gradientTransform="translate(300 250) scale(760)">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".72"/>
+      <stop offset=".55" stop-color="#ffffff" stop-opacity=".22"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ink" x1="470" y1="300" x2="640" y2="720" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6c8276"/>
+      <stop offset="1" stop-color="#475c51"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="228" fill="url(#bg)"/>
+  <rect width="1024" height="1024" rx="228" fill="url(#mist)"/>
+  <rect x="2" y="2" width="1020" height="1020" rx="226" fill="none"
+        stroke="#ffffff" stroke-opacity=".5" stroke-width="4"/>
+  <path d="M462 300h100v246h104L512 716 358 546h104z"
+        fill="url(#ink)" stroke="url(#ink)" stroke-width="14" stroke-linejoin="round"/>
 </svg>

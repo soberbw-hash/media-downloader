@@ -48,15 +48,28 @@ def default_desktop():
     return os.path.join(os.path.expanduser("~"), "Desktop")
 
 
+def is_dev_leftover(name):
+    """开发机上攒下来的东西，不能进发布包。
+
+    便携版目录是「就地改、就地备份」的（*.bak-日期-备注、图标刷新标记、
+    __pycache__），跟着底包一起拷就会把几年前的改版痕迹发给别人。
+    体积不大但没意义，而且暴露内部迭代过程。
+    """
+    low = name.lower()
+    return (".bak" in low or low.endswith((".pyc", ".tmp", ".swp", ".orig"))
+            or low.startswith(".icon_refresh") or low in ("thumbs.db", "desktop.ini"))
+
+
 def copy_base(src, dst):
-    """把现有便携版整份拷过来，去掉登录态和下载的文件。"""
+    """把现有便携版整份拷过来，去掉登录态、下载的文件和开发残留。"""
     for root, dirs, files in os.walk(src):
-        dirs[:] = [d for d in dirs if d not in COPY_SKIP]
+        dirs[:] = [d for d in dirs
+                   if d not in COPY_SKIP and d != "__pycache__" and not is_dev_leftover(d)]
         rel = os.path.relpath(root, src)
         target = os.path.join(dst, rel) if rel != "." else dst
         os.makedirs(target, exist_ok=True)
         for f in files:
-            if f.endswith(".pyc") or f.lower() in PRIVATE_QUEUE:
+            if f.lower() in PRIVATE_QUEUE or is_dev_leftover(f):
                 continue
             shutil.copy2(os.path.join(root, f), os.path.join(target, f))
     os.makedirs(os.path.join(dst, "下载的文件"), exist_ok=True)

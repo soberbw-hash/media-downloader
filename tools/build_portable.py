@@ -55,7 +55,9 @@ def copytree(src, dst, skip=("__pycache__",)):
         target = os.path.join(dst, rel) if rel != "." else dst
         os.makedirs(target, exist_ok=True)
         for f in files:
-            if f.endswith(".pyc"):
+            low = f.lower()
+            # 开发机就地改代码会留 *.bak-日期 / 图标刷新标记，这些不进分发包
+            if low.endswith((".pyc", ".tmp")) or ".bak" in low or low.startswith(".icon_refresh"):
                 continue
             shutil.copy2(os.path.join(root, f), os.path.join(target, f))
 

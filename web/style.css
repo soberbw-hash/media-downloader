@@ -350,8 +350,11 @@ body.tab-music .music {
   flex: 1 1 0;
   min-height: 0;
 }
+/* 主视觉是上面的搜索结果，任务区只占两张卡的位置（含标题行，212px），
+   再多就在任务区里自己滚。高度仍然写死，切筛选时标题和卡片不动。 */
 body.tab-music .tasks-block {
-  flex: 0 0 42%;
+  flex: 0 0 auto;
+  height: 212px;
   min-height: 0;
   margin-top: 16px;
 }
@@ -400,7 +403,7 @@ body.tab-music .tasks-block {
 #tasks {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 7px;
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
@@ -418,10 +421,10 @@ body.tab-music .tasks-block {
 .task {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 12px 14px;
+  border-radius: 11px;
+  padding: 10px 13px;
   display: flex;
-  gap: 12px;
+  gap: 11px;
   align-items: flex-start;
   animation: in .22s ease;
   transition: border-color .16s ease;
@@ -435,8 +438,8 @@ body.tab-music .tasks-block {
 }
 
 .thumb {
-  width: 54px;
-  height: 54px;
+  width: 48px;
+  height: 48px;
   border-radius: 8px;
   background: #f5f4f2 center/cover no-repeat;
   flex-shrink: 0;
@@ -454,8 +457,8 @@ body.tab-music .tasks-block {
 }
 
 .thumb .fav svg {
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   display: block;
 }
 
@@ -470,7 +473,7 @@ body.tab-music .tasks-block {
   display: flex;
   align-items: center;
   gap: 7px;
-  margin-bottom: 2px;
+  margin-bottom: 1px;
 }
 
 .ptag {
@@ -484,7 +487,7 @@ body.tab-music .tasks-block {
 }
 
 .title {
-  font-size: 13px;
+  font-size: 12.5px;
   color: var(--text);
   white-space: nowrap;
   overflow: hidden;
@@ -494,9 +497,9 @@ body.tab-music .tasks-block {
 }
 
 .meta {
-  font-size: 11.5px;
+  font-size: 11px;
   color: var(--muted);
-  margin-bottom: 7px;
+  margin-bottom: 5px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -538,7 +541,7 @@ body.tab-music .tasks-block {
 }
 
 .status {
-  font-size: 11.5px;
+  font-size: 11px;
   color: var(--muted);
   display: flex;
   gap: 10px;
@@ -2011,6 +2014,8 @@ button:focus-visible,
    否则「全部」两行、「失败」一行，切一次筛选标题高度就变一次，卡片跟着抖。 */
 @media (max-width: 600px) {
   .list-head .lh-right { width: 100%; }
+  /* 窄窗标题行固定占两行，任务区补回标题多出来的高度，仍是两张卡 */
+  body.tab-music .tasks-block { height: 238px; }
 }
 
 /* 窗口很矮时退回整页滚动，否则固定区域会把内容挤没 */

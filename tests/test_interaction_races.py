@@ -43,6 +43,9 @@ def clipboard(page):
 
 def searches(page):
     page.locator('[data-tab="music"]').click()
+    # 来源那一排只在「视频」这一档出现（「全部」＝全都要，不再摆站名），
+    # 所以先切到视频再等按钮，否则会一直等一个按设计就不该出现的元素
+    page.locator('#mSrc [data-s="video"]').click()
     page.locator('#mVPlats [data-p="youtube"]').wait_for(state='attached')
     problems = page.evaluate('''async () => {
       const nativeFetch = window.fetch, requests = [], issues = [];

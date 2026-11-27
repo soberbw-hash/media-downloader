@@ -2301,6 +2301,18 @@ body.tab-switching .task { background: rgba(255, 255, 255, .44) !important; }
 
 .plat:hover { border-color: #d6d3d1; color: var(--text-2); }
 
+/* 第二排的「来源」字样：一句话说清这排是在缩小范围，不是又一层分类 */
+.platlab {
+  display: inline-flex;
+  align-items: center;
+  height: 27px;
+  margin-right: 2px;
+  font-size: 11px;
+  color: var(--muted);
+  opacity: .8;
+  user-select: none;
+}
+
 .plat.on {
   background: var(--ink);
   border-color: var(--ink);

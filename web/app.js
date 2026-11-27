@@ -2088,19 +2088,19 @@ function isAggMode() {
 }
 
 function applySourceUI() {
-  // 视频：一排放源按钮 + 一排「去这些站搜」。
-  // 音效：就是一个大类，不摆站名——用户要的是"找到这个声音"，不是"去哪个站找"。
-  const showSrc = mMode === "all" || mMode === "video" || mMode === "book";
+  // 第二排是「来源」，只有类型选到视频才可能出现（电子书那一家不够挑，见 renderSources）。
+  // 「全部」本身就是全类型全来源，再摆一排「全部来源 + 各种站」等于把同一个问题问两遍；
+  // 音乐有自己的平台行；音效是"找到这个声音"，语音效站名对用户没意义。
+  if (mMode === "video") return;      // 由 renderSources 按来源数量决定显不显示
+  vPlat = "all";
   ["#mVPlats", "#vSites"].forEach((sel) => {
     const el = $(sel);
-    if (el) el.hidden = !showSrc;
+    if (el) { el.hidden = true; if (sel === "#mVPlats") el.innerHTML = ""; }
   });
   const sh = $("#vSrcHint");
-  if (sh && !showSrc) sh.hidden = true;
-  if (!showSrc) {
-    const bar = $("#siteBar");
-    if (bar) bar.hidden = true;
-  }
+  if (sh) { sh.hidden = true; sh.innerHTML = ""; }
+  const bar = $("#siteBar");
+  if (bar) bar.hidden = true;
 }
 
 function sourceName(id) {
@@ -2112,24 +2112,21 @@ function renderSources(list) {
   vSources = list || [];
   const box = $("#mVPlats");
   if (!box) return;
-  // 音效 / 音乐 / 电影不摆来源按钮：音效是一个大类，音乐电影有自己的平台行
-  if (mMode === "sfx" || mMode === "music" || mMode === "movie") {
-    box.innerHTML = ""; vPlat = "all"; return;
-  }
-  // 视频页只摆视频源，电子书页只摆书源，全部页才把所有源摊开
-  const mine = vSources.filter((x) => {
-    const k = x.kind || "video";
-    if (mMode === "all") return true;
-    if (mMode === "book") return k === "book";
-    return k === "video";
-  });
+  // 只有「视频」这一档需要选来源：B站 / Mixkit / YouTube 各搜各的，用户可能只想问一家。
+  // 其余档位没有这一排——「全部」等于全都要，音乐有自己的平台行，音效不分站，电子书只有一家。
+  if (mMode !== "video") { box.innerHTML = ""; box.hidden = true; vPlat = "all"; return; }
+  const mine = vSources.filter((x) => (x.kind || "video") === "video");
+  // 只剩一家时也没得挑，摆出来只是多一行噪音
+  if (mine.length < 2) { box.innerHTML = ""; box.hidden = true; vPlat = "all"; return; }
   if (vPlat !== "all" && !mine.some((x) => x.id === vPlat)) vPlat = "all";
-  box.innerHTML = '<button class="plat' + (vPlat === "all" ? " on" : "") +
-    '" data-p="all">全部来源</button>' +
+  box.innerHTML = '<span class="platlab">来源</span>' +
+    '<button class="plat' + (vPlat === "all" ? " on" : "") +
+    '" data-p="all">全部视频源</button>' +
     mine.map((s) => '<button class="plat' + (vPlat === s.id ? " on" : "") +
       '" data-p="' + esc(s.id) + '" title="' +
       esc((s.note || "") + (s.slow ? "（点它才单独搜）" : "")) + '">' +
       esc(s.name) + "</button>").join("");
+  box.hidden = false;
   box.querySelectorAll(".plat").forEach((b) => {
     b.onclick = () => {
       vPlat = b.dataset.p;
@@ -3209,17 +3206,15 @@ async function resolveMode(q) {
   return { mode: "video", auto: null };
 }
 
-// 「全部」搜出结果后，按实际命中的类型摆下面那行：
-// 搜到音效就不该还摆着 B站 / YouTube，搜到音乐就换成音乐平台
+// 「全部」搜出结果后只摆该摆的那一排：
+// 认出来是音乐就把音乐平台换上来；其余情况第二排一律不出现——
+// 「全部」就是全类型全来源，结果里每条都带着来源标签，不需要再让用户挑一遍站。
 function applyResultUI(mode) {
   if (mMode !== "all" || vPlat !== "all") return;
-  const bar = $("#mVPlats"), sites = $("#vSites"), plats = $("#mPlats");
-  const siteBar = $("#siteBar");
+  const bar = $("#mVPlats");
+  const plats = $("#mPlats");
   const music = mode === "music";
-  const hideSrc = music || mode === "sfx";
-  if (bar) bar.hidden = hideSrc;
-  if (sites) sites.hidden = hideSrc;
-  if (siteBar) siteBar.hidden = hideSrc;
+  if (bar) { bar.hidden = true; bar.innerHTML = ""; }
   if (plats) plats.hidden = !music;
 }
 

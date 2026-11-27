@@ -2033,11 +2033,71 @@ function resetResults() {
   vToken = "";
 }
 
+/* ---------------- 搜过的别重搜：同一组「类别 + 来源 + 关键词」只打一次网络 ----------------
+   切到音乐、再切回全部，关键词一个字没改，搜的还是同一件事；
+   再打一遍接口纯属白等几秒。上一批结果就留在内存里，切回来直接摆上去。
+   点「搜索」按钮或按回车是明确要重来，走正常请求，不走这儿。
+   空的 / 报错的结果不缓存 —— 那种本来就该再试一次。 */
+const searchCache = new Map();
+const SEARCH_CACHE_MAX = 18;
+let searchCacheKey = "";        // 当前这屏结果属于哪个 key（慢源补结果时也写回这里）
+
+function searchKeyOf(q) {
+  // 类别 + 视频来源 + 音乐平台 + 关键词，四样都算数：
+  // 「全部」搜出歌时平台行也会冒出来，点网易云跟点 QQ音乐 不是一回事，
+  // 这四样一样才算「同一屏结果」。
+  return mMode + "|" + vPlat + "|" + mPlat + "|" + q;
+}
+
+function cachePut(key) {
+  if (!key || !mItems.length) return;
+  const sh = $("#vSrcHint");
+  searchCache.delete(key);      // 重新塞进去 = 挪到队尾，最近用过的留下
+  searchCache.set(key, {
+    items: mItems.slice(),
+    lastMode: lastMode,
+    emptyText: mEmptyText,
+    hint: ($("#mHint") || {}).textContent || "",
+    srcHint: sh ? { html: sh.innerHTML, hidden: sh.hidden } : null,
+  });
+  while (searchCache.size > SEARCH_CACHE_MAX) {
+    searchCache.delete(searchCache.keys().next().value);
+  }
+}
+
+// 有现成的就整屏摆回来，返回 true；没有返回 false 让调用方去真搜
+function cacheUse(q) {
+  const key = searchKeyOf(q);
+  const ent = searchCache.get(key);
+  if (!ent || !ent.items.length) return false;
+  searchCache.delete(key);
+  searchCache.set(key, ent);
+  resetResults();
+  mItems = ent.items.slice();
+  lastMode = ent.lastMode;
+  mEmptyText = ent.emptyText;
+  searchCacheKey = key;
+  renderMusic();
+  applyResultUI(ent.lastMode);
+  const hint = $("#mHint");
+  // 缓存里可能存着「还在补…」——那是当初还在等慢源时写的。
+  // 现在拿回来的是一份已经定格的快照，别再挂着这句话骗人。
+  if (hint) hint.textContent = (ent.hint || "").replace(/，还在补…$/, "");
+  const sh = $("#vSrcHint");
+  if (sh) {
+    const stale = !ent.srcHint || (ent.srcHint.html || "").indexOf("还在找") >= 0;
+    sh.innerHTML = stale ? "" : ent.srcHint.html;
+    sh.hidden = stale ? true : ent.srcHint.hidden;
+  }
+  return true;
+}
+
 document.querySelectorAll("#mPlats .plat").forEach((b) => {
   b.onclick = () => {
     applyPlat(b.dataset.p);
-    resetResults();
     const q = $("#mQuery").value.trim();
+    if (q && cacheUse(q)) return;     // 这个平台刚才搜过，结果还在
+    resetResults();
     if (q) musicSearch(q);      // 换平台直接重搜
   };
 });
@@ -2068,15 +2128,22 @@ function syncModeUI() {
 
 document.querySelectorAll("#mSrc .plat").forEach((b) => {
   b.onclick = () => {
+    if (b.dataset.s === mMode) {
+      // 点的是当前这一档：什么都没变，更不该重搜一遍
+      if (!$("#mQuery").value.trim()) $("#mHint").textContent = SOURCE_GUIDE[mMode] || "";
+      return;
+    }
     mMode = b.dataset.s;
     localStorage.setItem("mMode2", mMode);
     syncModeUI();
-    // 换来源就是换一套东西，旧的计数、旧的列表、旧的提示都得清掉。
-    // 不清就会出现「上面写着共 24 条，下面却是另一个来源的空列表」。
-    resetResults();
     // 识曲只在音乐来源下有入口：认出来的是歌，跟搜片名不是一回事
     if (mMode !== "music") recOpen(false);
     const q = $("#mQuery").value.trim();
+    // 这一档刚才搜过、关键词也没改：直接摆回来，不再打网络
+    if (q && cacheUse(q)) return;
+    // 换来源就是换一套东西，旧的计数、旧的列表、旧的提示都得清掉。
+    // 不清就会出现「上面写着共 24 条，下面却是另一个来源的空列表」。
+    resetResults();
     if (q) musicSearch(q);
     else $("#mHint").textContent = SOURCE_GUIDE[mMode] || "";
   };
@@ -2256,6 +2323,7 @@ async function pullMore() {
     } else if (!mItems.length) {
       $("#mHint").textContent = "没搜到，换个关键词或换个来源";
     }
+    cachePut(searchCacheKey);      // 慢源这批补上了，缓存跟着更新，切回来别再漏
     if (!r.done && vPulls < 8) vPullTimer = setTimeout(pullMore, 2200);
     else vToken = "";
   } catch (e) {
@@ -2317,6 +2385,7 @@ function initSiteBar() {
     $("#siteUrl").value = "";
     bar.hidden = true;
     say("");
+    searchCache.clear();          // 来源清单变了，旧结果不再算数
     await initAggregate();
     toast("加好了，重新搜一次就能用");
   };
@@ -2519,6 +2588,7 @@ function syncMusicRows(tasks) {
 let pvKey = "";        // 正在试听的那首歌（platform|id）
 let pvSeq = 0;         // 解析请求的序号：点的快时只认最后那一次，别让迟到的结果把歌换回去
 let pvBad = new Set(); // 这一轮里取不到地址的歌（比如 QQ 音乐没登录），自动续播时跳过
+let pvRetry = 0;       // 这一首已经断流重取过几次地址（0 = 还没试过）
 
 /* 播放器上用 3:45 这种写法，比「3分45秒」省地方 */
 function mmss(sec) {
@@ -2549,6 +2619,7 @@ function previewSong(s, btn, auto) {
   // 音效这类直链不用问服务端要地址，直接丢给 <audio>，点下去就出声
   if (s.kind === "audio" && /^https?:\/\//.test(s.download || "")) {
     pvKey = key;
+    pvRetry = 0;
     au.src = s.download;
     au.play().catch(() => toast("这条播不出来，换一条试试"));
     showPlayer(s);
@@ -2576,6 +2647,7 @@ function previewSong(s, btn, auto) {
       return;
     }
     pvKey = key;
+    pvRetry = 0;
     au.src = r.url;
     au.play().catch(() => toast("这条播不出来，换一首试试"));
     showPlayer(s);
@@ -2585,6 +2657,31 @@ function previewSong(s, btn, auto) {
     btn.classList.remove("busy");
     btn.disabled = false;
     syncPvButtons();
+  });
+}
+
+/* 断流后按原进度重取一次地址：拉回来就接着唱，不退回 0:00。
+   拉不回来也别在这儿把话说完 —— audio 再报一次 error，那边会收尾。 */
+function resumePreview(s, at) {
+  const au = $("#auPlayer");
+  if (!au || mkey(s) !== pvKey) return;
+  post("/api/music/preview", {
+    platform: s.platform, id: s.id, title: s.title, artist: s.artist,
+  }).then((r) => {
+    if (!r.ok) throw new Error(r.error || "no url");
+    if (mkey(s) !== pvKey) return;          // 期间点了别的歌，别抢回来
+    const seek = () => {
+      au.removeEventListener("loadedmetadata", seek);
+      if (at > 0.4) { try { au.currentTime = at; } catch (e) {} }
+      au.play().catch(() => {});
+    };
+    au.addEventListener("loadedmetadata", seek);
+    au.src = r.url;
+    au.play().catch(() => {});
+  }).catch(() => {
+    if (mkey(s) !== pvKey) return;
+    toast("这条音频拉不下来，换一首试试", 3600);
+    stopPreview();
   });
 }
 
@@ -2680,6 +2777,16 @@ function initPreview() {
   });
   au.addEventListener("error", () => {
     if (!au.getAttribute("src")) return;      // 主动 stopPreview 也会触发 error
+    // 断流不一定是这条不能放：网络抖一下、源站换节点、代理断一下，
+    // <audio> 都会直接报错。以前一律当场把播放器收掉，用户看到的就是
+    // 「刚还好好的，点一下别处歌就没了」。先按当前进度重取一次地址，
+    // 真拉不回来才认输。
+    const cur = mItems.find((s) => mkey(s) === pvKey);
+    if (cur && MUSIC_PLATS.indexOf(cur.platform || "") >= 0 && pvRetry < 1) {
+      pvRetry++;
+      resumePreview(cur, au.currentTime || 0);
+      return;
+    }
     toast("这条音频拉不下来，换一首试试", 3600);
     stopPreview();
   });
@@ -3275,6 +3382,7 @@ async function musicSearch(q) {
   if (mode === "movie") return movieSearch(q);
 
   resetResults();
+  searchCacheKey = searchKeyOf(q);     // 这屏结果归到这个 key 下，慢源补完也写回它
   if (mode === "mixed") return mixedSearch(q);
   const round = searchRound;
   const agg = mode !== "music";
@@ -3320,6 +3428,7 @@ async function musicSearch(q) {
             ? `识别为${autoKind.label}，没搜到，换个说法试试`
             : "没搜到，换个关键词或换个来源"));
     }
+    cachePut(searchCacheKey);      // 切回这一档时直接摆这屏
   } catch (e) {
     if (round === searchRound) $("#mHint").textContent = "没连上，稍等一下再搜一次";
   } finally {
@@ -3378,6 +3487,7 @@ async function mixedSearch(q) {
     }
     if (!songs.length) hint += "（音乐没搜到）";
     $("#mHint").textContent = hint;
+    cachePut(searchCacheKey);
   } catch (e) {
     if (round === searchRound) $("#mHint").textContent = "没连上，稍等一下再搜一次";
   } finally {

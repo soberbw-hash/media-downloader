@@ -2632,14 +2632,24 @@ body.tab-switching .task { background: rgba(255, 255, 255, .44) !important; }
   border: 1px solid var(--line);
   box-shadow: 0 8px 26px -12px rgba(0, 0, 0, .18), 0 1px 2px rgba(0, 0, 0, .04);
   animation: pbarIn .18s ease-out;
+  /* 播完自动收：停半拍再淡出往下沉一点，最后真隐藏（见 stopPreview） */
+  transition: opacity .3s ease, transform .3s ease;
 }
 .pbar[hidden] { display: none; }
+/* 收尾这一下：先站住 .35s 让人看清「放完了」，再透明 + 下沉退场。
+   延迟写在这里而不是 JS 里，新歌一开就把 out 摘掉，回位是即时的 */
+.pbar.out {
+  opacity: 0;
+  transform: translateY(10px);
+  pointer-events: none;
+  transition-delay: .35s;
+}
 @keyframes pbarIn {
   from { opacity: 0; transform: translateY(7px); }
   to   { opacity: 1; transform: none; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .pbar { animation: none; }
+  .pbar { animation: none; transition: none; }
 }
 /* 浮层会压住任务区最底下一条：滚到底时多留一点，
    最后一张卡片能整个滚到播放条上方，不会被切一角 */

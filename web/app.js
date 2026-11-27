@@ -2640,7 +2640,7 @@ function previewSong(s, btn, auto) {
         pvBad.add(key);
         const t = $("#pbTitle");
         if (t) t.textContent = "正在找下一首…";
-        if (!playAdjacent(1, true)) stopPreview();
+        if (!playAdjacent(1, true)) stopPreview(true);
       } else {
         toast(r.error || "这首暂时试听不了", 4200);
       }
@@ -2688,6 +2688,8 @@ function resumePreview(s, at) {
 function showPlayer(s) {
   const bar = $("#pBar");
   if (!bar) return;
+  clearTimeout(pvHideTimer);
+  bar.classList.remove("out");     // 淡出到一半又点了一首：拉回来继续显示
   bar.hidden = false;
   document.body.classList.add("playing");
   const t = $("#pbTitle");
@@ -2695,7 +2697,9 @@ function showPlayer(s) {
   updatePvTime();
 }
 
-function stopPreview() {
+let pvHideTimer = null;   // 淡出还没走完就又要播下一首，得把这个定时器撤掉
+
+function stopPreview(fade) {
   pvSeq++;               // 让还在路上的解析结果作废，别关完又自己弹回来
   const au = $("#auPlayer");
   if (au) {
@@ -2705,8 +2709,22 @@ function stopPreview() {
   }
   pvKey = "";
   const bar = $("#pBar");
-  if (bar) bar.hidden = true;
-  document.body.classList.remove("playing");
+  clearTimeout(pvHideTimer);
+  // 播完自动收的时候走淡出：条子慢慢沉下去再真的隐藏，
+  // 免得歌一停、框子凭空消失。手动点 ✕ 还是立刻关，不给等待感。
+  if (bar && fade && !bar.hidden) {
+    bar.classList.add("out");
+    pvHideTimer = setTimeout(() => {
+      if (!bar.classList.contains("out")) return;   // 期间又开播了
+      bar.hidden = true;
+      bar.classList.remove("out");
+      document.body.classList.remove("playing");
+    }, 680);          // .35s 站定 + .3s 淡出，跟 CSS 里的 transition-delay 对上
+  } else if (bar) {
+    bar.hidden = true;
+    bar.classList.remove("out");
+    document.body.classList.remove("playing");
+  }
   syncPvButtons();
 }
 
@@ -2767,13 +2785,10 @@ function initPreview() {
   au.addEventListener("pause", syncPvButtons);
   au.addEventListener("ended", () => {
     au.currentTime = 0;
-    // 播完这首：同批结果里后头还有歌就顺手接着放；
-    // 放到最后一条、或者本来就是条音效（不是歌），就把播放条收起来。
-    // 以前是永远绕回第一首，等于永远关不掉。
-    const cur = mItems.find((s) => mkey(s) === pvKey);
-    const more = !!(cur && MUSIC_PLATS.includes(cur.platform) && playAdjacent(1, true));
-    if (!more) stopPreview();
-    else syncPvButtons();
+    // 一首放完就收工：条子淡出、音频归位。
+    // 不再自动接下一首——用户要的是「放完自己走开」，
+    // 想接着听就在列表里点，或者用 ⏭。
+    stopPreview(true);
   });
   au.addEventListener("error", () => {
     if (!au.getAttribute("src")) return;      // 主动 stopPreview 也会触发 error
@@ -2798,11 +2813,13 @@ function initPreview() {
     else au.pause();
   };
   const stop = $("#pbStop");
-  if (stop) stop.onclick = stopPreview;
+  if (stop) stop.onclick = () => stopPreview();   // 别把 event 当 fade 传进去
+  // 上一首 / 下一首也走「自动续播」那套：碰上取不到地址的（QQ 音乐没登录之类）
+  // 就安静跳过，别停在一首永远放不出来的歌上
   const prev = $("#pbPrev");
-  if (prev) prev.onclick = () => playAdjacent(-1);
+  if (prev) prev.onclick = () => playAdjacent(-1, true);
   const next = $("#pbNext");
-  if (next) next.onclick = () => playAdjacent(1);
+  if (next) next.onclick = () => playAdjacent(1, true);
   const pbar = $("#pbBar");
   if (pbar) pbar.onclick = (e) => {
     if (!isFinite(au.duration) || au.duration <= 0) return;

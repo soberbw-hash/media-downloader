@@ -789,6 +789,12 @@ async function poll() {
     renderUpdateStatus(d.update);
     // 版本号先填本地的，别等联网检查时先闪一个「v—」
     if (d.version) {
+      // 后台更新装完会重启服务，版本号跟着变；这时页面跑的还是旧 JS。
+      // 悄悄刷一下把自己也换成新版——用户只会看到列表重新渲染了一遍。
+      if (appVersion && d.version !== appVersion) {
+        location.reload();
+        return;
+      }
       appVersion = d.version;
       const cv = $("#curVer");
       if (cv && (cv.textContent === "v—" || !cv.textContent)) cv.textContent = "v" + d.version;
@@ -802,6 +808,27 @@ async function poll() {
     pollGap = 2500;
   }
 }
+
+/* ---------- 告诉服务端「人还在」 ---------- */
+/* 自动更新靠这个挑时机：鼠标键盘动一下就报一笔（20 秒最多一次）。
+   服务端拿它判断「已经多久没人碰了」，等安静下来再悄悄换新版。
+   不这么做的话，服务端只能看 /api/state 轮询——那玩意儿两三秒一次，
+   等于永远有人在用，更新就再也装不上了。 */
+let touchAt = 0;
+function reportTouch() {
+  const now = Date.now();
+  if (now - touchAt < 20000) return;
+  touchAt = now;
+  // 用 GET：纯粹是「我还在」的一次举手，没有副作用。
+  // 响应体一定要读掉（r.text()），否则 Chrome 让这条请求一直挂在「未完成」，
+  // 页面的 networkidle 永远等不到，测试和预加载都会卡在这儿。
+  fetch("/api/touch?t=" + now, { cache: "no-store" })
+    .then((r) => r.text())
+    .catch(() => {});
+}
+["pointerdown", "keydown", "wheel", "mousemove"].forEach((ev) =>
+  window.addEventListener(ev, reportTouch, { passive: true }));
+reportTouch();
 
 /* ---------- 独立窗口模式：关窗即退出软件 ---------- */
 let modeDone = false;
@@ -1554,9 +1581,9 @@ if ($("#cfgNamePre")) {
 }
 
 /* ---------- 版本与更新 ---------- */
-/* 发现新版不用用户管：后台下好 → 等手头任务结束 → 自动替换重启。
-   只有「没系统代理」或「更新失败要手动下包」时才把 VPN 提示露出来。 */
-let updToastShown = false;
+/* 全自动、全程不出声：后台发现新版就下，挑没人用的时候（人离开十来分钟 /
+   关软件）自己换上去。界面上只在设置里留一行状态，正常情况用户根本看不到。
+   只有「检查失败要手动下包」这种真需要人管的，才把 VPN 提示露出来。 */
 
 function renderUpdateStatus(u) {
   if (!u) return;
@@ -1568,7 +1595,7 @@ function renderUpdateStatus(u) {
     else if (state === "checking") msg.textContent = "正在检查…";
     else if (state === "downloading") msg.textContent = "正在下载新版 " + Math.round(u.percent || 0) + "%";
     else if (state === "waiting")
-      msg.innerHTML = "新版已下好 · <a href=\"#\" id=\"updNow\">立刻更新</a>";
+      msg.innerHTML = "新版已下好，会在你不用的时候自动换上 · <a href=\"#\" id=\"updNow\">现在就换</a>";
     else if (state === "applying") msg.textContent = "正在更新，马上回来…";
     else if (state === "done") msg.textContent = u.detail || "已更新好";
     else msg.innerHTML = (u.detail || "更新没成") +
@@ -1591,10 +1618,6 @@ function renderUpdateStatus(u) {
     e.preventDefault();
     await post("/api/update/apply", {});
   };
-  if (state === "applying" && !updToastShown) {
-    updToastShown = true;
-    toast("新版装好了，正在重启…", 3000);
-  }
 }
 
 async function checkUpdate(manual) {
@@ -1780,7 +1803,8 @@ let pollTimer = 0;
 })();
 document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });
 setFilter(taskFilter);
-setTimeout(() => checkUpdate(false), 1200);   // 启动时静默检查新版
+// 更新检查交给后端（启动后几秒自己查，之后定期查）。前端只在设置里显示状态，
+// 不再自己发一次请求——两处都查等于把同一个 GitHub 接口打两遍。
 // 只有账号面板开着的时候才轮询登录态，设置面板不用每秒问
 setInterval(() => {
   if ($("#acctDrawer").classList.contains("on")) loadLogins();
@@ -1978,6 +2002,31 @@ let mMode = (() => {
 // 结果卡片、来源统计都按它判断，而不是按按钮上那个「全部」
 let lastMode = "video";
 let vPlat = "all";        // all 或某个来源 id
+
+/* 记住这次搜的是什么。关软件、更新重启之后再打开，搜索词和档位还在，
+   列表自己回来——不然一睁眼对着空白输入框，会以为刚才看的东西都没了。 */
+function rememberSearch(q) {
+  try {
+    localStorage.setItem("vdlLastSearch", JSON.stringify({
+      q: q, mode: mMode, plat: mPlat, at: Date.now(),
+    }));
+  } catch (e) {}
+}
+
+function restoreSearch() {
+  let s = null;
+  try { s = JSON.parse(localStorage.getItem("vdlLastSearch") || "null"); } catch (e) {}
+  if (!s || !s.q) return;
+  // 半年前的旧词就别自动搜了，用户早忘了自己搜过什么，白占一次网络
+  if (Date.now() - (s.at || 0) > 12 * 3600 * 1000) return;
+  const box = $("#mQuery");
+  if (box && !box.value.trim()) box.value = s.q;
+  if (MODES.indexOf(s.mode) >= 0) mMode = s.mode;
+  if (s.plat) mPlat = s.plat;
+  syncModeUI();
+  // 晚一点再搜：先让界面画出来，别一打开就是一片空白加转圈
+  setTimeout(() => { if (tabMode === "music") musicSearch(s.q); }, 900);
+}
 
 /* 聚合搜索：来源清单、资源站入口都由后端下发；
    慢源在后台跑完后，前端拿 token 分批把结果补进来。 */
@@ -2695,9 +2744,15 @@ function showPlayer(s) {
   const t = $("#pbTitle");
   if (t) t.textContent = (s.title || "未知曲目") + (s.artist ? " · " + s.artist : "");
   updatePvTime();
+  // 听歌的时候手不动，但人明明在。播着就一直报「在用」，
+  // 免得更新的看门线程把人当成走了，听着听着软件被重启。
+  if (pvBeat) clearInterval(pvBeat);
+  reportTouch();
+  pvBeat = setInterval(reportTouch, 30000);
 }
 
 let pvHideTimer = null;   // 淡出还没走完就又要播下一首，得把这个定时器撤掉
+let pvBeat = null;        // 播放期间的心跳（见 showPlayer）
 
 function stopPreview(fade) {
   pvSeq++;               // 让还在路上的解析结果作废，别关完又自己弹回来
@@ -2708,6 +2763,7 @@ function stopPreview(fade) {
     try { au.load(); } catch (e) {}
   }
   pvKey = "";
+  if (pvBeat) { clearInterval(pvBeat); pvBeat = null; }   // 不播了就别再报「在用」
   const bar = $("#pBar");
   clearTimeout(pvHideTimer);
   // 播完自动收的时候走淡出：条子慢慢沉下去再真的隐藏，
@@ -3389,6 +3445,7 @@ function applyResultUI(mode) {
 async function musicSearch(q) {
   q = (q || $("#mQuery").value || "").trim();
   if (!q) { $("#mQuery").focus(); return; }
+  rememberSearch(q);        // 重启 / 更新后靠它把这一屏摆回来
   const round0 = searchRound;
   // 识别的时候用户可能已经换了类型或又搜了一次 —— 这一轮直接作废
   const resolved = await resolveMode(q);
@@ -3789,5 +3846,7 @@ setTimeout(() => {
 if (tabMode === "music") {
   const h = $("#mHint");
   if (h && !h.textContent) h.textContent = SOURCE_GUIDE[mMode] || "";
+  // 上次搜过的词摆回来（更新重启后尤其重要：用户回来还是那一屏）
+  restoreSearch();
 }
 

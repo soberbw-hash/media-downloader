@@ -330,13 +330,22 @@ def main():
                 for _ in range(80):
                     st = json.load(local.open(u + "/api/update/status", timeout=5))["update"]
                     state = st["state"]
+                    if state == "waiting":
+                        # 新版下好以后不再自动立刻换（会挑没人的时候），
+                        # 这里替用户点「现在就换」，走手动应用那条路
+                        req2 = urllib.request.Request(
+                            u + "/api/update/apply", data=b"{}",
+                            headers={"Content-Type": "application/json"}, method="POST")
+                        local.open(req2, timeout=10).read()
+                        time.sleep(0.3)
+                        continue
                     if state in ("done", "error"):
                         break
                     time.sleep(0.25)
                 if state != "done":
                     log("    诊断: state=%r detail=%r error=%r latest=%r"
                         % (state, st.get("detail"), st.get("error"), st.get("latest")))
-                check(state == "done", "检查→下载→替换全程自动跑完（状态 %s）" % state)
+                check(state == "done", "下载完点「现在就换」能替换完成（状态 %s）" % state)
                 check(VER in open(os.path.join(target, "server.py"), encoding="utf-8").read(),
                       "服务端真的把新版换上了")
                 check("MY_REAL_DIR" in open(os.path.join(target, "config.json"),

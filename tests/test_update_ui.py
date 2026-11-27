@@ -53,7 +53,9 @@ def main():
             pg = b.new_page(viewport={"width": 1180, "height": 1050})
             errs = []
             pg.on("pageerror", lambda e: errs.append(str(e)))
-            pg.goto("http://127.0.0.1:%d/" % port, wait_until="networkidle", timeout=30000)
+            # 用 domcontentloaded：页面每两三秒轮询一次 /api/state，networkidle 等不到
+            pg.goto("http://127.0.0.1:%d/" % port, wait_until="domcontentloaded", timeout=30000)
+            pg.wait_for_timeout(1200)
             pg.evaluate("() => document.querySelector('#openSet').click()")
             pg.wait_for_timeout(600)
             # 停掉轮询，别让真实 idle 状态把注入的状态刷掉。

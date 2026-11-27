@@ -669,8 +669,9 @@ xattr -dr com.apple.quarantine "$APP" 2>/dev/null
 hdiutil detach "$MNT" -quiet 2>/dev/null
 rm -rf "$OLD"
 rm -f "$ARCHIVE"
-open -n "$APP"
-""" % (port, q(app), q(plan.get("archive") or ""))
+%s
+""" % (port, q(app), q(plan.get("archive") or ""),
+       "" if plan.get("no_restart") else 'open -n "$APP"')
     path = os.path.join(plan_dir, "apply.sh")
     with open(path, "w", encoding="utf-8", newline="\n") as f:
         f.write(body)
@@ -1064,7 +1065,11 @@ def run_helper(plan_path):
     """助手进程入口。返回 (成功?, 说明)。"""
     plan = json.load(open(plan_path, encoding="utf-8"))
     if not plan.get("no_wait"):
-        _wait_gone(plan.get("port") or 0, plan.get("pid") or 0)
+        # 等不到主程序退出就别硬换：用户可能刚点了刷新，退出被撤销了。
+        # 文件被换、进程还跑着旧代码，会变成「更新了但界面没变」的怪状态。
+        if not _wait_gone(plan.get("port") or 0, plan.get("pid") or 0):
+            log("主程序还在跑，这次不替换（等下一个时机）")
+            return False, "主程序还在运行"
     log("助手开始替换 v%s（%s）" % (plan.get("version"), plan.get("mode")))
     try:
         if plan.get("mode") == "hot":

@@ -12,6 +12,7 @@ import base64
 import io
 import json
 import os
+import random
 import secrets
 import shutil
 import socket
@@ -172,7 +173,25 @@ _UPD = {
 }
 _UPD_LOCK = threading.Lock()
 _UPD_BUSY = False
-_UPD_PREPARED = None     # 下好但还没应用的那一包，给「立刻更新」用
+_UPD_PREPARED = None     # 下好但还没应用的那一包，给「立刻更新」和后台自动装用
+
+# 「用户是不是真在用」只看鼠标键盘，不看 /api/state 轮询——那个 0.8 秒一次，
+# 拿它当活动信号等于永远等不到安静的时候，自动更新就再也不会自己装。
+_LAST_USER = [time.time()]
+# 多久没有操作算「人走了」，可以趁空偷偷重启。可用环境变量压短（测试用）
+_QUIET_SECS = float(os.environ.get("VDL_UPDATE_QUIET") or 600)
+# 兜底：下好这么久还没装，只要手头没任务就装上，别一直挂着
+_READY_MAX = float(os.environ.get("VDL_UPDATE_MAXWAIT") or 12 * 3600)
+
+
+def note_user():
+    """记一笔真实操作（鼠标 / 键盘 / 滚轮）。"""
+    _LAST_USER[0] = time.time()
+
+
+def user_idle():
+    """用户已经多久没碰过了（秒）。"""
+    return max(0.0, time.time() - _LAST_USER[0])
 
 
 def update_status():
@@ -216,10 +235,14 @@ def _busy_tasks():
         return False
 
 
-def _apply_update(prepared):
-    """写替换计划 → 起独立助手 → 主程序退出，助手接着换文件并拉起新版。"""
+def _apply_update(prepared, relaunch=True):
+    """写替换计划 → 起独立助手 → 主程序退出，助手接着换文件。
+
+    relaunch=False 用于「用户自己关软件」这条路径：文件换掉但不重新拉起，
+    下次他点图标打开就是新版——中间没有任何窗口闪一下，这是最无感的装法。
+    """
     global _UPD_PREPARED
-    no_restart = os.environ.get("VDL_NO_AUTO_UPDATE") == "1"
+    test_env = os.environ.get("VDL_NO_AUTO_UPDATE") == "1"
     try:
         plan_dir = os.path.join(prepared["workdir"], "plan")
         os.makedirs(plan_dir, exist_ok=True)
@@ -233,9 +256,10 @@ def _apply_update(prepared):
             plan_dir, prepared["version"], target, prepared["staged"],
             prepared["files"], updater_mod.default_launch(MODE),
             port=port, archive=prepared.get("archive") or "",
-            mode=prepared["mode"], no_restart=no_restart, no_wait=no_restart)
+            mode=prepared["mode"], no_restart=(test_env or not relaunch),
+            no_wait=test_env)
         _UPD_PREPARED = prepared
-        if no_restart:
+        if test_env:
             # 回归测试：助手就地跑一遍，不等退出、不真重启
             ok, msg = updater_mod.run_helper(plan)
             _set_upd(state="done" if ok else "error",
@@ -246,6 +270,11 @@ def _apply_update(prepared):
         if not ok:
             _set_upd(state="error", detail="更新没成，可手动下载", error=msg)
             return False
+        if not relaunch:
+            # 用户正在关软件：助手会在进程退干净后把文件换掉，不再拉起。
+            _set_upd(state="done", percent=100,
+                     detail="新版已装好，下次打开就是 v%s" % prepared["version"])
+            return True
         _set_upd(state="applying", percent=100, detail="正在更新，马上回来…")
         # 不能走 arm_quit：前端每轮询一次 /api/state 就 note_activity()，会把退出取消掉
         t = threading.Timer(1.5, _do_quit)
@@ -258,9 +287,77 @@ def _apply_update(prepared):
         return False
 
 
+def _ready_to_apply():
+    """下好的包现在能不能装：没任务在跑，而且人已经离开（或等太久了）。"""
+    with _UPD_LOCK:
+        prepared, state = _UPD_PREPARED, _UPD["state"]
+    if not prepared or state != "waiting":
+        return None
+    if _busy_tasks():
+        return None
+    age = time.time() - float(prepared.get("at") or 0)
+    if user_idle() >= _QUIET_SECS or age >= _READY_MAX:
+        return prepared
+    return None
+
+
+def _apply_on_quit():
+    """关软件时顺手把下好的新版换上（不重启）。下次打开就是新版，零打扰。"""
+    with _UPD_LOCK:
+        prepared, state = _UPD_PREPARED, _UPD["state"]
+    if not prepared or state != "waiting":
+        return False
+    if _busy_tasks():          # 还有东西在下：别把人家下到一半的活打断
+        return False
+    updater_mod.log("退出时应用 v%s" % prepared.get("version"))
+    return _apply_update(prepared, relaunch=False)
+
+
+def _apply_watch_loop():
+    """盯着「已下好」的那一包，等一个不打扰人的时机悄悄装上。"""
+    while True:
+        time.sleep(5)
+        try:
+            if not CFG.get("auto_update", True):
+                continue
+            prepared = _ready_to_apply()
+            if prepared:
+                updater_mod.log("趁空闲应用 v%s（已无人操作 %.0fs）"
+                                % (prepared.get("version"), user_idle()))
+                _apply_update(prepared)
+        except Exception as e:
+            updater_mod.log("自动应用更新出错: %r" % (e,))
+
+
+def _auto_check_loop():
+    """启动先查一次，之后隔一阵再查——软件常驻好几天也能拿到新版。
+
+    间隔带随机抖动：大家都盯同一个 GitHub 接口，整点一起打容易被限流。
+    """
+    try:
+        time.sleep(float(os.environ.get("VDL_UPDATE_FIRST") or 6))
+    except (TypeError, ValueError):
+        time.sleep(6)
+    while True:
+        try:
+            with _UPD_LOCK:
+                busy, state = _UPD_BUSY, _UPD["state"]
+            # 正在下载 / 等着装 / 正在装的时候别插一脚
+            if not busy and state in ("idle", "error", "done", "manual"):
+                _update_worker()
+        except Exception as e:
+            updater_mod.log("自动检查更新出错: %r" % (e,))
+        try:
+            gap = float(os.environ.get("VDL_UPDATE_GAP") or 0)
+        except (TypeError, ValueError):
+            gap = 0
+        time.sleep(gap or (25 * 60 + random.uniform(-120, 120)))
+
+
+
 def _update_worker(wait_idle=True):
-    """检查 → 后台下载 → 等手头任务跑完 → 自动替换 + 重启。"""
-    global _UPD_BUSY
+    """检查 → 后台下载 → 摆着等下手的时机。真正替换由后台看门线程做。"""
+    global _UPD_BUSY, _UPD_PREPARED
     with _UPD_LOCK:
         if _UPD_BUSY:
             return
@@ -317,13 +414,16 @@ def _update_worker(wait_idle=True):
                     files.append(os.path.relpath(os.path.join(root, f), staged)
                                  .replace(os.sep, "/"))
             files.sort()
-        _set_upd(state="waiting", percent=100,
-                 detail="新版已下好，等当前任务结束就自动更新")
         prepared = dict(version=info["latest"], staged=staged, files=files,
-                        archive=archive, mode=mode, workdir=workdir)
-        while wait_idle and _busy_tasks():
-            time.sleep(3)
-        _apply_update(prepared)
+                        archive=archive, mode=mode, workdir=workdir,
+                        at=time.time())
+        _UPD_PREPARED = prepared
+        # 下好就先摆着，等一个不打扰人的时机再换（人离开十分钟 / 关软件）。
+        # 不在这儿 while 等任务跑完立刻重启：任务刚结束往往正是用户回到电脑前
+        # 想看结果的时候，窗口突然关掉重开是最难受的时机。
+        _set_upd(state="waiting", percent=100,
+                 detail="新版 v%s 已下好，会在你不用的时候自动换上" % info["latest"])
+
     except Exception as e:
         _set_upd(state="error", detail="更新没成，点「检查更新」重试",
                  error=str(e)[:150])
@@ -377,6 +477,12 @@ def note_activity():
 
 
 def _do_quit():
+    # 关软件前如果手里已经攥着下好的新版，顺手换上（不重启）：
+    # 下次打开直接是新版，中间不闪窗口、不等下载，这是最不打扰人的装法。
+    try:
+        _apply_on_quit()
+    except Exception as e:
+        updater_mod.log("退出时应用更新失败: %r" % (e,))   # 装不上也得正常退
     # 队列已在任务加入时落盘；退出 != 用户主动取消，启动后让用户继续。
     try:
         if _SRV is not None:
@@ -679,6 +785,11 @@ class Handler(BaseHTTPRequestHandler):
             self._web_font(p)
         elif p == "/push":
             self._push_page()
+        elif p == "/api/touch":
+            # 前端把真实的鼠标 / 键盘操作报上来。刷新页面时也会走一次，
+            # 好让「刚打开软件」的人不会被当成已经走了。
+            note_user()
+            self._json({"ok": True, "idle": round(user_idle(), 1)})
         elif p == "/api/state":
             note_activity()
             from urllib.parse import parse_qs
@@ -1322,6 +1433,11 @@ class Handler(BaseHTTPRequestHandler):
             cancel_quit()
             self._json({"ok": True})
 
+        elif p == "/api/touch":
+            # 真实操作的心跳（鼠标 / 键盘 / 播放中）。看门线程靠它判断人走没走。
+            note_user()
+            self._json({"ok": True, "idle": round(user_idle(), 1)})
+
         elif p in ("/api/img_save", "/api/img/save"):
             # 单张保存：复制一份到下载目录根下
             t = self._task(data.get("id"))
@@ -1774,15 +1890,18 @@ def main():
         print("音视频下载器已启动：", url)
         print("关闭这个窗口即停止服务。")
 
-    # 启动几秒后自己查一次。就算前端是旧缓存、用户什么都没点，也会自动更新。
-    # 回归测试用 VDL_FORCE_NEW 起隔离实例，别让它碰线上 Release。
-    if (CFG.get("auto_update", True)
-            and os.environ.get("VDL_NO_AUTO_UPDATE") != "1"
-            and os.environ.get("VDL_FORCE_NEW") != "1"):
-        def _auto():
-            t = threading.Thread(target=_update_worker, daemon=True)
-            t.start()
-        threading.Timer(4.0, _auto).start()
+    # 自动更新全程不打扰：启动几秒查一次，之后每 25 分钟再查（常驻几天也能拿到新版）；
+    # 下好的包由看门线程盯着，等用户离开十来分钟、或者关软件的时候才换上去。
+    # 回归测试用 VDL_FORCE_NEW 起隔离实例：只要没另外指定更新源，就别碰线上 Release。
+    _auto_ok = (
+        CFG.get("auto_update", True)
+        and os.environ.get("VDL_NO_AUTO_UPDATE") != "1"
+        and not (os.environ.get("VDL_FORCE_NEW") == "1"
+                 and not os.environ.get("VDL_UPDATE_API"))
+    )
+    if _auto_ok:
+        threading.Thread(target=_auto_check_loop, daemon=True).start()
+        threading.Thread(target=_apply_watch_loop, daemon=True).start()
 
     try:
         srv.serve_forever()

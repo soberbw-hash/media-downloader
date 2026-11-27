@@ -626,7 +626,9 @@ function renderStats(tasks) {
   if (lhRight) lhRight.style.display = tasks.length ? "" : "none";
   if (filters) filters.hidden = !tasks.length;
   if (ca) {
-    ca.hidden = taskFilter !== "all" && taskFilter !== "live";
+    // 「取消进行中」不跟着筛选走：窄窗里它一消失，标题就从两行塌回一行，
+    // 下面整条任务列表跟着往上蹿 —— 切一次筛选抖一次。没在下的就灰着，位置不动。
+    ca.hidden = false;
     ca.disabled = !tasks.some((t) => (t.status === "queued" || t.status === "running") && t.can_cancel !== false);
   }
   if (cb) {
@@ -1747,7 +1749,7 @@ $("#clearBtn").onclick = async () => {
 };
 
 $("#cancelAll").onclick = async () => {
-  if (taskFilter !== "all" && taskFilter !== "live") return;
+  // 任何筛选下都能按：按钮一直在，任务是不是在下跟当前看哪一档无关
   try {
     const r = await post("/api/cancel_all", {});
     if (!r.ok) { toast(r.error || "没能取消下载，稍后再试"); return; }

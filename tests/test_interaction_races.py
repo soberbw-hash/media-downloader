@@ -117,14 +117,22 @@ def filters(page):
         make('canceled', 'canceled')]);
       $('#filters [data-f="error"]').click();
       const snapshot = () => [...document.querySelectorAll('#tasks .task:not([hidden])')].map(el => el.dataset.id);
-      const error = {ids:snapshot(), cancelHidden:$('#cancelAll').hidden, clearHidden:$('#clearBtn').hidden};
+      const headH = () => Math.round(document.querySelector('.list-head').getBoundingClientRect().height);
+      const error = {ids:snapshot(), cancelHidden:$('#cancelAll').hidden, clearHidden:$('#clearBtn').hidden,
+                     headH:headH()};
       const p = $('#filters [data-f="partial"]');
       p?.click();
-      const partial = {ids:snapshot(), count:p?.dataset.n, text:$('#tasks .partial .status').textContent};
+      const partial = {ids:snapshot(), count:p?.dataset.n, text:$('#tasks .partial .status').textContent,
+                       headH:headH()};
       $('#filters [data-f="all"]').click();
-      return {error, partial, clear:$('#clearBtn').textContent};
+      const all = {headH:headH()};
+      return {error, partial, all, clear:$('#clearBtn').textContent};
     }''')
-    assert result['error'] == {'ids': ['failed'], 'cancelHidden': True, 'clearHidden': True}, result
+    # 「取消进行中」不跟筛选走：窄窗里它一消失，标题就从两行塌回一行，整条任务列表跟着窜
+    assert result['error'] == {'ids': ['failed'], 'cancelHidden': False, 'clearHidden': True,
+                               'headH': result['error']['headH']}, result
+    # 切筛选时标题高度必须一模一样，卡片才不会上下抖
+    assert result['error']['headH'] == result['partial']['headH'] == result['all']['headH'], result
     assert result['partial']['ids'] == ['partial'] and result['partial']['count'] == '1', result
     assert result['partial']['text'] == '部分完成 · 已下 1 个 · 1 个失败', result
     assert '结束' in result['clear'], result

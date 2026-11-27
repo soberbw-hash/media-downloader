@@ -342,17 +342,17 @@ header {
      位置变化藏在新面板淡入里，眼睛几乎注意不到。 */
 }
 
-/* 搜索页：任务区改成贴底的一条，高度按内容但有上限。
-   之前它跟搜索面板都是 flex:1，结果一多就把任务区压成一条缝，
-   底下的任务卡完全看不见。现在任务区永远在底部露出来，
-   任务多了就在任务区里自己滚。 */
+/* 搜索页：任务区是贴底的一条托架，高度固定。
+   之前是「高度按内容、整块压到底边」，于是切筛选（3 条 → 1 条）时
+   块子的下沿钉着窗口底、上沿只能往上跑，标题和卡片一次窜两百像素。
+   现在托架高度写死，行数变化只发生在托架内部，标题/卡片一动不动。 */
 body.tab-music .music {
   flex: 1 1 0;
   min-height: 0;
 }
 body.tab-music .tasks-block {
-  flex: 0 0 auto;
-  max-height: 42%;
+  flex: 0 0 42%;
+  min-height: 0;
   margin-top: 16px;
 }
 
@@ -2007,12 +2007,20 @@ button:focus-visible,
   .tasks-block { margin-top: 18px; }
 }
 
+/* 窄窗：三个动作本来就挤不进第一行，干脆让它固定占第二行。
+   否则「全部」两行、「失败」一行，切一次筛选标题高度就变一次，卡片跟着抖。 */
+@media (max-width: 600px) {
+  .list-head .lh-right { width: 100%; }
+}
+
 /* 窗口很矮时退回整页滚动，否则固定区域会把内容挤没 */
 @media (max-height: 560px) {
   html, body { height: auto; }
   body { overflow-y: auto; }
   .wrap { height: auto; min-height: 100%; }
   .mresults, #tasks { flex: 0 1 auto; max-height: 48vh; }
+  /* 整页滚动时高度百分比没有参照，退回按内容排 */
+  body.tab-music .tasks-block { flex: 0 0 auto; height: auto; }
 }
 
 /* ---------- 视频 / 音乐 切换 ---------- */

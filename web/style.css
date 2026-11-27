@@ -2599,6 +2599,15 @@ body.tab-switching .task { background: rgba(255, 255, 255, .44) !important; }
 
 .mempty { padding: 18px 4px; font-size: 13px; color: var(--hint); }
 
+/* 混排时的分段小标题：上面「音乐」、下面「视频」，小字浅色，不抢戏 */
+.mgroup {
+  font-size: 11px;
+  color: var(--hint);
+  letter-spacing: .4px;
+  padding: 10px 4px 4px;
+}
+.mgroup:first-child { padding-top: 2px; }
+
 /* ---------- 试听播放条 ----------
    浮在窗口底部的一条胶囊，不占正文位置。
    以前是给 .wrap 加 padding-bottom 让它「挤进来」，结果一放歌，

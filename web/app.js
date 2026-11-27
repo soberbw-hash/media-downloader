@@ -2403,6 +2403,15 @@ function syncMusicSel() {
   if (box) box.classList.toggle("scrollable", box.scrollHeight > box.clientHeight + 2);
 }
 
+// 混排（全部档同时搜了音乐和视频）时，给每一段起一行小标题：
+// 用户一眼能看出上面是歌、下面是视频，而不是一锅粥。
+function groupRow(s, prev) {
+  if (lastMode !== "mixed" || !s._g) return "";
+  if (prev && prev._g === s._g) return "";
+  const name = s._g === "music" ? "音乐" : s._g === "video" ? "视频" : "结果";
+  return '<div class="mgroup">' + esc(name) + "</div>";
+}
+
 function renderMusic() {
   // 电影有自己的卡片，别让迟到的聚合结果把它盖成「视频列表」
   if (mMode === "movie") return;
@@ -2414,7 +2423,7 @@ function renderMusic() {
     syncMusicSel();
     return;
   }
-  box.innerHTML = mItems.map(musicRow).join("");
+  box.innerHTML = mItems.map((s, i) => groupRow(s, mItems[i - 1]) + musicRow(s, i)).join("");
   box.scrollTop = 0;                 // 换一批结果要从头看，别继承上次的滚动位置
   box.querySelectorAll(".dl").forEach((b) => {
     b.onclick = () => addMusic([mItems[+b.dataset.i]], b);
@@ -3198,13 +3207,17 @@ async function movieSearch(q) {
 }
 
 // 按类型挑源：音效只要音效源，电子书只要书源，视频只要视频源。
+// needZh：关键词是中文时，把「只认英文关键词」的素材站（Mixkit）剔掉——
+// 中文进去会被机翻成单个单词，回来一堆八竿子打不着的素材。
 // 拿不到清单就交给后端按默认来（返回 null），别塞个空数组把搜索堵死。
-function sourceIdsFor(kind) {
+function sourceIdsFor(kind, needZh) {
   const want = kind === "sfx" ? "audio" : kind === "book" ? "book" : "video";
   const ids = (vSources || []).filter((x) => (x.kind || "video") === want)
+    .filter((x) => !needZh || x.zh !== false)
     .map((x) => x.id);
   if (ids.length) return ids;
-  return kind === "sfx" ? ["mixkit_sfx", "freesound"] : null;
+  if (kind === "sfx") return ["mixkit_sfx", "freesound"];
+  return needZh ? ["bili", "youtube"] : null;
 }
 
 // 只挑了一个来源、又一条都没出来时，说清是「这个源没连上」，
@@ -3221,16 +3234,20 @@ function singleSourceProblem(r) {
 }
 
 // 「全部」：先问后端这关键词是什么，再决定搜音乐 / 音效 / 视频 / 书 / 电影。
-// 判断不出来就按视频兜底（B站、YouTube 什么都能搜到，最不容易错）。
+// 看不出类型（没有任何提示词）就音乐和视频一起搜，不再一律按视频兜底——
+// 「告白气球」被判成视频、只搜出 B站 + YouTube，是这类误判里最扎眼的一个。
 async function resolveMode(q) {
   if (mMode !== "all") return { mode: mMode, auto: null };
   try {
     const g = await post("/api/search/intent", { q });
-    if (g && g.ok && g.kind && g.kind !== "all" && MODES.indexOf(g.kind) >= 0) {
-      return { mode: g.kind, auto: g };
+    if (g && g.ok && g.kind) {
+      if (g.weak) return { mode: "mixed", auto: g };
+      if (g.kind !== "all" && MODES.indexOf(g.kind) >= 0) {
+        return { mode: g.kind, auto: g };
+      }
     }
-  } catch (e) { /* 识别失败别把搜索卡住，按视频搜 */ }
-  return { mode: "video", auto: null };
+  } catch (e) { /* 识别失败别把搜索卡住，两类都搜 */ }
+  return { mode: "mixed", auto: null };
 }
 
 // 「全部」搜出结果后只摆该摆的那一排：
@@ -3258,6 +3275,7 @@ async function musicSearch(q) {
   if (mode === "movie") return movieSearch(q);
 
   resetResults();
+  if (mode === "mixed") return mixedSearch(q);
   const round = searchRound;
   const agg = mode !== "music";
   const where = mode === "sfx" ? ""
@@ -3309,8 +3327,79 @@ async function musicSearch(q) {
   }
 }
 
+// 「全部」+ 关键词看不出类型（没有「音效 / 素材 / 电影」这类提示词）：
+// 音乐和视频一起搜，音乐排前面。两边都有结果时列表分两段，各带一行小标题。
+// 一个链接只能是一种东西，但一个关键词不是 —— 搜「告白气球」既可能是歌，
+// 也可能是翻唱视频，全给出来让用户挑，比替他猜错强。
+async function mixedSearch(q) {
+  const round = searchRound;
+  $("#mHint").textContent = `音乐和视频一起搜「${q}」…`;
+  $("#mGo").disabled = true;
+  const soft = (p) => p.catch(() => null);
+  // 音乐那边要连两个平台，偶尔会慢。别让它拖着视频一起等，
+  // 十几秒还没回来就先用手上的结果，另一段照常给。
+  const capped = (p, ms) => Promise.race([
+    soft(p), new Promise((r) => setTimeout(() => r(null), ms)),
+  ]);
+  try {
+    const [m, v] = await Promise.all([
+      // 「全部」档没有平台可选，就按全网搜
+      capped(post("/api/music/search", { platform: "all", q, limit: 12 }), 15000),
+      capped(post("/api/search", {
+        q, limit: 30, kind: "video", auto: false, sources: sourceIdsFor("video", true),
+      }), 15000),
+    ]);
+    if (round !== searchRound) return;
+    const songs = (m && m.ok && Array.isArray(m.items)) ? m.items : [];
+    const vids = (v && v.ok && Array.isArray(v.items)) ? v.items : [];
+    mItems = songs.map((x) => Object.assign({}, x, { _g: "music" }))
+      .concat(vids.map((x) => Object.assign({}, x, { _g: "video" })));
+    mEmptyText = "";
+    renderMusic();
+    applyResultUI("mixed");
+    if (!mItems.length) {
+      const why = [!m && "音乐没连上", !v && "视频没连上"].filter(Boolean).join("，");
+      $("#mHint").textContent = why || "没搜到，换个关键词或换个来源";
+      return;
+    }
+    const parts = [];
+    if (songs.length) parts.push(songs.length + " 首歌");
+    if (vids.length) parts.push(vids.length + " 条视频");
+    let hint = parts.join(" · ");
+    // 某一段空着必须说清楚：是没连上，还是真的没有。
+    // 只说「12 首歌」，用户会以为软件把视频给漏了。
+    if (!vids.length) {
+      const srcs = (v && v.sources) || [];
+      const down = srcs.filter((s) => s.state === "fail");
+      if (!v) hint += "（视频还没回来）";
+      else if (srcs.length && down.length === srcs.length) {
+        hint += "（" + down.map((s) => s.name).join("、") + " 没连上）";
+      } else hint += "（视频没搜到）";
+    }
+    if (!songs.length) hint += "（音乐没搜到）";
+    $("#mHint").textContent = hint;
+  } catch (e) {
+    if (round === searchRound) $("#mHint").textContent = "没连上，稍等一下再搜一次";
+  } finally {
+    if (round === searchRound) $("#mGo").disabled = false;
+  }
+}
+
 async function addMusic(list, btn) {
   if (!list.length) return;
+  // 混排时一次点击里可能既有歌又有视频：各走各的管线，
+  // 别把视频链接当成歌丢给音乐接口（反过来也一样）
+  const songs = list.filter((x) => MUSIC_PLATS.indexOf(x.platform || "") >= 0 && x.kind !== "video");
+  const rest = list.filter((x) => songs.indexOf(x) < 0);
+  if (songs.length && rest.length) {
+    try {
+      await addMusic(songs, null);
+      await addMusic(rest, null);
+    } finally {
+      syncMusicSel();        // 按钮文案按当前选中数量重算
+    }
+    return;
+  }
   // 音效：直链进队列，但标题得用搜到的名字，
   // 否则文件名会变成 assets_mixkit_co_2393 这种一串网址
   const isSfx = list.every((x) => x.kind === "audio" &&

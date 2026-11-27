@@ -33,8 +33,10 @@ class SkipSource(Exception):
 BUILTIN = [
     {"id": "bili", "name": "B站", "kind": "video", "priority": 1, "timeout": 12,
      "group": "中文视频", "note": "中文关键词最准"},
+    # zh=False：只认英文关键词。中文词进去会被机翻成单个单词（「告白气球」→ ball），
+    # 回来一堆球类素材。混排搜索时要跳过这类站，别拿无关素材糊一脸。
     {"id": "mixkit", "name": "Mixkit 视频", "kind": "video", "priority": 2, "timeout": 14,
-     "group": "免费素材", "note": "免费可商用视频，直链可下；只认英文关键词"},
+     "group": "免费素材", "note": "免费可商用视频，直链可下；只认英文关键词", "zh": False},
     {"id": "mixkit_sfx", "name": "Mixkit 音效", "kind": "audio", "priority": 3, "timeout": 12,
      "group": "免费音效", "note": "免费可商用，能直接下 wav；中文词会自动翻成英文"},
     {"id": "youtube", "name": "YouTube", "kind": "video", "priority": 4, "timeout": 12,
@@ -338,6 +340,7 @@ def sources_for_ui(cfg):
     return [{"id": s["id"], "name": s["name"], "group": s["group"],
              "note": s.get("note", ""), "kind": s["kind"],
              "slow": bool(s.get("slow")),
+             "zh": s.get("zh", True),      # False = 只认英文关键词
              "custom": bool(s.get("custom"))} for s in all_sources(cfg)]
 
 

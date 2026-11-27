@@ -80,10 +80,14 @@ def guess(q):
 
     best = max(score, key=lambda k: score[k])
     if score[best] <= 0:
+        # 一点线索都没有时，别硬判成「视频」。
+        # 搜「告白气球」被判成视频，结果只有 B站 / YouTube，歌一条都看不见 ——
+        # 这是最难接受的一类误判。这里只说实话：看不出是哪一类，
+        # 让调用方把音乐和视频一起搜（前端混排，音乐排前面）。
         return {"kind": "video", "label": LABELS["video"], "score": 0,
-                "hits": [], "weak": True}
+                "hits": [], "weak": True, "mixed": ["music", "video"]}
     return {"kind": best, "label": LABELS[best], "score": score[best],
-            "hits": hits[best][:4]}
+            "hits": hits[best][:4], "weak": False}
 
 
 # 只起「说明类型」作用的词：搜的时候要摘掉，否则「三体 电子书」

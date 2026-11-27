@@ -1799,7 +1799,8 @@ class Manager(object):
             self.batch_seq += 1
             return self.batch_seq
 
-    def add(self, url, batch=0, title="", title_hint="", author="", audio_label=""):
+    def add(self, url, batch=0, title="", title_hint="", author="", audio_label="",
+            thumb=""):
         """加入一条任务，返回 (task, 跳过原因)"""
         key = video_key(url)
         pid, pname, level, why = classify(url)
@@ -1819,6 +1820,8 @@ class Manager(object):
             self.seq += 1
             t = Task(str(self.seq), url, pid, audio_label or pname, batch=batch, key=key)
             t.title, t.title_hint, t.author = title, title_hint, author
+            if thumb:
+                t.thumb = thumb
             t.title_locked = bool(audio_label and title)
             if audio_label:
                 t.kind = "audio"
@@ -2205,12 +2208,15 @@ def add_blocks(manager, blocks):
 
         # 这一块自己带的标题提示（比如电影卡下正片，番剧页 yt-dlp 只给「正片」）
         hint_title = (b.get("title") or "").strip()
+        # 封面只在「这一块只有一条链接」时给，否则整块共用一个封面会张冠李戴
+        hint_thumb = (b.get("thumb") or "").strip() if len(usable) == 1 else ""
         batch = manager.next_batch()
         n = 0
         for u, pname, mtitle, martist in usable:
-            if mtitle or martist or hint_title:
+            if mtitle or martist or hint_title or hint_thumb:
                 t, msg = manager.add(u, batch, title=mtitle or hint_title,
-                                     title_hint="" if mtitle else hint_title, author=martist)
+                                     title_hint="" if mtitle else hint_title, author=martist,
+                                     thumb=hint_thumb)
             else:
                 t, msg = manager.add(u, batch)
             if not t:

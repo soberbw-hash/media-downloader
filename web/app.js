@@ -3339,8 +3339,12 @@ async function addMusic(list, btn) {
     const old = btn ? btn.textContent : "";
     if (btn) { btn.disabled = true; btn.textContent = "…"; }
     try {
-      // 素材站给的是可直接下的 mp4 / mp3 直链，B站那些才是页面链接
-      await submitBlocks(list.map((x) => ({ text: x.download || x.url })));
+      // 素材站给的是可直接下的 mp4 / mp3 直链，B站那些才是页面链接。
+      // 电子书顺手把书名和封面带上：任务卡不用等解析就知道是哪本，
+      // 也不会只剩一个地球图标。
+      await submitBlocks(list.map((x) => (x.kind === "book"
+        ? { text: x.download || x.url, title: x.title || "", thumb: x.cover || "" }
+        : { text: x.download || x.url })));
     } finally {
       if (btn) { btn.disabled = false; btn.textContent = old; }
     }

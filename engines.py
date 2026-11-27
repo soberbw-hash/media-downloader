@@ -237,6 +237,12 @@ def _music(t, out_dir, progress, opt):
     return music.download(t.url, out_dir, progress, opt["quality"], opt["cookies"])
 
 
+def _book(t, out_dir, progress, opt):
+    import books
+    return books.download(t.url, out_dir, progress, opt.get("proxy") or "",
+                          opt.get("cookies") or "", title_hint=t.title_hint)
+
+
 def _suno(t, out_dir, progress, opt):
     import suno
     t.kind = "audio"
@@ -317,6 +323,10 @@ def chain_for(platform):
         return [Engine("music", "音乐源", _music)]
     if platform == "suno":
         return [Engine("suno", "Suno", _suno)]
+    if platform == "book":
+        # 书目页 → 公开文件（epub / pdf）。yt-dlp 只认视频，留作最后的兜底
+        return [Engine("book", "电子书公开文件", _book),
+                Engine("ytdlp", "yt-dlp", _ytdlp)]
     if platform == "unknown":
         return [Engine("ytdlp", "yt-dlp", _ytdlp),
                 Engine("page", "网页直链", _page_direct)]

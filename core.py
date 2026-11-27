@@ -110,8 +110,11 @@ def music_song_url(platform, sid):
     return tpl % sid
 
 
-_ALL_HOSTS = sorted({h for p in PLATFORMS for h in p["hosts"]} | set(NETDISK_HOSTS),
-                    key=len, reverse=True)
+# 电子书站：不在 PLATFORMS 里（它们没有「画质」概念），但要能被裸域名识别，
+# 否则 "archive.org/details/xxx" 不带协议头就认不出来。
+BOOK_HOSTS = ("openlibrary.org", "archive.org", "gutenberg.org")
+_ALL_HOSTS = sorted({h for p in PLATFORMS for h in p["hosts"]} | set(NETDISK_HOSTS)
+                    | set(BOOK_HOSTS), key=len, reverse=True)
 
 # RFC3986 可见字符，只吃 ASCII。老的 \w 会把后面的中文一起吞进链接
 _UCH = r"A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%"
@@ -174,6 +177,13 @@ def detect_platform(url):
     except Exception:
         pass
     h = host_of(url)
+    # 电子书：作品页 / 条目页都要先翻译成文件地址，交给 books.py，别丢给 yt-dlp
+    try:
+        import books
+        if books.is_book(url):
+            return "book", "电子书", "full"
+    except Exception:
+        pass
     for p in PLATFORMS:
         for d in p["hosts"]:
             if h == d or h.endswith("." + d):
@@ -217,7 +227,7 @@ KEY_PATTERNS = {
 
 # 这些平台的服务器在国内直连不到，需要走代理
 OVERSEAS = {"youtube", "twitter", "tiktok", "instagram", "vimeo", "twitch", "reddit",
-            "suno"}
+            "suno", "book"}          # 电子书站（Open Library / IA）都在境外
 
 # 明显不是「单个视频」的链接，早点说清楚，别让用户等一轮解析
 NOT_VIDEO = {
@@ -1410,7 +1420,11 @@ _ERR_RULES = [
      "拿到的不是音视频", "可能只下到加密片段或网页，登录对应账号后重试"),
     (("404", "not found", "不存在"), "内容不存在", "作品可能被删了或设成了私密"),
     (("private", "私密", "仅粉丝"), "私密内容", "作者设了权限，登录对应账号才看得到"),
-    (("412", "risk", "verify", "风控", "验证码"), "触发了风控", "等几分钟再试，别一次贴太多条"),
+    # 只认真正的风控特征。以前写的是 "412"/"verify"/"risk" 三个短词，
+    # 结果「HTTP Error 403」「verify failed」这类普通拒绝也被说成风控 ——
+    # 电子书下不了时用户看到的就是这句莫名其妙的话。
+    (("http error 412", "captcha", "风控", "验证码", "verify you are human",
+      "risk control", "存在风险"), "触发了风控", "等几分钟再试，别一次贴太多条"),
     (("429", "too many", "频繁"), "被限速了", "把「同时下载数」调到 2，歇会儿再下"),
     (("timed out", "timeout", "超时", "connection reset"), "网络超时", "重试一次通常就好；境外站点要先开梯子（VPN）"),
     (("ssl", "certificate", "cert verify"), "证书校验失败", "系统时间不对，或者代理在劫持 https"),
@@ -1808,6 +1822,8 @@ class Manager(object):
             t.title_locked = bool(audio_label and title)
             if audio_label:
                 t.kind = "audio"
+            elif pid == "book":
+                t.kind = "book"        # 提交那一刻就显示成电子书，不用等轮询
             if why:
                 t.status = "error"
                 t.stage = "不支持"
@@ -1897,6 +1913,10 @@ class Manager(object):
                 cookies = login_mod.cookie_file(t.platform)
             except Exception:
                 cookies = None
+
+        if t.platform == "book":
+            # 别让收尾逻辑把它改回「视频」：任务卡上要显示成电子书
+            t.kind = "book"
 
         with self.lock:
             if t.status == "canceled":
@@ -1989,7 +2009,7 @@ class Manager(object):
                 t.kind = "files" if imgs else "file"
             elif imgs:
                 t.kind = "images"
-            elif t.kind != "audio":
+            elif t.kind not in ("audio", "book"):
                 t.kind = "video"
             t.images = imgs or []
             t.size = (sum(int(x.get("size") or 0) for x in imgs) if imgs

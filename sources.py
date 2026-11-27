@@ -655,6 +655,29 @@ def _openlibrary(kw, limit, cfg, proxy):
             desc=("电子书 · " + (str(year) if year else "年份未知")),
             url=dl, page=page, download=dl,
             source="openlibrary", source_name="Open Library 图书"))
+    # 标一下「能不能直下」：Internet Archive 上大量中文书是借阅制，
+    # 点下载必然失败。先让用户看到「仅在线借阅」，比下完再说强。
+    # 只探前 6 条、并发、4 秒上限，探不到就不标，不拖慢搜索。
+    try:
+        from concurrent.futures import ThreadPoolExecutor
+        import books as books_mod
+        idx = [i for i, c in enumerate(out)
+               if str(c.get("url") or "").startswith("https://archive.org/")][:6]
+        if idx:
+            def _mark(i):
+                # 单条探测失败不能拖累整批标注
+                try:
+                    return i, books_mod.availability(out[i]["url"], proxy, timeout=4)
+                except Exception:
+                    return i, ""
+            with ThreadPoolExecutor(max_workers=min(6, len(idx))) as ex:
+                for i, can in ex.map(_mark, idx):
+                    if can:
+                        out[i]["desc"] = (out[i]["desc"] + " · " + can)[:120]
+                        out[i]["can_download"] = (can == "可直下")
+    except Exception:
+        pass
+
     if not out:
         raise SkipSource("Open Library 没找到《%s》，换个书名或作者试试" % kw)
     return out

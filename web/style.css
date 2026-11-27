@@ -2600,26 +2600,41 @@ body.tab-switching .task { background: rgba(255, 255, 255, .44) !important; }
 .mempty { padding: 18px 4px; font-size: 13px; color: var(--hint); }
 
 /* ---------- 试听播放条 ----------
-   贴在窗口最底下，不占正文地方。 */
+   浮在窗口底部的一条胶囊，不占正文位置。
+   以前是给 .wrap 加 padding-bottom 让它「挤进来」，结果一放歌，
+   历史记录整块被顶上去 60px（标题、卡片一起窜）。现在它纯浮层：
+   布局一点都不动，任务区原地待着，最后一张卡靠下面的留白滚出来。 */
 .pbar {
   position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  left: 12px;
+  right: 12px;
+  bottom: 10px;
   z-index: 40;
   margin: 0 auto;
   max-width: 860px;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 24px 12px;
-  background: rgba(255, 255, 255, .93);
-  backdrop-filter: blur(10px);
-  border-top: 1px solid var(--line);
+  padding: 8px 10px 8px 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, .94);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--line);
+  box-shadow: 0 8px 26px -12px rgba(0, 0, 0, .18), 0 1px 2px rgba(0, 0, 0, .04);
+  animation: pbarIn .18s ease-out;
 }
 .pbar[hidden] { display: none; }
-/* 播放条出现时给正文让出位置，别盖住任务区 */
-body.playing .wrap { padding-bottom: 78px; }
+@keyframes pbarIn {
+  from { opacity: 0; transform: translateY(7px); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pbar { animation: none; }
+}
+/* 浮层会压住任务区最底下一条：滚到底时多留一点，
+   最后一张卡片能整个滚到播放条上方，不会被切一角 */
+body.playing #tasks { padding-bottom: 54px; }
 
 .pbar .pb-btn {
   flex: 0 0 auto;
@@ -3354,13 +3369,14 @@ body:not(.shell-webview) { --titlebar: #e3e3e3; }
 #histQ::placeholder { color: var(--hint); }
 #histQ:focus { border-color: var(--muted); }
 
-/* 底部试听条：更彻底的玻璃 */
+/* 底部试听条：更彻底的玻璃（浮层，四边都投影，不再是贴边的横条） */
 .pbar {
   background: var(--glass-strong);
   -webkit-backdrop-filter: blur(var(--blur)) saturate(1.7);
   backdrop-filter: blur(var(--blur)) saturate(1.7);
-  border-top-color: var(--glass-line);
-  box-shadow: 0 -10px 30px -18px rgba(62, 72, 65, .22);
+  border-color: var(--glass-line);
+  box-shadow: 0 12px 34px -16px rgba(62, 72, 65, .34),
+              0 1px 2px rgba(0, 0, 0, .05);
 }
 
 /* 提示条也吃玻璃质感（深色实心 + 亮边） */

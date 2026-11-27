@@ -2508,6 +2508,8 @@ function syncMusicRows(tasks) {
 /* ================= 试听：不用先下载就能听 ================= */
 
 let pvKey = "";        // 正在试听的那首歌（platform|id）
+let pvSeq = 0;         // 解析请求的序号：点的快时只认最后那一次，别让迟到的结果把歌换回去
+let pvBad = new Set(); // 这一轮里取不到地址的歌（比如 QQ 音乐没登录），自动续播时跳过
 
 /* 播放器上用 3:45 这种写法，比「3分45秒」省地方 */
 function mmss(sec) {
@@ -2517,11 +2519,13 @@ function mmss(sec) {
   return m + ":" + (r < 10 ? "0" : "") + r;
 }
 
-function previewSong(s, btn) {
+function previewSong(s, btn, auto) {
   if (!s) return;
   const au = $("#auPlayer");
   if (!au) return;
   const key = mkey(s);
+  // 用户自己点歌＝新一轮，之前「这首播不了」的记录就不再作数
+  if (!auto) pvBad.clear();
 
   // 点同一首 = 暂停 / 继续
   if (pvKey === key && au.getAttribute("src")) {
@@ -2544,11 +2548,22 @@ function previewSong(s, btn) {
     syncPvButtons();
     return;
   }
+  const my = ++pvSeq;
   post("/api/music/preview", {
     platform: s.platform, id: s.id, title: s.title, artist: s.artist,
   }).then((r) => {
+    if (my !== pvSeq) return;          // 期间点了别的歌 / 按了关闭，这条作废
     if (!r.ok) {
-      toast(r.error || "这首暂时试听不了", 4200);
+      if (auto) {
+        // 自动续播：这首拿不到地址就记下来，悄悄往后换一首，
+        // 全都换不动了才把条收起来。别为了一首 QQ 音乐把整条播放器关掉
+        pvBad.add(key);
+        const t = $("#pbTitle");
+        if (t) t.textContent = "正在找下一首…";
+        if (!playAdjacent(1, true)) stopPreview();
+      } else {
+        toast(r.error || "这首暂时试听不了", 4200);
+      }
       return;
     }
     pvKey = key;
@@ -2556,7 +2571,7 @@ function previewSong(s, btn) {
     au.play().catch(() => toast("这条播不出来，换一首试试"));
     showPlayer(s);
   }).catch(() => {
-    toast("连接失败，服务可能已经关了");
+    if (my === pvSeq) toast("连接失败，服务可能已经关了");
   }).finally(() => {
     btn.classList.remove("busy");
     btn.disabled = false;
@@ -2575,6 +2590,7 @@ function showPlayer(s) {
 }
 
 function stopPreview() {
+  pvSeq++;               // 让还在路上的解析结果作废，别关完又自己弹回来
   const au = $("#auPlayer");
   if (au) {
     au.pause();
@@ -2616,20 +2632,24 @@ function syncPvButtons() {
   }
 }
 
-/* 上一首 / 下一首：只挑能试听的歌，电影、没结果的条目直接跳过 */
-function playAdjacent(step) {
+/* 上一首 / 下一首：只挑能试听的歌，电影、没结果的条目直接跳过。
+   走到列表一头就到头，不绕回去循环 —— 一绕就永远停不下来，
+   用户点上一首/下一首也分不清到底在第几首。 */
+function playAdjacent(step, auto) {
   const n = mItems.length;
-  if (!n) return;
+  if (!n) return false;
   let i = mItems.findIndex((s) => mkey(s) === pvKey);
-  if (i < 0) i = step > 0 ? -1 : 0;
+  if (i < 0) i = step > 0 ? -1 : n;
   for (let k = 1; k <= n; k++) {
-    const j = ((i + step * k) % n + n) % n;
+    const j = i + step * k;
+    if (j < 0 || j >= n) break;
     const s = mItems[j];
-    if (!s || !MUSIC_PLATS.includes(s.platform)) continue;
+    if (!s || !MUSIC_PLATS.includes(s.platform) || pvBad.has(mkey(s))) continue;
     const el = document.querySelector(`#mResults .msong[data-i="${j}"] .pv`);
-    previewSong(s, el || document.createElement("span"));
-    return;
+    previewSong(s, el || document.createElement("span"), auto);
+    return true;
   }
+  return false;
 }
 
 function initPreview() {
@@ -2641,8 +2661,13 @@ function initPreview() {
   au.addEventListener("pause", syncPvButtons);
   au.addEventListener("ended", () => {
     au.currentTime = 0;
-    syncPvButtons();
-    playAdjacent(1);        // 播完自动接下一首，不用回列表再点
+    // 播完这首：同批结果里后头还有歌就顺手接着放；
+    // 放到最后一条、或者本来就是条音效（不是歌），就把播放条收起来。
+    // 以前是永远绕回第一首，等于永远关不掉。
+    const cur = mItems.find((s) => mkey(s) === pvKey);
+    const more = !!(cur && MUSIC_PLATS.includes(cur.platform) && playAdjacent(1, true));
+    if (!more) stopPreview();
+    else syncPvButtons();
   });
   au.addEventListener("error", () => {
     if (!au.getAttribute("src")) return;      // 主动 stopPreview 也会触发 error

@@ -7,6 +7,7 @@ r"""一键生成「干净副本」：能直接发给别人的那一份。
   1. 不带 cookies\            —— 登录态是你自己的账号，不能跟文件一起发出去
   2. 不带 下载的文件\          —— 你下的视频是你的素材，不外传（空目录保留）
   3. history.json 清空        —— 你的下载记录不外传
+  3b. 程序\downloads\ 清空     —— 开发机上下的歌/素材，跟 cookies 一样不能外传
   4. config.json 的下载目录指向副本自己的「下载的文件」，别人一开就能用
   5. 快捷方式按新路径重新生成 —— 旧快捷方式指向你这台机器的绝对路径，过去就失效
 
@@ -27,7 +28,9 @@ import sys
 import time
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-COPY_SKIP = {"cookies", "下载的文件", "__pycache__", "logs"}
+# downloads 是程序运行时的默认落盘目录（paths.downloads_dir），开发机上攒着
+# 自己下过的歌和素材；跟 cookies 一样属于「我的东西」，不能跟着包发出去
+COPY_SKIP = {"cookies", "下载的文件", "downloads", "__pycache__", "logs"}
 PRIVATE_QUEUE = {"queue.json", "queue.json.tmp", "history.json.tmp"}
 
 
